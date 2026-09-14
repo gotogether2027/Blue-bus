@@ -50,6 +50,19 @@ Uses the existing `OperatorStatus` lifecycle (`PENDING`, `ACTIVE`, `SUSPENDED`, 
 - `POST /api/v1/admin/operators/{id}/activate`
 - `POST /api/v1/admin/operators/{id}/deactivate`
 
+### Seat layouts — `/api/v1/admin/seat-layouts` (Phase 6A.2)
+
+Reusable fleet configuration: `SeatLayout` owns physical `Seat` definitions. Layout lifecycle uses existing `SeatLayoutStatus` (`DRAFT`, `PUBLISHED`, `ARCHIVED`). Admin `activate` maps to `publish()`; `deactivate` maps to `archive()`.
+
+- `POST /api/v1/admin/seat-layouts` — body: `operatorId`, `name`, `version`, `deckCount`, `rowCount`, `columnCount`, optional `seats[]` (`seatNumber`, `deckNumber`, `rowNumber`, `columnNumber`, `seatType`, optional `sellable`)
+- `GET /api/v1/admin/seat-layouts` — optional `operatorId`, `status`
+- `GET /api/v1/admin/seat-layouts/{id}` — includes nested seats
+- `PUT /api/v1/admin/seat-layouts/{id}` — metadata only: `name`, `deckCount`, `rowCount`, `columnCount` (operator/version immutable; seats are not replaced)
+- `POST /api/v1/admin/seat-layouts/{id}/activate` — publish (`PUBLISHED`); rejected for `ARCHIVED`
+- `POST /api/v1/admin/seat-layouts/{id}/deactivate` — archive (`ARCHIVED`)
+
+Seat uniqueness within a layout follows the schema: unique seat number and unique `(deck,row,column)`. Physical seats carry no booking/inventory state.
+
 ## Endpoint groups (examples only)
 
 | Group | Example responsibilities | Access |
