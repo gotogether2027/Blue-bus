@@ -4,7 +4,51 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-None of the endpoint groups below are implemented yet except `GET /api/v1/health`. Future `GET /api/v1/trips/{tripId}/inventory` must derive seat state for the requested origin/destination stop sequences from physical `TripSeatInventory` plus overlapping allocations, not from a whole-trip BOOKED flag.
+Implemented so far: `GET /api/v1/health` and the Phase 6A.1 admin master-data slice below. Future `GET /api/v1/trips/{tripId}/inventory` must derive seat state for the requested origin/destination stop sequences from physical `TripSeatInventory` plus overlapping allocations, not from a whole-trip BOOKED flag.
+
+## Admin master data (Phase 6A.1)
+
+Convention for this slice:
+
+| Method | Pattern | Success |
+|---|---|---|
+| `POST` | `/api/v1/admin/{resource}` | `201 Created` |
+| `GET` | `/api/v1/admin/{resource}` | `200 OK` (list/search) |
+| `GET` | `/api/v1/admin/{resource}/{id}` | `200 OK` |
+| `PUT` | `/api/v1/admin/{resource}/{id}` | `200 OK` (full replace of editable fields) |
+| `POST` | `/api/v1/admin/{resource}/{id}/activate` | `200 OK` |
+| `POST` | `/api/v1/admin/{resource}/{id}/deactivate` | `200 OK` |
+
+Errors use the existing global handler: `400` validation/domain argument errors, `404` missing resource, `409` conflicts (including unique/data integrity). Endpoints require authentication; JWT login is not implemented in this phase.
+
+### Bus types — `/api/v1/admin/bus-types`
+
+- `POST /api/v1/admin/bus-types` — body: `code`, `displayName`
+- `GET /api/v1/admin/bus-types` — optional `active`
+- `GET /api/v1/admin/bus-types/{id}`
+- `PUT /api/v1/admin/bus-types/{id}` — body: `displayName` (code is immutable)
+- `POST /api/v1/admin/bus-types/{id}/activate`
+- `POST /api/v1/admin/bus-types/{id}/deactivate`
+
+### Locations — `/api/v1/admin/locations`
+
+- `POST /api/v1/admin/locations` — body: `countryCode` (optional, ISO-3166 alpha-2, default `IN`), `state`, `district`, `city`, `locality`, `latitude`, `longitude`, `timeZone`
+- `GET /api/v1/admin/locations` — optional `active`, `state`, `city` (substring search)
+- `GET /api/v1/admin/locations/{id}`
+- `PUT /api/v1/admin/locations/{id}` — same editable fields as create
+- `POST /api/v1/admin/locations/{id}/activate`
+- `POST /api/v1/admin/locations/{id}/deactivate`
+
+### Operators — `/api/v1/admin/operators`
+
+Uses the existing `OperatorStatus` lifecycle (`PENDING`, `ACTIVE`, `SUSPENDED`, `INACTIVE`). Create starts as `PENDING`. Activate moves from `PENDING`/`SUSPENDED`/`INACTIVE` to `ACTIVE`. Deactivate moves from `PENDING`/`ACTIVE`/`SUSPENDED` to `INACTIVE`.
+
+- `POST /api/v1/admin/operators` — body: `legalName`, `displayName`, optional `supportEmail`, `supportPhoneE164` (E.164)
+- `GET /api/v1/admin/operators` — optional `status`
+- `GET /api/v1/admin/operators/{id}`
+- `PUT /api/v1/admin/operators/{id}` — body: `legalName`, `displayName`, optional `supportEmail`, `supportPhoneE164`
+- `POST /api/v1/admin/operators/{id}/activate`
+- `POST /api/v1/admin/operators/{id}/deactivate`
 
 ## Endpoint groups (examples only)
 

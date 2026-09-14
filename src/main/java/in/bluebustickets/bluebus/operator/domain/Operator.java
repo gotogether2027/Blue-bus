@@ -41,6 +41,49 @@ public class Operator extends AuditableEntity {
         this.displayName = displayName;
     }
 
+    public void updateProfile(String legalName, String displayName, String supportEmail, String supportPhoneE164) {
+        if (legalName == null || legalName.isBlank()) {
+            throw new IllegalArgumentException("Operator legal name is required");
+        }
+        if (displayName == null || displayName.isBlank()) {
+            throw new IllegalArgumentException("Operator display name is required");
+        }
+        this.legalName = legalName;
+        this.displayName = displayName;
+        this.supportEmail = supportEmail;
+        this.supportPhoneE164 = supportPhoneE164;
+    }
+
+    /**
+     * Moves an operator into ACTIVE service. Allowed from PENDING, SUSPENDED, or INACTIVE.
+     */
+    public void activate() {
+        if (status == OperatorStatus.ACTIVE) {
+            return;
+        }
+        if (status != OperatorStatus.PENDING
+                && status != OperatorStatus.SUSPENDED
+                && status != OperatorStatus.INACTIVE) {
+            throw new IllegalArgumentException("Operator cannot be activated from status " + status);
+        }
+        this.status = OperatorStatus.ACTIVE;
+    }
+
+    /**
+     * Deactivates an operator. Allowed from PENDING, ACTIVE, or SUSPENDED.
+     */
+    public void deactivate() {
+        if (status == OperatorStatus.INACTIVE) {
+            return;
+        }
+        if (status != OperatorStatus.PENDING
+                && status != OperatorStatus.ACTIVE
+                && status != OperatorStatus.SUSPENDED) {
+            throw new IllegalArgumentException("Operator cannot be deactivated from status " + status);
+        }
+        this.status = OperatorStatus.INACTIVE;
+    }
+
     public boolean isEligibleForMasterData() {
         return status == OperatorStatus.PENDING || status == OperatorStatus.ACTIVE;
     }
