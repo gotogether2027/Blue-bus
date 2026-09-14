@@ -31,7 +31,9 @@ Booking 1---* Payment attempt; Payment attempt 1---* Refund
 Operator 1---* Operator user *---1 User
 ```
 
-Customer-facing `AVAILABLE` / `HELD` / `BOOKED` / `BLOCKED` for a requested journey is **derived** from physical inventory plus overlapping active allocations. It is not stored as a whole-trip flag on `TripSeatInventory`. Physical inventory status is only `AVAILABLE` or `BLOCKED`.
+Customer-facing journey availability for a requested OD segment is a **read-only projection** (`SeatAvailabilityService`): physical `AVAILABLE`/`BLOCKED` inventory plus overlapping active allocations (`HELD`/`BOOKED`/`BLOCKED`). It is not a stored column. A `HELD` row whose `expires_at` is past still blocks until an explicit expire/cancel transition (no implicit expiry in the projection). Trip saleability (`ON_SALE` / booking window) is not gated yet.
+
+Customer-facing UI vocabulary `AVAILABLE` / `HELD` / `BOOKED` / `BLOCKED` for a requested journey remains **derived** from physical inventory plus overlapping active allocations. It is not stored as a whole-trip flag on `TripSeatInventory`. Physical inventory status is only `AVAILABLE` or `BLOCKED`.
 
 V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Bookings and payments remain deferred.
 

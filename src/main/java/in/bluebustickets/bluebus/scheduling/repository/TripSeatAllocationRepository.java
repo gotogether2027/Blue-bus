@@ -22,6 +22,22 @@ public interface TripSeatAllocationRepository extends JpaRepository<TripSeatAllo
 
     List<TripSeatAllocation> findByHoldIdOrderByCreatedAtAsc(UUID holdId);
 
+    /**
+     * Inventory IDs on the trip with an active occupancy overlapping {@code [origin, destination)}.
+     * Uses PostgreSQL {@code int4range} {@code &&} semantics (authoritative for adjacency vs overlap).
+     */
+    @Query(value = """
+            SELECT DISTINCT a.inventory_id
+            FROM trip_seat_allocations a
+            WHERE a.trip_id = :tripId
+              AND a.state IN ('HELD', 'BOOKED', 'BLOCKED')
+              AND a.segment_range && int4range(:originSequence, :destinationSequence, '[)')
+            """, nativeQuery = true)
+    List<UUID> findInventoryIdsWithActiveOverlap(
+            @Param("tripId") UUID tripId,
+            @Param("originSequence") int originSequence,
+            @Param("destinationSequence") int destinationSequence);
+
     @Query(value = """
             SELECT COUNT(*) > 0
             FROM trip_seat_allocations a

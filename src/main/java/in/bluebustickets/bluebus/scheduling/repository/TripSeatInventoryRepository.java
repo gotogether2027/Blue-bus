@@ -10,5 +10,7 @@ public interface TripSeatInventoryRepository extends JpaRepository<TripSeatInven
 
     List<TripSeatInventory> findByTrip_IdOrderByDeckNumberAscRowNumberAscColumnNumberAsc(UUID tripId);
 
+    List<TripSeatInventory> findByTrip_IdOrderBySeatNumberAsc(UUID tripId);
+
     long countByTrip_Id(UUID tripId);
 }
