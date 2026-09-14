@@ -74,6 +74,34 @@ Physical fleet vehicles. A bus references an existing operator, bus type, and re
 - `POST /api/v1/admin/buses/{id}/activate` — `ACTIVE`
 - `POST /api/v1/admin/buses/{id}/deactivate` — `INACTIVE`
 
+### Routes — `/api/v1/admin/routes` (Phase 6A.4)
+
+Reusable route master data. Lifecycle uses existing `RouteStatus` (`ACTIVE`, `INACTIVE`). Stops are ordered by `sequenceNumber` with unique `(route_id, sequence_number)`. Points use existing `PointType` (`BOARDING`, `DROPPING`, `BOTH`) and belong to a route stop. Future trips will snapshot stops/points; this API mutates master data only.
+
+**Route**
+
+- `POST /api/v1/admin/routes` — body: `operatorId`, `code`, `name`, `sourceLocationId`, `destinationLocationId`, optional nested `stops[]` (each may include nested `points[]`)
+- `GET /api/v1/admin/routes` — optional `operatorId`, `status`
+- `GET /api/v1/admin/routes/{id}` — includes ordered stops and their points
+- `PUT /api/v1/admin/routes/{id}` — metadata only: `name`, `sourceLocationId`, `destinationLocationId` (operator/code immutable; stops/points are not replaced)
+- `POST /api/v1/admin/routes/{id}/activate`
+- `POST /api/v1/admin/routes/{id}/deactivate`
+
+**Route stops**
+
+- `POST /api/v1/admin/routes/{routeId}/stops` — add a stop (`locationId`, `sequenceNumber`, `stopKind`, optional offsets/distance, optional nested `points[]`)
+- `GET /api/v1/admin/routes/{routeId}/stops/{stopId}`
+- `PUT /api/v1/admin/routes/{routeId}/stops/{stopId}` — update stop details via domain mutator (duplicate sequence rejected)
+
+**Route points**
+
+- `POST /api/v1/admin/routes/{routeId}/stops/{stopId}/points`
+- `PUT /api/v1/admin/routes/{routeId}/stops/{stopId}/points/{pointId}`
+- `POST /api/v1/admin/routes/{routeId}/stops/{stopId}/points/{pointId}/activate`
+- `POST /api/v1/admin/routes/{routeId}/stops/{stopId}/points/{pointId}/deactivate`
+
+Stop/point paths require the stop to belong to the given route (cross-route attachment → 404).
+
 ## Endpoint groups (examples only)
 
 | Group | Example responsibilities | Access |
