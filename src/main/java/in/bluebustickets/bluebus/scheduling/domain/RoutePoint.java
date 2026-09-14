@@ -54,7 +54,7 @@ public class RoutePoint extends AuditableEntity {
     protected RoutePoint() { }
 
     public RoutePoint(RouteStop routeStop, String name, PointType pointType) {
-        if (routeStop == null || name == null || pointType == null) {
+        if (routeStop == null || name == null || name.isBlank() || pointType == null) {
             throw new IllegalArgumentException("Route point stop, name, and type are required");
         }
         this.routeStop = routeStop;
@@ -62,8 +62,38 @@ public class RoutePoint extends AuditableEntity {
         this.pointType = pointType;
     }
 
+    public void updateDetails(
+            String name,
+            PointType pointType,
+            String address,
+            BigDecimal latitude,
+            BigDecimal longitude) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Route point name is required");
+        }
+        if (pointType == null) {
+            throw new IllegalArgumentException("Route point type is required");
+        }
+        this.name = name;
+        this.pointType = pointType;
+        this.address = address;
+        this.latitude = latitude;
+        this.longitude = longitude;
+    }
+
+    public void activate() {
+        this.active = true;
+    }
+
+    public void deactivate() {
+        this.active = false;
+    }
+
     public RouteStop getRouteStop() { return routeStop; }
     public String getName() { return name; }
     public PointType getPointType() { return pointType; }
+    public String getAddress() { return address; }
+    public BigDecimal getLatitude() { return latitude; }
+    public BigDecimal getLongitude() { return longitude; }
     public boolean isActive() { return active; }
 }

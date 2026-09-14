@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -87,9 +88,48 @@ public class GlobalExceptionHandler {
                 List.of()));
     }
 
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiError> handleNotFound(
+            ResourceNotFoundException exception,
+            HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error(
+                HttpStatus.NOT_FOUND,
+                exception.getMessage() == null || exception.getMessage().isBlank()
+                        ? "Resource was not found."
+                        : exception.getMessage(),
+                request.getRequestURI(),
+                List.of()));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiError> handleIllegalArgument(
+            IllegalArgumentException exception,
+            HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(error(
+                HttpStatus.BAD_REQUEST,
+                exception.getMessage() == null || exception.getMessage().isBlank()
+                        ? "Invalid request."
+                        : exception.getMessage(),
+                request.getRequestURI(),
+                List.of()));
+    }
+
     @ExceptionHandler(ApplicationConflictException.class)
     public ResponseEntity<ApiError> handleConflict(
             ApplicationConflictException exception,
+            HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error(
+                HttpStatus.CONFLICT,
+                exception.getMessage() == null || exception.getMessage().isBlank()
+                        ? "Request conflicts with the current state."
+                        : exception.getMessage(),
+                request.getRequestURI(),
+                List.of()));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiError> handleDataIntegrity(
+            DataIntegrityViolationException exception,
             HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error(
                 HttpStatus.CONFLICT,
