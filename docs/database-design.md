@@ -6,7 +6,7 @@ Use PostgreSQL, `uuid` primary keys, `timestamptz` timestamps, `numeric(12,2)` f
 
 Do not store derived availability, passenger names, payment totals, or operator names repeatedly unless documented as an immutable transaction snapshot. Soft deletion is acceptable for master data, but financial and booking records are never silently deleted.
 
-**V5 implementation note:** `trip_stops`, `route_points`, `trip_points`, and `trip_seat_inventory` exist. The obsolete `trip_seats` table was dropped. `trips.service_date` and `trips.time_zone` exist; uniqueness is `(bus_id, service_date, scheduled_departure_at)`. `trips.base_fare` is a temporary draft/default only. `trip_fares`, `seat_holds`, `trip_seat_allocations`, `bookings`, and related sale tables are **not** created yet. Future occupancy must use `int4range(origin_sequence, destination_sequence, '[)')` on allocations, not a `BOOKED` flag on inventory.
+**V5/V6 implementation note:** `trip_stops`, `route_points`, `trip_points`, and `trip_seat_inventory` exist. The obsolete `trip_seats` table was dropped. `trips.service_date` and `trips.time_zone` exist; uniqueness is `(bus_id, service_date, scheduled_departure_at)`. `trips.base_fare` is a temporary draft/default only. **V6** creates `trip_seat_allocations` with half-open `int4range(origin_sequence, destination_sequence, '[)')` and a partial GiST exclusion on active states (`HELD`/`BOOKED`/`BLOCKED`). Physical inventory stays `AVAILABLE`/`BLOCKED` only. `trip_fares`, `seat_holds`, `bookings`, and related sale tables are **not** created yet.
 
 ## Identity & Access ownership
 

@@ -10,5 +10,7 @@ public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
 
     List<TripStop> findByTripIdOrderBySequenceNumberAsc(UUID tripId);
 
+    boolean existsByTripIdAndSequenceNumber(UUID tripId, int sequenceNumber);
+
     long countByTripId(UUID tripId);
 }

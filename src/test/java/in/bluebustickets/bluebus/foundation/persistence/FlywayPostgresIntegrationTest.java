@@ -105,7 +105,6 @@ class FlywayPostgresIntegrationTest {
         assertThat(tableExists("trip_points")).isTrue();
         assertThat(tableExists("trip_seat_inventory")).isTrue();
         assertThat(tableExists("trip_seats")).isFalse();
-        assertThat(tableExists("trip_seat_allocations")).isFalse();
         assertThat(tableExists("seat_holds")).isFalse();
         assertThat(tableExists("bookings")).isFalse();
 
@@ -115,6 +114,46 @@ class FlywayPostgresIntegrationTest {
         assertThat(columnExists("trips", "service_date")).isTrue();
         assertThat(columnExists("trips", "time_zone")).isTrue();
         assertThat(columnExists("trips", "base_fare")).isTrue();
+    }
+
+    @Test
+    void appliesTripSeatAllocationMigrationWithRangeExclusion() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '6'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("6");
+            assertThat(migration.get("description")).hasToString("trip seat allocations");
+            assertThat(migration.get("script")).hasToString("V6__trip_seat_allocations.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("trip_seat_allocations")).isTrue();
+        assertThat(tableExists("seat_holds")).isFalse();
+        assertThat(tableExists("bookings")).isFalse();
+
+        Integer btreeGist = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_extension
+                WHERE extname = 'btree_gist'
+                """, Integer.class);
+        assertThat(btreeGist).isEqualTo(1);
+
+        Integer exclusionConstraints = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_constraint
+                WHERE conname = 'ex_trip_seat_allocations_no_overlap'
+                  AND contype = 'x'
+                """, Integer.class);
+        assertThat(exclusionConstraints).isEqualTo(1);
+
+        assertThat(columnExists("trip_seat_allocations", "segment_range")).isTrue();
+        assertThat(columnExists("trip_seat_allocations", "origin_sequence")).isTrue();
+        assertThat(columnExists("trip_seat_allocations", "destination_sequence")).isTrue();
+        assertThat(columnExists("trip_seat_allocations", "state")).isTrue();
     }
 
     private boolean tableExists(String tableName) {
