@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: blue-bus-backend-test
+  main:
+    banner-mode: "off"
+
+blue-bus:
+  security:
+    jwt:
+      issuer: test-issuer
+      secret: test-only-placeholder-not-a-secret

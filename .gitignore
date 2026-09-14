@@ -1,0 +1,20 @@
+# Environment files and local secrets
+.env
+.env.*
+!.env.example
+
+# Local development overrides
+application-local.yml
+application-local.yaml
+
+# Build and IDE output
+target/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# OS files
+.DS_Store
+Thumbs.db

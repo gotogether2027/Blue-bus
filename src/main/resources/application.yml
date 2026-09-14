@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: blue-bus-backend
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:bluebus}
+    username: ${DB_USERNAME:bluebus}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+blue-bus:
+  security:
+    jwt:
+      issuer: ${JWT_ISSUER:blue-bus}
+      secret: ${JWT_SECRET:}
+
+logging:
+  level:
+    org.springframework.security: WARN

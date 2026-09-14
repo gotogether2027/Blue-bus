@@ -1,0 +1,97 @@
+# Database design
+
+## Conventions and ownership
+
+Use PostgreSQL, `uuid` primary keys, `timestamptz` timestamps, `numeric(12,2)` for INR money, `char(3)` ISO currency (normally `INR`), and `varchar`/check constraints or PostgreSQL enums for controlled states. All mutable tables have `created_at` and `updated_at` unless noted. IDs are UUID references across module boundaries; the initial monolith may enforce them with foreign keys. On a later service split, the rows labelled **externalizable reference** retain the ID but lose the database FK.
+
+Do not store derived availability, passenger names, payment totals, or operator names repeatedly unless documented as an immutable transaction snapshot. Soft deletion is acceptable for master data, but financial and booking records are never silently deleted.
+
+**V5 implementation note:** `trip_stops`, `route_points`, `trip_points`, and `trip_seat_inventory` exist. The obsolete `trip_seats` table was dropped. `trips.service_date` and `trips.time_zone` exist; uniqueness is `(bus_id, service_date, scheduled_departure_at)`. `trips.base_fare` is a temporary draft/default only. `trip_fares`, `seat_holds`, `trip_seat_allocations`, `bookings`, and related sale tables are **not** created yet. Future occupancy must use `int4range(origin_sequence, destination_sequence, '[)')` on allocations, not a `BOOKED` flag on inventory.
+
+## Identity & Access ownership
+
+| Table | Purpose and columns | Keys, constraints, indexes |
+|---|---|---|
+| `users` | Platform identity: `id uuid`, `email varchar(320)`, `phone_e164 varchar(20)`, `password_hash varchar`, `status varchar`, `email_verified_at`, `phone_verified_at`, `first_name varchar(100) NOT NULL`, optional `last_name`, timestamps. Email/phone may be nullable during staged onboarding but one verified login identifier is required before active use. | PK `id`; unique non-null normalized `email`, unique non-null `phone_e164`; indexes `(status)`. Password hash is never returned in APIs. |
+| `roles` | Role definitions: `id`, `code`, `name`, `scope` (`PLATFORM`/`OPERATOR`), description, timestamps. | PK; unique `code`; database check enforces approved mappings: `SUPER_ADMIN`, `ADMIN`, and `CUSTOMER` are `PLATFORM`; `OPERATOR_ADMIN` and `OPERATOR_STAFF` are `OPERATOR`. |
+| `permissions` | Atomic authorizations: `id`, `code`, `description`, timestamps. | PK; unique `code`. |
+| `role_permissions` | Role-to-permission association: `role_id`, `permission_id`. | Composite PK/FKs; index `permission_id`. |
+| `user_roles` | Platform-level user roles: `user_id`, `role_id`, granted metadata. Operator roles belong in `operator_users`. | Composite PK/FKs; role must have PLATFORM scope (application constraint). |
+| `refresh_tokens` | Revocable refresh-token/session metadata: `id`, `user_id`, token hash, expiry, revoked time/reason, device metadata, timestamps. | PK; FK user; unique token hash; index `(user_id, expires_at)`. Store hash only. |
+| `audit_log` | Append-only sensitive/admin action audit: `id`, actor user ID, action, target type/ID, request/correlation IDs, IP/user-agent, structured before/after metadata, occurred time. | PK; actor is **externalizable reference**; indexes `(target_type,target_id)`, `(actor_user_id,occurred_at)`, `(occurred_at)`. |
+
+## Operator & Fleet ownership
+
+| Table | Purpose and columns | Keys, constraints, indexes |
+|---|---|---|
+| `operators` | Organization: `id`, legal/display names, status, support contact, GST/KYC fields or document references, address fields, timestamps. | PK; unique normalized legal name only if business policy permits; indexes `(status)`. Never expose private KYC data broadly. |
+| `operator_users` | User membership: `operator_id`, `user_id`, `role_id`, membership status, timestamps. | Composite PK `(operator_id,user_id)`; operator FK; user/role are **externalizable references**; unique as stated; index `(user_id,status)`. Role must have OPERATOR scope. |
+| `bus_types` | Platform taxonomy: `id`, code, display name, amenity metadata, active flag. | PK; unique code; index active. |
+| `seat_layouts` | Reusable, versioned template: `id`, `operator_id`, name, `version int`, dimensions, layout status, effective timestamps. | PK; operator FK; unique `(operator_id, name, version)`; index `(operator_id,status)`. Published layouts used by trips are immutable. |
+| `seats` | Physical reusable-layout seat definition (formerly labelled `layout_seats`): `id`, `seat_layout_id`, seat number/label, deck, row/column, seat type, sellable flag, attributes JSONB. | PK; FK layout; unique `(seat_layout_id, seat_number)`, unique `(seat_layout_id, deck, row_no, column_no)`; index layout. |
+| `buses` | Vehicle: `id`, `operator_id`, `bus_type_id`, `seat_layout_id`, registration number, display name, status, capacity snapshot/metadata, timestamps. | PK; FKs; unique normalized registration number; unique `(id,operator_id)` for scoped references; indexes `(operator_id,status)`, `seat_layout_id`. Current layout only; a trip stores layout snapshot reference. Enforce layout and bus have the same operator through a composite FK or transaction validation. |
+
+## Network & Scheduling ownership
+
+| Table | Purpose and columns | Keys, constraints, indexes |
+|---|---|---|
+| `locations` | Geographic master: `id`, country code, state, district, city/town, locality, latitude/longitude, time zone, active flag. | PK; index `(country_code,state,city)` and geospatial index if PostGIS later adopted. India is data, not a code restriction. |
+| `routes` | Reusable operator route: `id`, `operator_id`, code/name, active status, timestamps. | PK; operator FK; unique `(operator_id,code)`, unique `(id,operator_id)` for scoped references; index `(operator_id,status)`. |
+| `route_stops` | Ordered route path: `id`, `route_id`, `location_id`, sequence number, arrival/departure offsets in minutes, distance km, stop kind. | PK; FKs; unique `(route_id,sequence_no)`; indexes `(route_id,location_id)`. Offset/order must be non-negative/increasing under validation. |
+| `route_points` | Board/drop point at a route stop: `id`, `route_stop_id`, name, point type (`BOARDING`,`DROPPING`,`BOTH`), address, geo fields, active flag. | PK; FK; unique `(route_stop_id,name)`; index `(route_stop_id,point_type,active)`. |
+| `trips` | Scheduled journey: `id`, `operator_id`, `bus_id`, `route_id`, `seat_layout_id`, service date, scheduled departure/arrival `timestamptz`, status, time zone, cancellation fields, timestamps. | PK; operator FK; composite FKs `(bus_id,operator_id)` and `(route_id,operator_id)`; layout must match operator; unique `(bus_id, service_date, scheduled_departure_at)`; indexes `(operator_id,status,service_date)`, `(route_id,service_date,status)`, `(bus_id,service_date)`. Validate service date is derived consistently. |
+| `trip_stops` | Immutable operational route snapshot: `id`, `trip_id`, sequence, route stop/location IDs, scheduled arrival/departure, stop status. | PK; trip FK; route-stop/location IDs are **externalizable references**; unique `(trip_id,sequence_no)`, unique `(id,trip_id)`; indexes `(trip_id,location_id)`. This preserves historical route timing. |
+| `trip_points` | Immutable selectable boarding/drop snapshot: `id`, `trip_id`, `trip_stop_id`, source route-point ID nullable, name, point type, address/geo snapshot, active flag. | PK; FK trip and composite FK `(trip_stop_id,trip_id)` to trip stops; source point is **externalizable reference**; unique `(trip_stop_id,name,point_type)`, unique `(id,trip_id)`; index `(trip_id,point_type,active)`. A trip may have several points per stop and can disable/override a route point without rewriting history. |
+| `trip_fares` | Fare snapshot/rules for an origin-destination pair: `id`, `trip_id`, origin sequence, destination sequence, seat type/class, base fare, tax, fee, currency, active. | PK; FK; unique `(trip_id,origin_sequence,destination_sequence,seat_type)`; index `(trip_id,origin_sequence,destination_sequence)`. Destination must follow origin; define a price snapshot at booking. |
+
+## Inventory & Booking ownership
+
+| Table | Purpose and columns | Keys, constraints, indexes |
+|---|---|---|
+| `trip_seat_inventory` | Physical seat snapshot: `id`, `trip_id`, `layout_seat_id`, `seat_layout_id`, layout version, seat number/type, deck/row/column snapshot, physical status (`AVAILABLE`/`BLOCKED`), block reason, row version, timestamps. No fare, hold, or booking columns. | PK; composite FKs `(trip_id,seat_layout_id)` and `(layout_seat_id,seat_layout_id)`; unique `(trip_id,layout_seat_id)`, unique `(id,trip_id)`; indexes `(trip_id,physical_status)`. Segment availability will later derive from active allocations. |
+| `seat_holds` | Checkout hold aggregate: `id`, `trip_id`, `user_id`, origin/destination trip-stop IDs, boarding/drop point IDs, status, expires_at, idempotency key, request fingerprint, timestamps. | PK; trip FK; user is an **externalizable reference**; composite FKs ensure selected stops/points belong to `trip_id`; unique `(user_id,idempotency_key)` when supplied; indexes `(trip_id,status,expires_at)`, `(expires_at)`. Reuse of an idempotency key must match its request fingerprint; destination must follow origin. |
+| `trip_seat_allocations` | Authoritative segment reservation: `id`, `inventory_id`, `trip_id`, `hold_id nullable`, `booking_item_id nullable`, `origin_sequence`, `destination_sequence`, `segment_range int4range`, state, expires_at nullable, timestamps. | PK; inventory/trip FKs; hold and booking item are **externalizable references**; check destination > origin and `segment_range = [origin_sequence,destination_sequence)`; HELD requires hold/expiry, BOOKED requires booking item, CANCELLED/EXPIRED/RELEASED retain the historical owner where available, and BLOCKED may have neither. **Exclusion constraint** `EXCLUDE USING gist (inventory_id WITH =, segment_range WITH &&) WHERE (state IN ('HELD','BOOKED','BLOCKED'))` prevents overlapping active sale; indexes `(trip_id,state)`, `(hold_id)`, `(booking_item_id)`, expiry partial for HELD. |
+| `bookings` | Purchase aggregate: `id`, booking reference, `user_id`, `trip_id`, operator ID snapshot/reference, status, origin/destination trip-stop IDs, boarding/drop point IDs, currency, total/base/tax/fee/discount amounts, `commission_amount`, commission policy snapshot, coupon ID, cancellation metadata, timestamps. | PK; unique booking reference; trip FK; user/operator/coupon are **externalizable references**; composite FKs ensure selected stops/points belong to `trip_id`; indexes `(user_id,created_at)`, `(operator_id,status,created_at)`, `(trip_id,status)`. Points must be on selected stops. Monetary totals and commission are immutable snapshots; all amounts non-negative with a validated total equation. |
+| `booking_items` | One reserved seat/ride: `id`, `booking_id`, `inventory_id`, `passenger_id nullable`, seat number/type snapshot, origin/destination sequences, fare/tax/fee/discount/total, status. | PK; FK booking; inventory/passenger **externalizable references**; unique `(booking_id,inventory_id)`; index booking. Its matching active allocation links via `booking_item_id`; a CONFIRMED item must have a passenger unless the approved product explicitly permits otherwise. Seat and price snapshot prevent history loss. |
+| `passengers` | Booking passenger data: `id`, `booking_id`, name, age/birth-date policy, gender/title optional, contact fields optional, identification fields only if legally required and encrypted, timestamps. | PK; booking FK; index booking. Do not create global passenger profiles by default; minimize PII. |
+| `booking_cancellations` | Immutable cancellation decision: `id`, booking ID, requester user ID, reason, policy snapshot, refundable amount, status, timestamps. | PK; booking FK; requester **externalizable reference**; unique active/final cancellation policy per booking as needed; indexes booking/status. |
+
+## Payments, settlements, and engagement ownership
+
+| Table | Purpose and columns | Keys, constraints, indexes |
+|---|---|---|
+| `commission_policies` | Operator/platform commission rule: `id`, operator ID nullable, priority, effective start/end, rule version, rule JSONB, status, timestamps. | PK; operator is **externalizable reference**; unique `(operator_id,rule_version)`; indexes `(operator_id,status,effective_from,effective_to)`. A booking stores the evaluated policy/amount; policy edits never recalculate history. |
+| `payments` | Payment attempt/transaction: `id`, `booking_id`, provider, provider order/payment IDs, amount/currency, status, idempotency key, provider payload reference, resolution reason, timestamps. | PK; booking **externalizable reference**; unique `(provider,provider_order_id)` when non-null and unique `(provider,provider_payment_id)` when non-null; unique `(booking_id,idempotency_key)`; indexes `(booking_id,status)`, `(provider,status,created_at)`. Do not store card data. A late success receives a resolution status, never silently confirms a booking. |
+| `payment_webhook_events` | Raw provider delivery ledger: `id`, provider, provider event ID, verified flag, payload JSONB/reference, received/processed times, processing result. | PK; unique `(provider,provider_event_id)`; indexes unprocessed events and received time. This is the webhook idempotency boundary. |
+| `refunds` | Refund requests/results: `id`, payment ID, booking ID, provider refund ID, amount/currency, reason, status, idempotency key, timestamps. | PK; payment/booking **externalizable references**; unique `(provider,provider_refund_id)` where non-null; unique `(payment_id,idempotency_key)`; index `(booking_id,status)`. Sum successful refunds must not exceed captured payment. |
+| `settlements` | Operator payout statement: `id`, operator ID, period start/end, currency, gross/commission/refund/net amounts, status, generated/paid timestamps. | PK; operator **externalizable reference**; unique `(operator_id,period_start,period_end,currency)`; indexes operator/status/period. Periods cannot overlap for a final statement. |
+| `settlement_items` | Immutable booking/refund adjustment line: `id`, settlement ID, booking/payment/refund IDs, item type, gross/commission/net amounts. | PK; settlement FK; referenced IDs **externalizable**; unique `(settlement_id, item_type, booking_id, payment_id, refund_id)` with null-safe design; index settlement. |
+| `notifications` | Logical communication request: `id`, user ID, booking ID nullable, notification type/template code, payload reference, dedupe key, scheduled time, status, timestamps. | PK; user/booking **externalizable references**; unique dedupe key where supplied; indexes `(user_id,created_at)`, `(status,scheduled_at)`. One request can fan out to approved channels. |
+| `notification_deliveries` | Channel/provider delivery attempt: `id`, notification ID, channel (`EMAIL`,`SMS`,`WHATSAPP`,`PUSH`), provider, provider message ID, status, attempt count, sent/delivered/failed times, error code. | PK; notification FK; unique `(provider,provider_message_id)` when non-null; unique `(notification_id,channel,attempt_no)`; indexes `(status,created_at)`. This makes the architecture email/SMS/WhatsApp/push-ready without embedding provider logic in booking. |
+| `reviews` | Customer review: `id`, booking ID, user ID, operator ID, rating smallint, comment, status, moderation metadata, timestamps. | PK; externalizable references; unique `booking_id`; indexes `(operator_id,status,created_at)`. Require confirmed/completed eligible booking in application validation. |
+| `coupons` | Platform/operator discount definition: `id`, owner operator ID nullable, code, status, validity times, rule JSONB, usage limits, timestamps. | PK; unique normalized code; owner is **externalizable reference**; indexes `(status,valid_from,valid_to)`. Rule version/snapshot must be copied to booking. |
+| `coupon_redemptions` | Coupon application ledger: `id`, coupon ID, booking ID, user ID, discount amount, coupon-rule snapshot, status, timestamps. | PK; IDs externalizable; unique booking ID and unique `(coupon_id,booking_id)`; index `(coupon_id,user_id)`. Enforce total/per-user limits transactionally with a counter/locking strategy; a coupon rule is never re-evaluated against historical bookings. |
+| `outbox_events` | Transactional event publication: `id`, aggregate type/ID, event type/version, payload JSONB, occurred/published times, attempt count. | PK; unique id; indexes `(published_at,occurred_at)` and aggregate. Append-only except delivery metadata. |
+
+## Relationship and normalization notes
+
+- One operator to many buses/routes/trips; one bus to many trips; one route to many ordered stops; one layout to many seats; one trip to many inventory rows; one booking to many booking items/passengers/payments.
+- Roles-to-permissions and users-to-roles are many-to-many via named join tables. Operator users are a many-to-many relationship between operators and users with membership attributes.
+- `trip_stops`, `trip_points`, `trip_seat_inventory`, `booking_items`, and monetary columns intentionally denormalize **snapshots**. They are not duplicate mutable master data: they preserve the truth at the time of sale.
+- Avoid storing seat availability on `layout_seats`/`buses`, route stop lists in JSON, passenger columns on `bookings`, payment columns on `bookings`, or calculated revenue as an editable source of truth.
+
+## Concurrency and integrity rules
+
+1. Generate inventory once per trip/layout snapshot. Never sell directly from `layout_seats`.
+2. Hold seats by inserting HELD allocations with the seat's `[origin_sequence,destination_sequence)` range in one transaction. The partial GiST exclusion constraint is the cross-instance final guard against overlapping active allocations; a conflict returns `409` and rolls back the whole requested set.
+3. Use `expires_at` plus a scheduled cleanup/reclamation path to mark stale HELD allocations EXPIRED. Availability queries treat an unexpired HELD allocation as unavailable; clean-up must use a conditional state update so it cannot expire a confirmed allocation.
+4. Confirm payment idempotently: lock/condition-check payment, booking, hold, trip status, and allocations; change held allocations to BOOKED and booking to CONFIRMED, then commit an outbox event. A provider success after expiry/release is recorded for resolution/refund and must not reserve a new allocation. Duplicate webhooks become no-ops.
+5. Use partial indexes for active state where PostgreSQL supports them, short transactions, and no broad `SELECT ... FOR UPDATE` scans.
+6. Validate monetary currency/amount and all state transitions server-side; database checks enforce local invariants, while cross-row/domain rules remain application transactions.
+
+## Required relational safeguards
+
+- Add PostgreSQL `btree_gist` before creating the allocation exclusion constraint; this is a schema prerequisite, not an optional optimization.
+- Use composite foreign keys from `trips` to `(bus_id,operator_id)` and `(route_id,operator_id)` so an operator cannot schedule another operator's bus or route.
+- Use composite foreign keys from `seat_holds` and `bookings` to `(trip_stop_id,trip_id)` and `(trip_point_id,trip_id)` so IDs from a different trip cannot be combined.
+- The trip/layout relationship must be immutable after inventory generation. A bus substitution creates a controlled trip change/versioning workflow, not an in-place replacement that changes sold-seat history.
