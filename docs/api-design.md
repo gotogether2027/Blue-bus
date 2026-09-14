@@ -63,6 +63,17 @@ Reusable fleet configuration: `SeatLayout` owns physical `Seat` definitions. Lay
 
 Seat uniqueness within a layout follows the schema: unique seat number and unique `(deck,row,column)`. Physical seats carry no booking/inventory state.
 
+### Buses — `/api/v1/admin/buses` (Phase 6A.3)
+
+Physical fleet vehicles. A bus references an existing operator, bus type, and reusable seat layout. Seats are not copied onto the bus. Lifecycle uses existing `BusStatus` (`ACTIVE`, `INACTIVE`, `MAINTENANCE`). Admin `activate` / `deactivate` map to domain `activate()` / `deactivate()`.
+
+- `POST /api/v1/admin/buses` — body: `operatorId`, `busTypeId`, `seatLayoutId`, `registrationNumber`, optional `displayName` (creates as `ACTIVE`; layout must belong to the same operator)
+- `GET /api/v1/admin/buses` — optional `operatorId`, `status`
+- `GET /api/v1/admin/buses/{id}`
+- `PUT /api/v1/admin/buses/{id}` — `displayName`, `busTypeId`, `seatLayoutId` (operator and registration number are immutable)
+- `POST /api/v1/admin/buses/{id}/activate` — `ACTIVE`
+- `POST /api/v1/admin/buses/{id}/deactivate` — `INACTIVE`
+
 ## Endpoint groups (examples only)
 
 | Group | Example responsibilities | Access |
