@@ -102,6 +102,25 @@ Reusable route master data. Lifecycle uses existing `RouteStatus` (`ACTIVE`, `IN
 
 Stop/point paths require the stop to belong to the given route (cross-route attachment → 404).
 
+### Trips — `/api/v1/admin/trips` (Phase 6A.5)
+
+One scheduled journey of one bus on one route. Create is atomic:
+
+1. Persist `Trip`
+2. Snapshot ordered `RouteStop` / `RoutePoint` master data into `TripStop` / `TripPoint`
+3. Snapshot every physical `Seat` from the bus seat layout into `TripSeatInventory` (`AVAILABLE`, or `BLOCKED` when the master seat is not sellable)
+
+After create, master-data changes to routes/layouts/seats do **not** rewrite existing trip snapshots. `PUT` does not rebuild snapshots.
+
+Lifecycle uses existing `TripStatus` (`DRAFT`, `SCHEDULED`, `ON_SALE`, `CLOSED`, `DEPARTED`, `COMPLETED`, `CANCELLED`). Admin `activate` maps to `schedule()` (`DRAFT` → `SCHEDULED`). Admin `deactivate` maps to `cancel()` → `CANCELLED`.
+
+- `POST /api/v1/admin/trips` — body: `busId`, `routeId`, `scheduledDepartureAt`, `scheduledArrivalAt`, `baseFare`, `bookingOpensAt`, `bookingClosesAt`, optional `timeZone` (default `Asia/Kolkata`; `serviceDate` derived). Bus and route must be active and share an operator (domain rule). Unique `(busId, serviceDate, scheduledDepartureAt)`.
+- `GET /api/v1/admin/trips` — optional `busId`, `routeId`, `serviceDate`, `status`
+- `GET /api/v1/admin/trips/{id}` — includes stop/point snapshots and seat inventory
+- `PUT /api/v1/admin/trips/{id}` — commercial terms only: `baseFare`, `bookingOpensAt`, `bookingClosesAt` (allowed while `DRAFT`/`SCHEDULED`; bus/route/schedule/snapshots immutable)
+- `POST /api/v1/admin/trips/{id}/activate`
+- `POST /api/v1/admin/trips/{id}/deactivate`
+
 ## Endpoint groups (examples only)
 
 | Group | Example responsibilities | Access |

@@ -123,6 +123,9 @@ public class TripStop extends AuditableEntity {
     public UUID getRouteStopId() { return routeStopId; }
     public Location getLocation() { return location; }
     public int getSequenceNumber() { return sequenceNumber; }
+    public Instant getScheduledArrivalAt() { return scheduledArrivalAt; }
+    public Instant getScheduledDepartureAt() { return scheduledDepartureAt; }
     public StopKind getStopKind() { return stopKind; }
     public TripStopStatus getStopStatus() { return stopStatus; }
+    public BigDecimal getDistanceKm() { return distanceKm; }
 }

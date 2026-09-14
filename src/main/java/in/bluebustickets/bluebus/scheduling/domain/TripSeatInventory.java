@@ -124,6 +124,9 @@ public class TripSeatInventory extends AuditableEntity {
     public int getSeatLayoutVersion() { return seatLayoutVersion; }
     public String getSeatNumber() { return seatNumber; }
     public String getSeatType() { return seatType; }
+    public int getDeckNumber() { return deckNumber; }
+    public int getRowNumber() { return rowNumber; }
+    public int getColumnNumber() { return columnNumber; }
     public TripSeatInventoryStatus getPhysicalStatus() { return physicalStatus; }
     public String getBlockReason() { return blockReason; }
 }

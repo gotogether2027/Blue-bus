@@ -67,13 +67,29 @@ public class TripPoint extends AuditableEntity {
     }
 
     public TripPoint(TripStop tripStop, UUID sourceRoutePointId, String name, PointType pointType) {
-        if (tripStop == null || tripStop.getTrip() == null || name == null || pointType == null) {
+        this(tripStop, sourceRoutePointId, name, pointType, null, null, null, true);
+    }
+
+    public TripPoint(
+            TripStop tripStop,
+            UUID sourceRoutePointId,
+            String name,
+            PointType pointType,
+            String address,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            boolean active) {
+        if (tripStop == null || tripStop.getTrip() == null || name == null || name.isBlank() || pointType == null) {
             throw new IllegalArgumentException("Trip point requires a trip stop, name, and type");
         }
         this.tripStop = tripStop;
         this.sourceRoutePointId = sourceRoutePointId;
         this.name = name;
         this.pointType = pointType;
+        this.address = address;
+        this.latitude = latitude;
+        this.longitude = longitude;
+        this.active = active;
     }
 
     public Trip getTrip() { return tripStop == null ? null : tripStop.getTrip(); }
@@ -81,6 +97,10 @@ public class TripPoint extends AuditableEntity {
     public UUID getSourceRoutePointId() { return sourceRoutePointId; }
     public String getName() { return name; }
     public PointType getPointType() { return pointType; }
+    public String getAddress() { return address; }
+    public BigDecimal getLatitude() { return latitude; }
+    public BigDecimal getLongitude() { return longitude; }
+    public boolean isActive() { return active; }
 
     public boolean belongsToSameTrip(TripStop stop) {
         return stop != null
