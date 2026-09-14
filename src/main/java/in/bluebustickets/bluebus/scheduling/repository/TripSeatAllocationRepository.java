@@ -20,6 +20,8 @@ public interface TripSeatAllocationRepository extends JpaRepository<TripSeatAllo
             UUID inventoryId,
             Collection<TripSeatAllocationState> states);
 
+    List<TripSeatAllocation> findByHoldIdOrderByCreatedAtAsc(UUID holdId);
+
     @Query(value = """
             SELECT COUNT(*) > 0
             FROM trip_seat_allocations a

@@ -22,7 +22,9 @@ Bus 1---* Trip *---1 Route
 Trip 1---* Trip stop snapshot *---1 Location
 Trip stop 1---* Trip point snapshot
 Trip 1---* TripSeatInventory *---1 Layout seat
-TripSeatInventory 1---* TripSeatAllocation *---1 Seat hold / Booking item (future)
+TripSeatInventory 1---* TripSeatAllocation *---0..1 SeatHold
+SeatHold 1---* TripSeatAllocation (HELD)
+Seat hold / Booking item (future) *---1 Booking (future)
 Booking 1---* Booking item *---0..1 Passenger
 Booking 1---* Passenger
 Booking 1---* Payment attempt; Payment attempt 1---* Refund
@@ -31,7 +33,7 @@ Operator 1---* Operator user *---1 User
 
 Customer-facing `AVAILABLE` / `HELD` / `BOOKED` / `BLOCKED` for a requested journey is **derived** from physical inventory plus overlapping active allocations. It is not stored as a whole-trip flag on `TripSeatInventory`. Physical inventory status is only `AVAILABLE` or `BLOCKED`.
 
-V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). Seat holds, bookings, and payments remain deferred.
+V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Bookings and payments remain deferred.
 
 `trips.base_fare` is a temporary draft/default. Future origin–destination prices belong on `trip_fares`.
 

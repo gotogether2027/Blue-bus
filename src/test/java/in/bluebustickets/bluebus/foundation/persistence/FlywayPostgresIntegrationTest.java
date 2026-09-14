@@ -105,7 +105,6 @@ class FlywayPostgresIntegrationTest {
         assertThat(tableExists("trip_points")).isTrue();
         assertThat(tableExists("trip_seat_inventory")).isTrue();
         assertThat(tableExists("trip_seats")).isFalse();
-        assertThat(tableExists("seat_holds")).isFalse();
         assertThat(tableExists("bookings")).isFalse();
 
         assertThat(columnExists("trip_seat_inventory", "booking_id")).isFalse();
@@ -132,7 +131,6 @@ class FlywayPostgresIntegrationTest {
         });
 
         assertThat(tableExists("trip_seat_allocations")).isTrue();
-        assertThat(tableExists("seat_holds")).isFalse();
         assertThat(tableExists("bookings")).isFalse();
 
         Integer btreeGist = jdbcTemplate.queryForObject("""
@@ -154,6 +152,38 @@ class FlywayPostgresIntegrationTest {
         assertThat(columnExists("trip_seat_allocations", "origin_sequence")).isTrue();
         assertThat(columnExists("trip_seat_allocations", "destination_sequence")).isTrue();
         assertThat(columnExists("trip_seat_allocations", "state")).isTrue();
+    }
+
+    @Test
+    void appliesSeatHoldsMigrationAndLinksAllocations() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '7'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("7");
+            assertThat(migration.get("description")).hasToString("seat holds");
+            assertThat(migration.get("script")).hasToString("V7__seat_holds.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("seat_holds")).isTrue();
+        assertThat(tableExists("bookings")).isFalse();
+
+        Integer holdFk = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_constraint
+                WHERE conname = 'fk_trip_seat_allocations_hold'
+                  AND contype = 'f'
+                """, Integer.class);
+        assertThat(holdFk).isEqualTo(1);
+
+        assertThat(columnExists("seat_holds", "origin_sequence")).isTrue();
+        assertThat(columnExists("seat_holds", "destination_sequence")).isTrue();
+        assertThat(columnExists("seat_holds", "expires_at")).isTrue();
+        assertThat(columnExists("seat_holds", "idempotency_key")).isTrue();
     }
 
     private boolean tableExists(String tableName) {
