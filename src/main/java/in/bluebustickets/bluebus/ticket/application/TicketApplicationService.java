@@ -2,6 +2,7 @@ package in.bluebustickets.bluebus.ticket.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -25,6 +26,7 @@ import in.bluebustickets.bluebus.ticket.api.dto.TicketResponse;
 import in.bluebustickets.bluebus.ticket.domain.Ticket;
 import in.bluebustickets.bluebus.ticket.domain.TicketPassenger;
 import in.bluebustickets.bluebus.ticket.repository.TicketRepository;
+import jakarta.persistence.EntityManager;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -35,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
 public class TicketApplicationService {
 
+    static final String TICKET_ISSUED = "TICKET_ISSUED";
     private static final int MAX_TICKET_NUMBER_ATTEMPTS = 8;
 
     private final BookingRepository bookingRepository;
@@ -83,22 +86,34 @@ public class TicketApplicationService {
 
         JourneySnapshot journey = loadJourneySnapshot(booking);
         Instant issuedAt = clock.instant();
+        UUID ticketId = persistWithRetries(booking.getId(), issuedAt, journey);
+        return toResponse(requireDetailed(ticketId));
+    }
 
-        for (int attempt = 0; attempt < MAX_TICKET_NUMBER_ATTEMPTS; attempt++) {
-            String ticketNumber = ticketNumberGenerator.next();
-            try {
-                UUID ticketId = issuanceWorker.persist(booking.getId(), ticketNumber, issuedAt, journey);
-                return toResponse(requireDetailed(ticketId));
-            } catch (DataIntegrityViolationException exception) {
-                Ticket raced = ticketRepository.findDetailedByBookingId(bookingId).orElse(null);
-                if (raced != null) {
-                    requireOwner(raced, userId);
-                    return toResponse(raced);
-                }
-                // Likely ticket_number collision; retry with a new number.
-            }
+    /**
+     * System/outbox path: issue for a confirmed booking without customer ownership checks.
+     * Joins the caller's transaction so ticket + {@code TICKET_ISSUED} stay atomic with the
+     * outbox mark-published step.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Ticket issueForConfirmedBookingInCurrentTransaction(UUID bookingId) {
+        Ticket existing = ticketRepository.findDetailedByBookingId(bookingId).orElse(null);
+        if (existing != null) {
+            ensureTicketIssuedEvent(existing, clock.instant());
+            return existing;
         }
-        throw new ApplicationConflictException("Ticket number could not be allocated.");
+
+        Booking booking = bookingRepository.findDetailedById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
+        if (booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw new ApplicationConflictException("Only confirmed bookings can issue a ticket.");
+        }
+
+        JourneySnapshot journey = loadJourneySnapshot(booking);
+        Instant issuedAt = clock.instant();
+        UUID ticketId = issuanceWorker.persistInCurrentTransaction(
+                booking.getId(), ticketNumberGenerator.next(), issuedAt, journey);
+        return requireDetailed(ticketId);
     }
 
     @Transactional(readOnly = true)
@@ -108,6 +123,25 @@ public class TicketApplicationService {
             throw new ResourceNotFoundException("Ticket was not found.");
         }
         return toResponse(ticket);
+    }
+
+    private UUID persistWithRetries(UUID bookingId, Instant issuedAt, JourneySnapshot journey) {
+        for (int attempt = 0; attempt < MAX_TICKET_NUMBER_ATTEMPTS; attempt++) {
+            String ticketNumber = ticketNumberGenerator.next();
+            try {
+                return issuanceWorker.persist(bookingId, ticketNumber, issuedAt, journey);
+            } catch (DataIntegrityViolationException exception) {
+                Ticket raced = ticketRepository.findDetailedByBookingId(bookingId).orElse(null);
+                if (raced != null) {
+                    return raced.getId();
+                }
+            }
+        }
+        throw new ApplicationConflictException("Ticket number could not be allocated.");
+    }
+
+    private void ensureTicketIssuedEvent(Ticket ticket, Instant now) {
+        issuanceWorker.ensureTicketIssued(ticket, now);
     }
 
     private JourneySnapshot loadJourneySnapshot(Booking booking) {
@@ -212,10 +246,15 @@ public class TicketApplicationService {
 
         private final BookingRepository bookingRepository;
         private final TicketRepository ticketRepository;
+        private final EntityManager entityManager;
 
-        TicketIssuanceWorker(BookingRepository bookingRepository, TicketRepository ticketRepository) {
+        TicketIssuanceWorker(
+                BookingRepository bookingRepository,
+                TicketRepository ticketRepository,
+                EntityManager entityManager) {
             this.bookingRepository = bookingRepository;
             this.ticketRepository = ticketRepository;
+            this.entityManager = entityManager;
         }
 
         @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -224,8 +263,30 @@ public class TicketApplicationService {
                 String ticketNumber,
                 Instant issuedAt,
                 JourneySnapshot journey) {
+            return createOrReturn(bookingId, ticketNumber, issuedAt, journey);
+        }
+
+        /**
+         * Joins the caller's transaction. Unique collisions must roll the caller back so the
+         * outbox event stays unpublished and retries idempotently.
+         */
+        @Transactional(propagation = Propagation.MANDATORY)
+        public UUID persistInCurrentTransaction(
+                UUID bookingId,
+                String ticketNumber,
+                Instant issuedAt,
+                JourneySnapshot journey) {
+            return createOrReturn(bookingId, ticketNumber, issuedAt, journey);
+        }
+
+        private UUID createOrReturn(
+                UUID bookingId,
+                String ticketNumber,
+                Instant issuedAt,
+                JourneySnapshot journey) {
             Ticket already = ticketRepository.findByBookingId(bookingId).orElse(null);
             if (already != null) {
+                ensureTicketIssued(already, issuedAt);
                 return already.getId();
             }
 
@@ -271,7 +332,41 @@ public class TicketApplicationService {
                         booking.getCurrency()));
             }
 
-            return ticketRepository.saveAndFlush(ticket).getId();
+            Ticket saved = ticketRepository.saveAndFlush(ticket);
+            ensureTicketIssued(saved, issuedAt);
+            return saved.getId();
+        }
+
+        /**
+         * Inserts {@code TICKET_ISSUED} in the caller's transaction using PostgreSQL
+         * {@code ON CONFLICT DO NOTHING} against {@code ux_outbox_ticket_issued_aggregate}.
+         * Concurrent duplicates are no-ops without poisoning the transaction.
+         */
+        void ensureTicketIssued(Ticket ticket, Instant now) {
+            String payload = "{\"ticketId\":\"" + ticket.getId()
+                    + "\",\"bookingId\":\"" + ticket.getBookingId()
+                    + "\",\"ticketNumber\":\"" + ticket.getTicketNumber() + "\"}";
+            entityManager.createNativeQuery("""
+                    INSERT INTO outbox_events (
+                        id, event_type, aggregate_type, aggregate_id, schema_version,
+                        correlation_id, causation_id, payload_json, occurred_at, published_at,
+                        attempt_count, created_at
+                    ) VALUES (
+                        :id, :eventType, :aggregateType, :aggregateId, 1,
+                        :correlationId, NULL, :payloadJson, :occurredAt, NULL,
+                        0, :createdAt
+                    )
+                    ON CONFLICT (aggregate_id) WHERE (event_type = 'TICKET_ISSUED') DO NOTHING
+                    """)
+                    .setParameter("id", UUID.randomUUID())
+                    .setParameter("eventType", TICKET_ISSUED)
+                    .setParameter("aggregateType", "TICKET")
+                    .setParameter("aggregateId", ticket.getId())
+                    .setParameter("correlationId", ticket.getBookingId().toString())
+                    .setParameter("payloadJson", payload)
+                    .setParameter("occurredAt", Timestamp.from(now))
+                    .setParameter("createdAt", Timestamp.from(now))
+                    .executeUpdate();
         }
     }
 }

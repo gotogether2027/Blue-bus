@@ -10,6 +10,8 @@ import in.bluebustickets.bluebus.booking.domain.BookingStatus;
 import in.bluebustickets.bluebus.booking.repository.BookingRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.foundation.outbox.OutboxEvent;
+import in.bluebustickets.bluebus.foundation.outbox.OutboxEventRepository;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
 import in.bluebustickets.bluebus.scheduling.repository.TripSeatAllocationRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -23,12 +25,15 @@ public class BookingPaymentService implements BookingPaymentPort {
 
     private final BookingRepository bookingRepository;
     private final TripSeatAllocationRepository allocationRepository;
+    private final OutboxEventRepository outboxEventRepository;
 
     public BookingPaymentService(
             BookingRepository bookingRepository,
-            TripSeatAllocationRepository allocationRepository) {
+            TripSeatAllocationRepository allocationRepository,
+            OutboxEventRepository outboxEventRepository) {
         this.bookingRepository = bookingRepository;
         this.allocationRepository = allocationRepository;
+        this.outboxEventRepository = outboxEventRepository;
     }
 
     @Override
@@ -78,6 +83,15 @@ public class BookingPaymentService implements BookingPaymentPort {
         }
 
         detailed.markConfirmed();
+        Instant confirmedAt = Instant.now();
+        outboxEventRepository.save(new OutboxEvent(
+                "BOOKING_CONFIRMED",
+                "BOOKING",
+                bookingId,
+                "{\"bookingId\":\"" + bookingId + "\"}",
+                confirmedAt,
+                null,
+                null));
         return detailed.getStatus();
     }
 

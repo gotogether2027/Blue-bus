@@ -409,6 +409,33 @@ class FlywayPostgresIntegrationTest {
         assertThat(statusCheck).contains("ACTIVE").contains("CANCELLED");
     }
 
+    @Test
+    void appliesOutboxTicketIssuedUniqueMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '14'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("14");
+            assertThat(migration.get("description")).hasToString("outbox ticket issued unique");
+            assertThat(migration.get("script")).hasToString("V14__outbox_ticket_issued_unique.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(indexExists("ux_outbox_ticket_issued_aggregate")).isTrue();
+
+        String indexDef = jdbcTemplate.queryForObject("""
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ux_outbox_ticket_issued_aggregate'
+                """, String.class);
+        assertThat(indexDef).containsIgnoringCase("UNIQUE");
+        assertThat(indexDef).contains("aggregate_id");
+        assertThat(indexDef).contains("TICKET_ISSUED");
+    }
+
     private boolean tableExists(String tableName) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)

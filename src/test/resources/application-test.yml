@@ -26,3 +26,9 @@ blue-bus:
       enabled: false
       reaper-interval-ms: 30000
       batch-size: 50
+  outbox:
+    enabled: true
+    processor:
+      enabled: false
+      poll-interval-ms: 5000
+      batch-size: 50

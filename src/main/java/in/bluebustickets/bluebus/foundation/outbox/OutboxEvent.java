@@ -69,7 +69,71 @@ public class OutboxEvent {
         this.createdAt = occurredAt;
         this.correlationId = correlationId;
         this.causationId = causationId;
+        this.attemptCount = 0;
     }
 
-    public UUID getId() { return id; }
+    public void markPublished(Instant at) {
+        if (at == null) {
+            throw new IllegalArgumentException("publishedAt is required");
+        }
+        if (this.publishedAt == null) {
+            this.publishedAt = at;
+        }
+    }
+
+    public void recordAttempt() {
+        this.attemptCount++;
+    }
+
+    public boolean isPublished() {
+        return publishedAt != null;
+    }
+
+    public UUID getId() {
+        return id;
+    }
+
+    public String getEventType() {
+        return eventType;
+    }
+
+    public String getAggregateType() {
+        return aggregateType;
+    }
+
+    public UUID getAggregateId() {
+        return aggregateId;
+    }
+
+    public int getSchemaVersion() {
+        return schemaVersion;
+    }
+
+    public String getCorrelationId() {
+        return correlationId;
+    }
+
+    public String getCausationId() {
+        return causationId;
+    }
+
+    public String getPayloadJson() {
+        return payloadJson;
+    }
+
+    public Instant getOccurredAt() {
+        return occurredAt;
+    }
+
+    public Instant getPublishedAt() {
+        return publishedAt;
+    }
+
+    public int getAttemptCount() {
+        return attemptCount;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

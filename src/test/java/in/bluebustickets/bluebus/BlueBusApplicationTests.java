@@ -8,7 +8,8 @@ import org.springframework.test.context.ActiveProfiles;
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
                 + "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,"
                 + "org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration",
-        "blue-bus.admin-master-data.enabled=false"
+        "blue-bus.admin-master-data.enabled=false",
+        "blue-bus.outbox.enabled=false"
 })
 @ActiveProfiles("test")
 class BlueBusApplicationTests {

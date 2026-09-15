@@ -204,7 +204,7 @@ public class VerifiedPaymentEventProcessor {
 
         writeOutbox("PAYMENT_SUCCEEDED", attempt, event, now);
         if (disposition == PaymentDisposition.APPLIED_TO_BOOKING) {
-            writeOutbox("BOOKING_CONFIRMED", attempt, event, now);
+            // BOOKING_CONFIRMED is written atomically inside confirmLockedPendingPayment.
             event.complete("BOOKING_CONFIRMED", now);
         } else {
             writeOutbox("PAYMENT_REQUIRES_RESOLUTION", attempt, event, now);

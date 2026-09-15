@@ -49,6 +49,14 @@ blue-bus:
       enabled: true
       reaper-interval-ms: 30000
       batch-size: 100
+  outbox:
+    # Enables local outbox processor beans (independent of admin master-data).
+    enabled: true
+    processor:
+      # Local DB consumer for BOOKING_CONFIRMED → ticket issuance. RabbitMQ remains deferred.
+      enabled: true
+      poll-interval-ms: 5000
+      batch-size: 50
   payments:
     # Set PAYMENT_PROVIDER=RAZORPAY and supply Razorpay environment secrets to enable checkout.
     default-provider: ${PAYMENT_PROVIDER:UNCONFIGURED}

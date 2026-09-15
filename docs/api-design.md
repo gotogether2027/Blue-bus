@@ -220,7 +220,9 @@ The webhook endpoint supplies the untouched request bytes and headers to the pro
 
 Success processing locks `booking → payment_attempt → allocations`. On-time success for `PENDING_PAYMENT` atomically records `SUCCEEDED / APPLIED_TO_BOOKING` and confirms Booking. If expiry/cancellation won, the payment is `SUCCEEDED / REQUIRES_RESOLUTION`; Booking and released/cancelled allocations stay unchanged. Amount/currency/reference mismatch follows the same reconciliation path.
 
-Deferred: additional providers, confirmed-booking cancellation policy, outbox publishing/RabbitMQ, event-driven ticket issuance (9.4B), PDF/QR, notifications.
+Deferred: additional providers, confirmed-booking cancellation policy, RabbitMQ publishing, PDF/QR, notifications.
+
+**Phase 9.4B:** When a booking transitions `PENDING_PAYMENT → CONFIRMED`, the confirmation transaction writes `BOOKING_CONFIRMED` to `outbox_events`. A scheduled local processor (`blue-bus.outbox.processor.*`, default every 5s, batch 50, `FOR UPDATE SKIP LOCKED`) issues the ticket idempotently and writes `TICKET_ISSUED` in the same transaction before marking the confirmation event published. Manual ticket POST remains safe.
 
 ## Customer tickets — Phase 9.4A foundation
 
@@ -231,7 +233,7 @@ Booking = commercial transaction. Ticket = immutable customer-facing travel docu
 | `POST` | `/api/v1/bookings/{bookingId}/tickets` | Bearer JWT (booking owner) | `201 Created` |
 | `GET` | `/api/v1/tickets/{ticketId}` | Bearer JWT (ticket owner) | `200 OK` |
 
-**Issuance rules:** only `CONFIRMED` bookings; idempotent (repeat calls return the same ticket); concurrent races resolve via `uq_tickets_booking` and return the winner. Non-owners and unknown IDs → `404`. Unauthenticated → `401`. Amounts come from persisted booking/item values — never recalculated and never accepted from the client. Booking confirmation does not depend on ticket generation; Phase 9.4B will consume `BOOKING_CONFIRMED` asynchronously.
+**Issuance rules:** only `CONFIRMED` bookings; idempotent (repeat calls return the same ticket); concurrent races resolve via `uq_tickets_booking` and return the winner. Non-owners and unknown IDs → `404`. Unauthenticated → `401`. Amounts come from persisted booking/item values — never recalculated and never accepted from the client. **Phase 9.4B** also issues tickets automatically from `BOOKING_CONFIRMED` outbox events; confirmation never depends on ticket generation completing inside the payment webhook.
 
 Example response:
 
