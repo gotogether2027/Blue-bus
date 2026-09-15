@@ -16,5 +16,7 @@ public interface RoutePointRepository extends JpaRepository<RoutePoint, UUID> {
 
     Optional<RoutePoint> findByIdAndRouteStop_Id(UUID id, UUID routeStopId);
 
+    Optional<RoutePoint> findByIdAndRouteStop_Route_Id(UUID id, UUID routeId);
+
     boolean existsByRouteStop_IdAndNameIgnoreCase(UUID routeStopId, String name);
 }

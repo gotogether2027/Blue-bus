@@ -2,6 +2,7 @@ package in.bluebustickets.bluebus.foundation.persistence;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -487,6 +488,66 @@ class FlywayPostgresIntegrationTest {
                 jdbcTemplate.execute("""
                         CREATE UNIQUE INDEX ux_buses_reg_probe_lower
                             ON buses_reg_probe (lower(registration_number))
+                        """));
+    }
+
+    @Test
+    void appliesRoutesOperatorCodeCiUniqueMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '16'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("16");
+            assertThat(migration.get("description")).hasToString("routes operator code ci unique");
+            assertThat(migration.get("script")).hasToString("V16__routes_operator_code_ci_unique.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(indexExists("ux_routes_operator_code_lower")).isTrue();
+        Integer oldConstraint = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_constraint
+                WHERE conname = 'uq_routes_operator_code'
+                """, Integer.class);
+        assertThat(oldConstraint).isZero();
+
+        String indexDef = jdbcTemplate.queryForObject("""
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ux_routes_operator_code_lower'
+                """, String.class);
+        assertThat(indexDef).containsIgnoringCase("UNIQUE");
+        assertThat(indexDef).containsIgnoringCase("lower");
+        assertThat(indexDef).contains("operator_id");
+        assertThat(indexDef).contains("code");
+
+        jdbcTemplate.execute("""
+                CREATE TEMP TABLE routes_code_probe (
+                    operator_id UUID NOT NULL,
+                    code VARCHAR(60) NOT NULL
+                )
+                """);
+        UUID operatorProbe = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO routes_code_probe VALUES (?, 'HYD-VJA'), (?, 'hyd-vja')",
+                operatorProbe,
+                operatorProbe);
+        Integer duplicateGroups = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM (
+                    SELECT 1
+                    FROM routes_code_probe
+                    GROUP BY operator_id, lower(code)
+                    HAVING COUNT(*) > 1
+                ) d
+                """, Integer.class);
+        assertThat(duplicateGroups).isEqualTo(1);
+        org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () ->
+                jdbcTemplate.execute("""
+                        CREATE UNIQUE INDEX ux_routes_code_probe_lower
+                            ON routes_code_probe (operator_id, lower(code))
                         """));
     }
 

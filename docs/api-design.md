@@ -491,12 +491,26 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 | `POST` | `/api/v1/operator/{operatorId}/members` | `OPERATOR_ADMIN` | `201` create membership for an **existing** platform user (`userId`, `role` ∈ `OPERATOR_ADMIN`/`OPERATOR_STAFF`). Path `operatorId` only; body `operatorId` rejected. Initial status `ACTIVE`. Duplicate `(operatorId,userId)` → `409`. Missing user → `404`. |
 | `PATCH` | `/api/v1/operator/{operatorId}/members/{userId}` | `OPERATOR_ADMIN` | `200` allow-list update of `role` and/or `status` (`ACTIVE`/`INACTIVE`). Empty body / unknown fields → `400`. Reactivates existing `INACTIVE` row (no second insert). |
 | `POST` | `/api/v1/operator/{operatorId}/members/{userId}/deactivate` | `OPERATOR_ADMIN` | `200` soft-deactivate (`ACTIVE`→`INACTIVE`). Already `INACTIVE` is idempotent `200`. |
+| `GET` | `/api/v1/operator/{operatorId}/routes` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` routes where `routes.operator_id = path operatorId`. Optional `status` filter. |
+| `GET` | `/api/v1/operator/{operatorId}/routes/{routeId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` route plus ordered stops/points, loaded by `(routeId, operatorId)` |
+| `POST` | `/api/v1/operator/{operatorId}/routes` | `OPERATOR_ADMIN` | `201` create route as `ACTIVE`. Body: `code`, `name`, `sourceLocationId`, `destinationLocationId`, optional nested `stops`/`points`. Path `operatorId` only. Zero stops allowed. Code unique per operator case-insensitively (`409`). Source ≠ destination; locations must exist. |
+| `PATCH` | `/api/v1/operator/{operatorId}/routes/{routeId}` | `OPERATOR_ADMIN` | `200` allow-list: `name`, `sourceLocationId`, `destinationLocationId` (presence-aware). Empty/unknown/`code`/`status`/`operatorId` → `400`. Name-only is safe with trips; source/destination change blocked if **any** trip exists → `409`. |
+| `POST` | `/api/v1/operator/{operatorId}/routes/{routeId}/activate` | `OPERATOR_ADMIN` | `200` → `ACTIVE` (idempotent) |
+| `POST` | `/api/v1/operator/{operatorId}/routes/{routeId}/deactivate` | `OPERATOR_ADMIN` | `200` → `INACTIVE` (idempotent). Does not cancel/alter trips or rewrite snapshots. |
+| `POST` | `/api/v1/operator/{operatorId}/routes/{routeId}/stops` | `OPERATOR_ADMIN` | `201` add stop (+ optional points). Structural; blocked if any trip exists → `409`. Sequence unique per route. |
+| `PATCH` | `/api/v1/operator/{operatorId}/routes/{routeId}/stops/{stopId}` | `OPERATOR_ADMIN` | `200` update stop fields. Structural; blocked if any trip exists → `409`. Stop must belong to path route/operator (`404` otherwise). |
+| `POST` | `/api/v1/operator/{operatorId}/routes/{routeId}/stops/{stopId}/points` | `OPERATOR_ADMIN` | `201` add point. Structural detail mutation; blocked if any trip exists → `409`. |
+| `PATCH` | `/api/v1/operator/{operatorId}/routes/{routeId}/stops/{stopId}/points/{pointId}` | `OPERATOR_ADMIN` | `200` update point details. Structural; blocked if any trip exists → `409`. |
+| `POST` | `/api/v1/operator/{operatorId}/routes/{routeId}/points/{pointId}/activate` | `OPERATOR_ADMIN` | `200` → active (idempotent). Safe even when trips exist; does not rewrite `trip_points`. Point scoped by `(routeId, operatorId)`. |
+| `POST` | `/api/v1/operator/{operatorId}/routes/{routeId}/points/{pointId}/deactivate` | `OPERATOR_ADMIN` | `200` → inactive (idempotent). Safe even when trips exist; does not rewrite `trip_points`. |
 
 **Membership administration (Phase 9.5E):** Mutations run in one transaction. Sequence: early `requireMember(OPERATOR_ADMIN)` → `operators` row `FOR UPDATE` → **re-read/revalidate** the caller's ACTIVE `OPERATOR_ADMIN` membership and operator `ACTIVE` status from the database (refresh; not the pre-lock persistence snapshot) → target `operator_users` `PESSIMISTIC_WRITE` → count ACTIVE `OPERATOR_ADMIN` rows and apply the change. Concurrent demotion/deactivation of the caller between the early check and the lock cannot complete a privileged mutation on stale authorization (`403` if demoted to staff, `404` if membership inactive/missing). Any demote/deactivate that would leave zero ACTIVE `OPERATOR_ADMIN` memberships returns `409` (including self-demotion/self-deactivate of the last admin). Concurrent membership creates for the same pair serialize on the operator row; the composite PK remains authoritative (`409` on conflict). Platform `ADMIN`/`SUPER_ADMIN` are still not auto-admitted. Inactive/suspended **actor** platform users remain `401`. Target platform users may be inactive when assigned a membership row; they still cannot authorize into the operator namespace until the platform user is `ACTIVE` again. No membership outbox event in this phase.
 
 **Bus administration (Phase 9.5A):** Dedicated `OperatorBusAdminService` (does not call `BusAdminService`). Existing-bus mutations: early `requireMember(OPERATOR_ADMIN)` → load/lock `buses` by `(id, operatorId)` `FOR UPDATE` → revalidate ACTIVE `OPERATOR_ADMIN` + operator `ACTIVE` → mutate. Create uses app ignore-case registration check plus DB-authoritative unique index `ux_buses_registration_number_lower` on `lower(registration_number)` (V15; case-sensitive column unique dropped). Seat-layout reassignment requires same-operator `PUBLISHED` layout and **zero** trip rows for the bus (`409` otherwise); composite FK `fk_trips_bus_selected_layout` remains final integrity. Deactivate/maintenance do not cancel trips; new trips still require `bus.isActive()`. No bus outbox events.
 
-**Resource ownership:** buses and trips are loaded with both resource id and path `operatorId`. A resource that exists for another operator returns generic `404`. Membership rows are loaded by `(operatorId, userId)` under the path operator; a user who is only a member of another operator returns generic `404` (no existence leak).
+**Route administration (Phase 9.5B):** Dedicated `OperatorRouteAdminService` (does not call `RouteAdminService`). Existing-route mutations: early `requireMember(OPERATOR_ADMIN)` → load/lock `routes` by `(id, operatorId)` `FOR UPDATE` → revalidate ACTIVE `OPERATOR_ADMIN` + operator `ACTIVE` → if structural, refuse when **any** trip references the route (`existsByRoute_Id`) → mutate. Create uses app ignore-case `(operatorId, code)` check plus DB unique index `ux_routes_operator_code_lower` on `(operator_id, lower(code))` (V16; case-sensitive `uq_routes_operator_code` dropped). Only violations of that index map to `"Route code already exists for this operator."` (`409`). Name-only PATCH and route/point activate/deactivate remain safe after trips; source/destination, stop mutations, and point detail mutations are structural (`409`). Master route edits never rewrite `trip_stops` / `trip_points`. No route DELETE, no status PATCH, no `ROUTE_*` outbox events.
+
+**Resource ownership:** buses, trips, and routes are loaded with both resource id and path `operatorId`. A resource that exists for another operator returns generic `404`. Nested stop/point paths are scoped `operatorId → routeId → stopId → pointId` (point activate/deactivate use `operatorId → routeId → pointId`). Membership rows are loaded by `(operatorId, userId)` under the path operator; a user who is only a member of another operator returns generic `404` (no existence leak).
 
 **Booking dual-check:** `bookings.operator_id` has no FK to `operators`. After authorizing membership and loading the trip by `(tripId, operatorId)`, a booking is visible only when `booking.operator_id == path operatorId` **and** `booking.trip_id` is that trip (whose `operator_id` also equals the path). Disagreement → `404` and no payload. Passengers/items are never authorized apart from the parent booking.
 
@@ -507,21 +521,21 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 | Status | When |
 |---|---|
 | `401` | missing/invalid/expired JWT, or `SUSPENDED`/`INACTIVE` user |
-| `404` | unknown operator, no membership, inactive membership, cross-operator resource, booking not on the requested trip/operator, target platform user not found on create, cross-operator seat layout, missing bus/type, IDOR |
-| `403` | ACTIVE member with insufficient role (for example STAFF on PATCH/members/bus mutate), stale demoted caller after post-lock revalidation, or ACTIVE member whose operator is not `ACTIVE` |
-| `400` | validation / unknown PATCH fields / malformed input / empty membership or bus PATCH / invalid operator membership role |
-| `409` | duplicate membership create, last ACTIVE `OPERATOR_ADMIN` protection, bus registration conflict (case-insensitive), seat-layout change while any trip exists, inactive bus type / non-PUBLISHED layout assignment |
+| `404` | unknown operator, no membership, inactive membership, cross-operator resource, booking not on the requested trip/operator, target platform user not found on create, cross-operator seat layout, missing bus/type/route/stop/point/location, IDOR |
+| `403` | ACTIVE member with insufficient role (for example STAFF on PATCH/members/bus/route mutate), stale demoted caller after post-lock revalidation, or ACTIVE member whose operator is not `ACTIVE` |
+| `400` | validation / unknown PATCH fields / malformed input / empty membership, bus, or route PATCH / invalid operator membership role / source == destination |
+| `409` | duplicate membership create, last ACTIVE `OPERATOR_ADMIN` protection, bus registration conflict (case-insensitive), seat-layout change while any trip exists, inactive bus type / non-PUBLISHED layout assignment, route code conflict (case-insensitive per operator), stop sequence conflict, structural route/stop/point mutation while any trip exists |
 
 Do not leak membership existence, another operator's existence, or another user's ownership. A customer without membership receives the same generic `404` as an unknown operator UUID.
 
 **Role matrix:**
 
-| Caller | `/api/v1/admin/**` | Own ACTIVE operator | Other operator | PATCH support contact | Members list | Members mutate | Bus mutate |
-|---|---|---|---|---|---|---|---|
-| `ADMIN` / `SUPER_ADMIN` | allowed (9.2A) | not auto-authorized (`404` unless they also have an ACTIVE membership) | `404` | n/a | n/a | n/a | n/a |
-| `CUSTOMER` (no membership) | `403` | `404` | `404` | `404` | `404` | `404` | `404` |
-| `OPERATOR_ADMIN` | `403` | allowed | `404` | allowed | allowed | allowed | allowed |
-| `OPERATOR_STAFF` | `403` | reads allowed | `404` | `403` | allowed | `403` | `403` |
+| Caller | `/api/v1/admin/**` | Own ACTIVE operator | Other operator | PATCH support contact | Members list | Members mutate | Bus mutate | Route mutate |
+|---|---|---|---|---|---|---|---|---|
+| `ADMIN` / `SUPER_ADMIN` | allowed (9.2A) | not auto-authorized (`404` unless they also have an ACTIVE membership) | `404` | n/a | n/a | n/a | n/a | n/a |
+| `CUSTOMER` (no membership) | `403` | `404` | `404` | `404` | `404` | `404` | `404` | `404` |
+| `OPERATOR_ADMIN` | `403` | allowed | `404` | allowed | allowed | allowed | allowed | allowed |
+| `OPERATOR_STAFF` | `403` | reads allowed | `404` | `403` | allowed | `403` | `403` | `403` |
 
 A user may hold ACTIVE memberships in multiple operators; each path `operatorId` is authorized independently.
 
@@ -532,7 +546,7 @@ A user may hold ACTIVE memberships in multiple operators; each path `operatorId`
 | `/api/v1/auth` | register, login, refresh, logout, `GET /operator-memberships` | public/authenticated as applicable |
 | `/api/v1/users` | current profile, customer profile | authenticated owner/admin |
 | `/api/v1/admin/users`, `/roles`, `/permissions` | user/role administration | authorized admin |
-| `/api/v1/operator/{operatorId}` | operator profile, fleet/trip reads, bus writes, trip booking manifest, membership administration | ACTIVE `operator_users` membership; path `operatorId` is the tenant |
+| `/api/v1/operator/{operatorId}` | operator profile, fleet/trip/route reads, bus/route writes, trip booking manifest, membership administration | ACTIVE `operator_users` membership; path `operatorId` is the tenant |
 | `/api/v1/bus-types`, `/buses`, `/seat-layouts` | fleet master data | scoped operator/admin |
 | `/api/v1/locations`, `/routes`, `/trips` | search network; manage routes/schedules | public read / scoped write |
 | `/api/v1/search` | origin, destination, service date, passenger count search | public |

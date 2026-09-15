@@ -5,7 +5,7 @@
 - **Operator:** organization that supplies buses and operates trips.
 - **Bus:** physical vehicle belonging to one operator.
 - **Seat layout:** reusable template describing physical seats; a layout version must not be silently changed after trips use it.
-- **Route:** reusable ordered network path. A route may have multiple boarding/drop points at its stops.
+- **Route:** reusable ordered network path (`ACTIVE`/`INACTIVE`). A route may have multiple boarding/drop points at its stops. Create starts `ACTIVE`. Deactivate/activate are idempotent and do not cancel trips or rewrite trip snapshots. After **any** trip references the route, structural master edits (source/destination, stops, point details) are refused; name-only and point activate/deactivate remain allowed.
 - **Trip:** one scheduled journey of one bus on one route, with an operating/service date.
 - **Trip inventory:** the physical-seat snapshot for one trip. It is independent from the bus's permanent seat definition.
 - **Seat allocation:** a held or booked seat for one origin-to-destination sequence range. It prevents overlap, while allowing the same physical seat to be sold for a later non-overlapping segment.
@@ -46,7 +46,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 
 ## Lifecycle rules
 
-1. A scheduler/operator creates a trip from a route, bus, and seat-layout version.
+1. A scheduler/operator creates a trip from an **ACTIVE** route, bus, and seat-layout version. Trip creation snapshots `trip_stops` / `trip_points` from the master route; later master route edits must not rewrite those snapshots.
 2. The system generates one inventory row per sellable layout seat. This snapshot preserves history if a bus layout later changes.
 3. Checkout atomically creates HELD allocations for requested seats and the requested origin/destination sequence range. Active allocations for overlapping ranges cannot coexist for the same inventory seat.
 4. A pending booking is created from held seats; payment attempts reference that booking.

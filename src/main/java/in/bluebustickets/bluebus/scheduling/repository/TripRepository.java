@@ -20,6 +20,8 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
 
     boolean existsByBus_Id(UUID busId);
 
+    boolean existsByRoute_Id(UUID routeId);
+
     Optional<Trip> findByIdAndOperator_Id(UUID id, UUID operatorId);
 
     List<Trip> findByOperator_IdOrderByScheduledDepartureAtAsc(UUID operatorId);
