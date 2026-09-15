@@ -15,6 +15,9 @@ import in.bluebustickets.bluebus.booking.api.dto.BookingResponse;
 import in.bluebustickets.bluebus.booking.api.dto.BookingTripPointResponse;
 import in.bluebustickets.bluebus.booking.api.dto.BookingTripResponse;
 import in.bluebustickets.bluebus.booking.api.dto.BookingTripStopResponse;
+import in.bluebustickets.bluebus.booking.api.operator.dto.OperatorBookingItemResponse;
+import in.bluebustickets.bluebus.booking.api.operator.dto.OperatorBookingPassengerResponse;
+import in.bluebustickets.bluebus.booking.api.operator.dto.OperatorBookingResponse;
 import in.bluebustickets.bluebus.booking.domain.Booking;
 import in.bluebustickets.bluebus.scheduling.domain.PointType;
 import in.bluebustickets.bluebus.scheduling.domain.Trip;
@@ -47,6 +50,10 @@ public class BookingViewMapper {
         return toResponses(List.of(booking)).get(0);
     }
 
+    public OperatorBookingResponse toOperatorResponse(Booking booking) {
+        return toOperatorResponses(List.of(booking)).get(0);
+    }
+
     public List<BookingResponse> toResponses(Collection<Booking> bookings) {
         if (bookings.isEmpty()) {
             return List.of();
@@ -76,6 +83,38 @@ public class BookingViewMapper {
 
         return bookings.stream()
                 .map(booking -> map(booking, trips, stops, pointsByStop))
+                .toList();
+    }
+
+    public List<OperatorBookingResponse> toOperatorResponses(Collection<Booking> bookings) {
+        if (bookings.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, Trip> trips = tripRepository.findGraphByIdIn(
+                        bookings.stream().map(Booking::getTripId).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(Trip::getId, trip -> trip));
+
+        var stopIds = bookings.stream()
+                .flatMap(booking -> java.util.stream.Stream.of(
+                        booking.getOriginTripStopId(), booking.getDestinationTripStopId()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<UUID, TripStop> stops = stopIds.isEmpty()
+                ? Map.of()
+                : tripStopRepository.findWithLocationByIdIn(stopIds).stream()
+                        .collect(Collectors.toMap(TripStop::getId, stop -> stop));
+        Map<UUID, List<TripPoint>> pointsByStop = stopIds.isEmpty()
+                ? Map.of()
+                : tripPointRepository.findByTripStop_IdInOrderByNameAsc(stopIds).stream()
+                        .filter(TripPoint::isActive)
+                        .collect(Collectors.groupingBy(
+                                point -> point.getTripStop().getId(),
+                                HashMap::new,
+                                Collectors.toList()));
+
+        return bookings.stream()
+                .map(booking -> mapOperator(booking, trips, stops, pointsByStop))
                 .toList();
     }
 
@@ -153,6 +192,46 @@ public class BookingViewMapper {
                         mapStop(destination, pointsByStop, point ->
                                 point.getPointType() == PointType.DROPPING
                                         || point.getPointType() == PointType.BOTH)));
+    }
+
+    private static OperatorBookingResponse mapOperator(
+            Booking booking,
+            Map<UUID, Trip> trips,
+            Map<UUID, TripStop> stops,
+            Map<UUID, List<TripPoint>> pointsByStop) {
+        BookingResponse customerView = map(booking, trips, stops, pointsByStop);
+        List<OperatorBookingItemResponse> items = booking.getItems().stream()
+                .map(item -> new OperatorBookingItemResponse(
+                        item.getId(),
+                        item.getPassenger() == null ? null : item.getPassenger().getId(),
+                        item.getSeatNumber(),
+                        item.getSeatType(),
+                        item.getOriginSequence(),
+                        item.getDestinationSequence(),
+                        item.getStatus()))
+                .toList();
+        List<OperatorBookingPassengerResponse> passengers = booking.getPassengers().stream()
+                .map(passenger -> new OperatorBookingPassengerResponse(
+                        passenger.getId(),
+                        passenger.getFullName(),
+                        passenger.getAge(),
+                        passenger.getGender()))
+                .toList();
+        return new OperatorBookingResponse(
+                customerView.bookingId(),
+                customerView.bookingReference(),
+                customerView.status(),
+                customerView.tripId(),
+                customerView.originSequence(),
+                customerView.destinationSequence(),
+                customerView.originTripStopId(),
+                customerView.destinationTripStopId(),
+                customerView.currency(),
+                customerView.totalAmount(),
+                customerView.createdAt(),
+                items,
+                passengers,
+                customerView.trip());
     }
 
     private static BookingTripStopResponse mapStop(

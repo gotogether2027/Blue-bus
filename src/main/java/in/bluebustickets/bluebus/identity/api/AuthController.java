@@ -1,5 +1,7 @@
 package in.bluebustickets.bluebus.identity.api;
 
+import java.util.List;
+
 import in.bluebustickets.bluebus.identity.api.dto.CustomerIdentityResponse;
 import in.bluebustickets.bluebus.identity.api.dto.LoginRequest;
 import in.bluebustickets.bluebus.identity.api.dto.LoginResponse;
@@ -9,6 +11,8 @@ import in.bluebustickets.bluebus.identity.application.AuthenticationService;
 import in.bluebustickets.bluebus.identity.application.CurrentUserService;
 import in.bluebustickets.bluebus.identity.application.CustomerRegistrationService;
 import in.bluebustickets.bluebus.identity.application.RefreshTokenService;
+import in.bluebustickets.bluebus.operator.api.dto.OperatorMembershipResponse;
+import in.bluebustickets.bluebus.operator.application.OperatorMembershipQueryService;
 import jakarta.validation.Valid;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
@@ -34,16 +38,19 @@ public class AuthController {
     private final CustomerRegistrationService customerRegistrationService;
     private final CurrentUserService currentUserService;
     private final RefreshTokenService refreshTokenService;
+    private final OperatorMembershipQueryService operatorMembershipQueryService;
 
     public AuthController(
             AuthenticationService authenticationService,
             CustomerRegistrationService customerRegistrationService,
             CurrentUserService currentUserService,
-            RefreshTokenService refreshTokenService) {
+            RefreshTokenService refreshTokenService,
+            OperatorMembershipQueryService operatorMembershipQueryService) {
         this.authenticationService = authenticationService;
         this.customerRegistrationService = customerRegistrationService;
         this.currentUserService = currentUserService;
         this.refreshTokenService = refreshTokenService;
+        this.operatorMembershipQueryService = operatorMembershipQueryService;
     }
 
     @PostMapping("/register")
@@ -74,5 +81,11 @@ public class AuthController {
     @ResponseStatus(HttpStatus.OK)
     public CustomerIdentityResponse me(Authentication authentication) {
         return currentUserService.currentUser(authentication);
+    }
+
+    @GetMapping("/operator-memberships")
+    @ResponseStatus(HttpStatus.OK)
+    public List<OperatorMembershipResponse> operatorMemberships() {
+        return operatorMembershipQueryService.listCurrent();
     }
 }

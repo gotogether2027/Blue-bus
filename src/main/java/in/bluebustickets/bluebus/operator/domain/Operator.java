@@ -54,6 +54,11 @@ public class Operator extends AuditableEntity {
         this.supportPhoneE164 = supportPhoneE164;
     }
 
+    public void updateSupportContact(String supportEmail, String supportPhoneE164) {
+        this.supportEmail = supportEmail;
+        this.supportPhoneE164 = supportPhoneE164;
+    }
+
     /**
      * Moves an operator into ACTIVE service. Allowed from PENDING, SUSPENDED, or INACTIVE.
      */

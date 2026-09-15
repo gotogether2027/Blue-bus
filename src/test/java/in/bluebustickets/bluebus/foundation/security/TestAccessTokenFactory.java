@@ -92,6 +92,33 @@ public class TestAccessTokenFactory {
         return issueToken(user, jwtRoles);
     }
 
+    public IssuedOperatorMember issueActiveOperatorMember(RoleCode operatorRole, List<String> jwtRoles) {
+        if (operatorRole.requiredScope() != RoleScope.OPERATOR) {
+            throw new IllegalArgumentException("Operator member factory requires an OPERATOR role");
+        }
+        User user = persistUser(UserStatus.ACTIVE);
+        Operator operator = persistActiveOperator();
+        Role role = roleRepository.findByCode(operatorRole).orElseThrow();
+        operatorUserRepository.saveAndFlush(new OperatorUser(operator, user, role));
+        IssuedUser issued = issueToken(user, jwtRoles);
+        return new IssuedOperatorMember(issued.user(), issued.accessToken(), operator);
+    }
+
+    public Operator persistActiveOperator() {
+        Operator operator = operatorRepository.saveAndFlush(
+                new Operator("Portal Operator " + UUID.randomUUID(), "Portal Op " + UUID.randomUUID()));
+        operator.activate();
+        return operatorRepository.saveAndFlush(operator);
+    }
+
+    public OperatorUser attachMembership(Operator operator, User user, RoleCode operatorRole) {
+        if (operatorRole.requiredScope() != RoleScope.OPERATOR) {
+            throw new IllegalArgumentException("Operator member factory requires an OPERATOR role");
+        }
+        Role role = roleRepository.findByCode(operatorRole).orElseThrow();
+        return operatorUserRepository.saveAndFlush(new OperatorUser(operator, user, role));
+    }
+
     public IssuedUser issueToken(User user, List<String> jwtRoles) {
         String token = jwtTokenService.issueAccessToken(user.getId(), user.getEmail(), jwtRoles).tokenValue();
         return new IssuedUser(user, token);
@@ -118,5 +145,8 @@ public class TestAccessTokenFactory {
     }
 
     public record IssuedUser(User user, String accessToken) {
+    }
+
+    public record IssuedOperatorMember(User user, String accessToken, Operator operator) {
     }
 }

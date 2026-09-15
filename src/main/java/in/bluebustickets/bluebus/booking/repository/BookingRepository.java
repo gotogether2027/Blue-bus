@@ -55,6 +55,30 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     List<Booking> findDetailedByUserIdOrderByCreatedAtDesc(@Param("userId") UUID userId);
 
     @Query("""
+            select distinct b from Booking b
+            left join fetch b.passengers
+            left join fetch b.items i
+            left join fetch i.passenger
+            where b.tripId = :tripId and b.operatorId = :operatorId
+            order by b.createdAt desc
+            """)
+    List<Booking> findDetailedByTripIdAndOperatorId(
+            @Param("tripId") UUID tripId,
+            @Param("operatorId") UUID operatorId);
+
+    @Query("""
+            select distinct b from Booking b
+            left join fetch b.passengers
+            left join fetch b.items i
+            left join fetch i.passenger
+            where b.id = :id and b.tripId = :tripId and b.operatorId = :operatorId
+            """)
+    Optional<Booking> findDetailedByIdAndTripIdAndOperatorId(
+            @Param("id") UUID id,
+            @Param("tripId") UUID tripId,
+            @Param("operatorId") UUID operatorId);
+
+    @Query("""
             select b.id from Booking b
             where b.status = :status and b.paymentExpiresAt <= :now
             order by b.paymentExpiresAt asc

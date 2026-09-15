@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.scheduling.domain.Trip;
@@ -16,6 +17,17 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
 
     boolean existsByBus_IdAndServiceDateAndScheduledDepartureAt(
             UUID busId, LocalDate serviceDate, Instant scheduledDepartureAt);
+
+    Optional<Trip> findByIdAndOperator_Id(UUID id, UUID operatorId);
+
+    List<Trip> findByOperator_IdOrderByScheduledDepartureAtAsc(UUID operatorId);
+
+    List<Trip> findByOperator_IdAndServiceDateOrderByScheduledDepartureAtAsc(UUID operatorId, LocalDate serviceDate);
+
+    List<Trip> findByOperator_IdAndStatusOrderByScheduledDepartureAtAsc(UUID operatorId, TripStatus status);
+
+    List<Trip> findByOperator_IdAndServiceDateAndStatusOrderByScheduledDepartureAtAsc(
+            UUID operatorId, LocalDate serviceDate, TripStatus status);
 
     List<Trip> findAllByOrderByScheduledDepartureAtAsc();
 

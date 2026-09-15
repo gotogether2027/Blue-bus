@@ -105,9 +105,11 @@ Configuration:
 
 Public without a token: health, **register**, login, **refresh**, **logout**, **trip search**, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes and refresh-token hashes are never returned.
 
-**Phase 9.2A authorization:** protected application requests re-check `users.status` in the database. An otherwise valid access JWT for a `SUSPENDED` or `INACTIVE` user receives generic `401` (same envelope as a missing/invalid JWT). Existing `/api/v1/admin/**` application services additionally require `user_roles` to contain `ADMIN` or `SUPER_ADMIN`; authenticated callers without that privilege receive `403`. JWT `roles` claims are not used as the source of truth for platform admin. Customer booking/payment APIs remain owner-based (`JWT sub` == resource owner) and do **not** require a `CUSTOMER` role. Operator portal APIs are not in this slice.
+**Phase 9.2A authorization:** protected application requests re-check `users.status` in the database. An otherwise valid access JWT for a `SUSPENDED` or `INACTIVE` user receives generic `401` (same envelope as a missing/invalid JWT). Existing `/api/v1/admin/**` application services additionally require `user_roles` to contain `ADMIN` or `SUPER_ADMIN`; authenticated callers without that privilege receive `403`. JWT `roles` claims are not used as the source of truth for platform admin. Customer booking/payment APIs remain owner-based (`JWT sub` == resource owner) and do **not** require a `CUSTOMER` role.
 
-Deferred: password reset, email/phone verification, profile editing, permission catalogs, operator-scoped HTTP authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup), access-token denylist.
+**Phase 9.2B operator portal:** `/api/v1/operator/{operatorId}/**` is a separate tenant namespace. The path `operatorId` is the only tenant selector. `OperatorAuthorizationService` loads `operator_users` for `(path operatorId, JWT sub)` on every request; JWT `roles` and any client-supplied `userId`/`operatorId` are not proof of membership. Platform `ADMIN`/`SUPER_ADMIN` are **not** auto-admitted. See the operator-portal section below.
+
+Deferred: password reset, email/phone verification, profile editing, permission catalogs, operator trip/inventory writes, membership administration, operator payment/refund/settlement APIs, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup), access-token denylist, Redis, audit log.
 
 ## Customer bookings — Phase 9.1 foundation + unpaid expiry + V12 views/cancellation
 
@@ -395,14 +397,60 @@ Lifecycle uses existing `TripStatus` (`DRAFT`, `SCHEDULED`, `ON_SALE`, `CLOSED`,
 - `POST /api/v1/admin/trips/{id}/activate`
 - `POST /api/v1/admin/trips/{id}/deactivate`
 
+## Operator portal — Phase 9.2B foundation
+
+Operator APIs live under `/api/v1/operator/{operatorId}/...`. HTTP security remains `authenticated()`; application services call `OperatorAuthorizationService.requireMember(pathOperatorId, allowedOperatorRoles...)`. Platform `AuthorizationService` is unchanged and still owns ACTIVE-user and `/api/v1/admin/**` checks.
+
+Membership is one row in `operator_users` per `(operator_id, user_id)` with a single operator-scoped role (`OPERATOR_ADMIN` or `OPERATOR_STAFF`) and `ACTIVE`/`INACTIVE` status. JWT `roles` are ignored for operator authorization. Membership and operator status are re-read from PostgreSQL on every request (no Redis, no active-operator session, no membership claims in the access JWT).
+
+| Method | Path | Allowed membership | Success |
+|---|---|---|---|
+| `GET` | `/api/v1/auth/operator-memberships` | any ACTIVE user | `200` list of ACTIVE memberships on ACTIVE operators (`operatorId`, `operatorDisplayName`, `role`). Empty list when none. Query `userId`/`operatorId` are ignored. |
+| `GET` | `/api/v1/operator/{operatorId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` safe operator profile |
+| `PATCH` | `/api/v1/operator/{operatorId}` | `OPERATOR_ADMIN` | `200` support email/phone only. Authorization and update share one transaction. Unknown body fields (including `id`, `operatorId`, `userId`, `status`, legal/display name, role) → `400`. |
+| `GET` | `/api/v1/operator/{operatorId}/buses` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` buses where `buses.operator_id = path operatorId` |
+| `GET` | `/api/v1/operator/{operatorId}/buses/{busId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` loaded by `(busId, operatorId)` |
+| `GET` | `/api/v1/operator/{operatorId}/trips` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` trips where `trips.operator_id = path operatorId`. Optional `serviceDate`/`status` filters. |
+| `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` loaded by `(tripId, operatorId)` |
+| `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}/bookings` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` trip-scoped manifest |
+| `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}/bookings/{bookingId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` one booking |
+
+**Resource ownership:** buses and trips are loaded with both resource id and path `operatorId`. A resource that exists for another operator returns generic `404`.
+
+**Booking dual-check:** `bookings.operator_id` has no FK to `operators`. After authorizing membership and loading the trip by `(tripId, operatorId)`, a booking is visible only when `booking.operator_id == path operatorId` **and** `booking.trip_id` is that trip (whose `operator_id` also equals the path). Disagreement → `404` and no payload. Passengers/items are never authorized apart from the parent booking.
+
+**Operator booking DTO:** operational fields only (reference, status, trip identity, origin/destination, seat number, passenger name/age/gender, booking total, currency). Excludes customer email/phone, `userId`, hold id, idempotency key, payment expiry, payment-attempt/provider/refund/ledger fields, checkout URLs. Customer `GET /api/v1/bookings/{bookingId}` and `GET /api/v1/payments/{paymentAttemptId}` ownership `404` behavior is unchanged.
+
+**Error semantics (operator namespace):**
+
+| Status | When |
+|---|---|
+| `401` | missing/invalid/expired JWT, or `SUSPENDED`/`INACTIVE` user |
+| `404` | unknown operator, no membership, inactive membership, cross-operator resource, booking not on the requested trip/operator, IDOR |
+| `403` | ACTIVE member with insufficient role (for example STAFF on PATCH), or ACTIVE member whose operator is not `ACTIVE` |
+| `400` | validation / unknown PATCH fields / malformed input |
+
+Do not leak membership existence, another operator's existence, or another user's ownership. A customer without membership receives the same generic `404` as an unknown operator UUID.
+
+**Role matrix:**
+
+| Caller | `/api/v1/admin/**` | Own ACTIVE operator | Other operator | PATCH support contact |
+|---|---|---|---|---|
+| `ADMIN` / `SUPER_ADMIN` | allowed (9.2A) | not auto-authorized (`404` unless they also have an ACTIVE membership) | `404` | n/a |
+| `CUSTOMER` (no membership) | `403` | `404` | `404` | `404` |
+| `OPERATOR_ADMIN` | `403` | allowed | `404` | allowed |
+| `OPERATOR_STAFF` | `403` | reads allowed | `404` | `403` |
+
+A user may hold ACTIVE memberships in multiple operators; each path `operatorId` is authorized independently.
+
 ## Endpoint groups (examples only)
 
 | Group | Example responsibilities | Access |
 |---|---|---|
-| `/api/v1/auth` | register, login, refresh, logout, password recovery | public/authenticated as applicable |
+| `/api/v1/auth` | register, login, refresh, logout, `GET /operator-memberships` | public/authenticated as applicable |
 | `/api/v1/users` | current profile, customer profile | authenticated owner/admin |
 | `/api/v1/admin/users`, `/roles`, `/permissions` | user/role administration | authorized admin |
-| `/api/v1/operators` | operator onboarding/profile; operator membership | operator admin/platform admin |
+| `/api/v1/operator/{operatorId}` | operator profile, fleet/trip reads, trip booking manifest | ACTIVE `operator_users` membership; path `operatorId` is the tenant |
 | `/api/v1/bus-types`, `/buses`, `/seat-layouts` | fleet master data | scoped operator/admin |
 | `/api/v1/locations`, `/routes`, `/trips` | search network; manage routes/schedules | public read / scoped write |
 | `/api/v1/search` | origin, destination, service date, passenger count search | public |
