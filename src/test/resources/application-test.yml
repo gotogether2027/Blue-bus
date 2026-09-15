@@ -9,3 +9,8 @@ blue-bus:
     jwt:
       issuer: test-issuer
       secret: test-only-placeholder-not-a-secret
+  seat-holds:
+    expiry:
+      enabled: false
+      reaper-interval-ms: 60000
+      batch-size: 50

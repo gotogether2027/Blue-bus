@@ -35,7 +35,7 @@ Customer-facing journey availability for a requested OD segment is a **read-only
 
 Customer-facing UI vocabulary `AVAILABLE` / `HELD` / `BOOKED` / `BLOCKED` for a requested journey remains **derived** from physical inventory plus overlapping active allocations. It is not stored as a whole-trip flag on `TripSeatInventory`. Physical inventory status is only `AVAILABLE` or `BLOCKED`.
 
-V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Bookings and payments remain deferred.
+V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Phase 7.4 adds an explicit hold expiry reaper: due `ACTIVE` holds (`expires_at <= now`) become `EXPIRED` and their `HELD` allocations become `EXPIRED` in one DB transaction per hold (`FOR UPDATE SKIP LOCKED`). Availability does **not** invent implicit expiry from timestamps — only the committed state change stops blocking. Bookings and payments remain deferred.
 
 `trips.base_fare` is a temporary draft/default. Future origin–destination prices belong on `trip_fares`.
 

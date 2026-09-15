@@ -26,6 +26,11 @@ blue-bus:
     jwt:
       issuer: ${JWT_ISSUER:blue-bus}
       secret: ${JWT_SECRET:}
+  seat-holds:
+    expiry:
+      enabled: true
+      reaper-interval-ms: 30000
+      batch-size: 100
 
 logging:
   level:

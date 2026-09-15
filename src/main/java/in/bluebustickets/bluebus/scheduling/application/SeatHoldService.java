@@ -1,5 +1,6 @@
 package in.bluebustickets.bluebus.scheduling.application;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -29,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Foundation service for temporary multi-seat segment holds.
  * Not a customer booking API. PostgreSQL exclusion remains the concurrency guard.
+ * Consume/cancel/expire take a pessimistic hold row lock so they serialize with the expiry reaper.
  */
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
@@ -39,18 +41,21 @@ public class SeatHoldService {
     private final TripSeatInventoryRepository tripSeatInventoryRepository;
     private final SeatHoldRepository seatHoldRepository;
     private final TripSeatAllocationRepository tripSeatAllocationRepository;
+    private final Clock clock;
 
     public SeatHoldService(
             TripRepository tripRepository,
             TripStopRepository tripStopRepository,
             TripSeatInventoryRepository tripSeatInventoryRepository,
             SeatHoldRepository seatHoldRepository,
-            TripSeatAllocationRepository tripSeatAllocationRepository) {
+            TripSeatAllocationRepository tripSeatAllocationRepository,
+            Clock clock) {
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
         this.tripSeatInventoryRepository = tripSeatInventoryRepository;
         this.seatHoldRepository = seatHoldRepository;
         this.tripSeatAllocationRepository = tripSeatAllocationRepository;
+        this.clock = clock;
     }
 
     @Transactional
@@ -84,7 +89,7 @@ public class SeatHoldService {
         if (requestedInventoryIds == null || requestedInventoryIds.isEmpty()) {
             throw new IllegalArgumentException("Seat hold requires at least one inventory id");
         }
-        if (expiresAt == null || !expiresAt.isAfter(Instant.now())) {
+        if (expiresAt == null || !expiresAt.isAfter(clock.instant())) {
             throw new IllegalArgumentException("Seat hold expires_at must be in the future");
         }
         if (originSequence < 1 || destinationSequence <= originSequence) {
@@ -171,7 +176,7 @@ public class SeatHoldService {
 
     @Transactional
     public SeatHoldResult consume(UUID holdId) {
-        SeatHold hold = requireHold(holdId);
+        SeatHold hold = requireHoldForUpdate(holdId);
         hold.consume();
         seatHoldRepository.saveAndFlush(hold);
         return toResult(hold);
@@ -179,7 +184,7 @@ public class SeatHoldService {
 
     @Transactional
     public SeatHoldResult expire(UUID holdId) {
-        SeatHold hold = requireHold(holdId);
+        SeatHold hold = requireHoldForUpdate(holdId);
         hold.expire();
         List<TripSeatAllocation> allocations = tripSeatAllocationRepository.findByHoldIdOrderByCreatedAtAsc(holdId);
         for (TripSeatAllocation allocation : allocations) {
@@ -194,7 +199,7 @@ public class SeatHoldService {
 
     @Transactional
     public SeatHoldResult cancel(UUID holdId) {
-        SeatHold hold = requireHold(holdId);
+        SeatHold hold = requireHoldForUpdate(holdId);
         hold.cancel();
         List<TripSeatAllocation> allocations = tripSeatAllocationRepository.findByHoldIdOrderByCreatedAtAsc(holdId);
         for (TripSeatAllocation allocation : allocations) {
@@ -214,6 +219,11 @@ public class SeatHoldService {
 
     private SeatHold requireHold(UUID holdId) {
         return seatHoldRepository.findById(holdId)
+                .orElseThrow(() -> new ResourceNotFoundException("Seat hold was not found."));
+    }
+
+    private SeatHold requireHoldForUpdate(UUID holdId) {
+        return seatHoldRepository.findByIdForUpdate(holdId)
                 .orElseThrow(() -> new ResourceNotFoundException("Seat hold was not found."));
     }
 
