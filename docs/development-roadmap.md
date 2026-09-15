@@ -20,11 +20,11 @@ The V4 whole-trip `trip_seats` sale-state model was replaced by V5. Do not reint
 
 Implement search, trip seat-map projection, segment-aware database-safe holds, bookings/passengers, expiry jobs, and customer booking views. Use trip-specific boarding/drop-point snapshots. Load-test simultaneous overlapping and non-overlapping seat selections before connecting real payments.
 
-**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, Phase 9.1 hold-to-book (`PENDING_PAYMENT` bookings + passengers + items), optional JWT hold ownership, and unpaid-booking expiry (`PENDING_PAYMENT` → `EXPIRED` with `BOOKED` → `RELEASED` allocations). **Still outstanding:** payment provider/webhooks, ticket issuance.
+**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, hold-to-book, unpaid-booking expiry, and V11 payment foundation: provider-neutral adapter contract, protected initiation/idempotency, verified-event inbox, payment/booking confirmation coordination, late-payment reconciliation disposition, refund schema foundation, and transactional outbox. **Still outstanding:** selecting/integrating a production provider, provider-specific webhook rules/secrets, refund execution, outbox publishing/RabbitMQ, and ticket issuance.
 
 ## Phase 4 — payments and transactional communication
 
-Implement payment provider adapter, signed idempotent webhooks, RabbitMQ consumers, refunds, tickets, and channel-agnostic notification adapters (email/SMS/WhatsApp/push-ready). Test crash/retry, duplicate webhook, and late-payment-after-hold-expiry cases.
+Integrate the selected production provider behind the V11 adapter, finalize provider-specific signed webhook/replay rules, implement refund execution, outbox publishing/RabbitMQ consumers, tickets, and channel-agnostic notification adapters. Preserve V11's database idempotency and booking-first lock order.
 
 ## Phase 5 — operations
 

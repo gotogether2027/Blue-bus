@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 
+import in.bluebustickets.bluebus.payments.provider.PaymentProviderUnavailableException;
+
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -159,6 +161,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(error(
                 HttpStatus.CONFLICT,
                 "Request conflicts with the current state.",
+                request.getRequestURI(),
+                List.of()));
+    }
+
+    @ExceptionHandler(PaymentProviderUnavailableException.class)
+    public ResponseEntity<ApiError> handlePaymentProviderUnavailable(
+            PaymentProviderUnavailableException exception,
+            HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Payment provider is temporarily unavailable.",
                 request.getRequestURI(),
                 List.of()));
     }

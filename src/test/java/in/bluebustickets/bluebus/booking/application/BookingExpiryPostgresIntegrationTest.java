@@ -1,14 +1,17 @@
 package in.bluebustickets.bluebus.booking.application;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import in.bluebustickets.bluebus.booking.domain.Booking;
@@ -16,6 +19,7 @@ import in.bluebustickets.bluebus.booking.domain.BookingItemStatus;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
 import in.bluebustickets.bluebus.booking.repository.BookingRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
+import in.bluebustickets.bluebus.foundation.outbox.OutboxEventRepository;
 import in.bluebustickets.bluebus.identity.domain.Role;
 import in.bluebustickets.bluebus.identity.domain.RoleCode;
 import in.bluebustickets.bluebus.identity.domain.User;
@@ -23,6 +27,14 @@ import in.bluebustickets.bluebus.identity.domain.UserRole;
 import in.bluebustickets.bluebus.identity.repository.RoleRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
+import in.bluebustickets.bluebus.payments.api.dto.PaymentInitiationResponse;
+import in.bluebustickets.bluebus.payments.application.PaymentInitiationService;
+import in.bluebustickets.bluebus.payments.domain.PaymentDisposition;
+import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
+import in.bluebustickets.bluebus.payments.provider.PaymentProvider;
+import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
+import in.bluebustickets.bluebus.payments.repository.PaymentProviderEventRepository;
+import in.bluebustickets.bluebus.payments.repository.RefundRepository;
 import in.bluebustickets.bluebus.scheduling.application.JourneySeatAvailability;
 import in.bluebustickets.bluebus.scheduling.application.SeatAvailabilityService;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation;
@@ -33,6 +45,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -43,6 +57,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -51,6 +66,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -65,6 +82,7 @@ class BookingExpiryPostgresIntegrationTest {
 
     private static final String PASSWORD = "CorrectHorseBatteryStaple!";
     private static final String CUSTOMER_EMAIL = "expiry-a@example.test";
+    private static final AtomicInteger PROVIDER_INITIATIONS = new AtomicInteger();
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
@@ -79,6 +97,7 @@ class BookingExpiryPostgresIntegrationTest {
         registry.add("blue-bus.bookings.expiry.batch-size", () -> "2");
         registry.add("blue-bus.bookings.expiry.reaper-interval-ms", () -> "30000");
         registry.add("blue-bus.bookings.unpaid.ttl-seconds", () -> "900");
+        registry.add("blue-bus.payments.default-provider", () -> "TEST");
     }
 
     @Autowired private MockMvc mockMvc;
@@ -95,11 +114,20 @@ class BookingExpiryPostgresIntegrationTest {
     @Autowired private BookingUnpaidProperties unpaidProperties;
     @Autowired private BookingLifecycleService bookingLifecycleService;
     @Autowired private SeatAvailabilityService seatAvailabilityService;
+    @Autowired private PaymentInitiationService paymentInitiationService;
+    @Autowired private PaymentAttemptRepository paymentAttemptRepository;
+    @Autowired private PaymentProviderEventRepository paymentProviderEventRepository;
+    @Autowired private RefundRepository refundRepository;
+    @Autowired private OutboxEventRepository outboxEventRepository;
 
     private String customerToken;
 
     @BeforeEach
     void seedCustomer() throws Exception {
+        refundRepository.deleteAll();
+        paymentProviderEventRepository.deleteAll();
+        paymentAttemptRepository.deleteAll();
+        outboxEventRepository.deleteAll();
         bookingRepository.deleteAll();
         userRoleRepository.deleteAll();
         userRepository.deleteAll();
@@ -110,6 +138,7 @@ class BookingExpiryPostgresIntegrationTest {
         user = userRepository.saveAndFlush(user);
         userRoleRepository.saveAndFlush(new UserRole(user, customerRole));
         customerToken = loginToken(CUSTOMER_EMAIL);
+        PROVIDER_INITIATIONS.set(0);
     }
 
     @Test
@@ -403,6 +432,411 @@ class BookingExpiryPostgresIntegrationTest {
                 .isEqualTo(TripSeatAllocationState.CANCELLED);
 
         jdbcTemplate.update("UPDATE bookings SET status = 'CANCELLED' WHERE id = ?", created.bookingId());
+    }
+
+    @Test
+    void paymentInitiationUsesOwnedBookingSnapshotAndDoesNotConfirm() throws Exception {
+        CreatedBooking created = createPaidPendingBooking("PAY-01", "PAY-RT-01", 0, 2);
+
+        MvcResult result = mockMvc.perform(post("/api/v1/bookings/{id}/payments", created.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .header("Idempotency-Key", "pay-init-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amount":1.00,"currency":"USD"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.amount").value(1800.00))
+                .andExpect(jsonPath("$.currency").value("INR"))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn();
+
+        JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
+        UUID attemptId = UUID.fromString(body.get("paymentAttemptId").asText());
+        assertThat(PROVIDER_INITIATIONS.get()).isEqualTo(1);
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+
+        mockMvc.perform(get("/api/v1/payments/{id}", attemptId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requestedAmount").value(1800.00))
+                .andExpect(jsonPath("$.capturedAmount").doesNotExist())
+                .andExpect(jsonPath("$.disposition").value("UNAPPLIED"));
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/payments", created.bookingId())
+                        .with(anonymous())
+                        .header("Idempotency-Key", "unauthenticated"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void paymentInitiationRejectsOtherCustomerExpiredAndConfirmedBookings() throws Exception {
+        CreatedBooking otherOwned = createPaidPendingBooking("PAY-02", "PAY-RT-02", 0);
+        Role customerRole = roleRepository.findByCode(RoleCode.CUSTOMER).orElseThrow();
+        User other = new User("payment-other@example.test", "+919944400002", "Other", "Customer");
+        other.setPasswordHash(passwordEncoder.encode(PASSWORD));
+        other = userRepository.saveAndFlush(other);
+        userRoleRepository.saveAndFlush(new UserRole(other, customerRole));
+        String otherToken = loginToken(other.getEmail());
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/payments", otherOwned.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken)
+                        .header("Idempotency-Key", "other-user-key"))
+                .andExpect(status().isNotFound());
+
+        CreatedBooking expired = createPaidPendingBooking("PAY-03", "PAY-RT-03", 0);
+        forcePaymentExpiresAt(expired.bookingId(), Instant.now().minusSeconds(1));
+        mockMvc.perform(post("/api/v1/bookings/{id}/payments", expired.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .header("Idempotency-Key", "expired-key"))
+                .andExpect(status().isConflict());
+
+        CreatedBooking confirmed = createPaidPendingBooking("PAY-04", "PAY-RT-04", 0);
+        bookingLifecycleService.confirmPendingPayment(confirmed.bookingId());
+        mockMvc.perform(post("/api/v1/bookings/{id}/payments", confirmed.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .header("Idempotency-Key", "confirmed-key"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void initiationIdempotencyHandlesRetryConflictAndConcurrency() throws Exception {
+        CreatedBooking created = createPaidPendingBooking("PAY-05", "PAY-RT-05", 0);
+        UUID userId = userRepository.findByEmailIgnoreCase(CUSTOMER_EMAIL).orElseThrow().getId();
+
+        PaymentInitiationResponse first =
+                paymentInitiationService.initiate(userId, created.bookingId(), "same-payment-key");
+        PaymentInitiationResponse second =
+                paymentInitiationService.initiate(userId, created.bookingId(), "same-payment-key");
+        assertThat(second.paymentAttemptId()).isEqualTo(first.paymentAttemptId());
+        assertThat(second.providerOrderId()).isEqualTo(first.providerOrderId());
+        assertThat(PROVIDER_INITIATIONS.get()).isEqualTo(1);
+
+        CreatedBooking different = createPaidPendingBooking("PAY-06", "PAY-RT-06", 0);
+        assertThatThrownBy(() ->
+                paymentInitiationService.initiate(userId, different.bookingId(), "same-payment-key"))
+                .isInstanceOf(ApplicationConflictException.class);
+
+        CreatedBooking concurrent = createPaidPendingBooking("PAY-07", "PAY-RT-07", 0);
+        PROVIDER_INITIATIONS.set(0);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<PaymentInitiationResponse>> futures = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                futures.add(executor.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    return paymentInitiationService.initiate(
+                            userId, concurrent.bookingId(), "concurrent-payment-key");
+                }));
+            }
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            PaymentInitiationResponse a = futures.get(0).get(20, TimeUnit.SECONDS);
+            PaymentInitiationResponse b = futures.get(1).get(20, TimeUnit.SECONDS);
+            assertThat(a.paymentAttemptId()).isEqualTo(b.paymentAttemptId());
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(PROVIDER_INITIATIONS.get()).isEqualTo(1);
+        assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(concurrent.bookingId()))
+                .hasSize(1);
+    }
+
+    @Test
+    void invalidSignatureDoesNotPersistOrMutateAndPendingFailureRemainAuditable() throws Exception {
+        CreatedBooking created = createPaidPendingBooking("PAY-08", "PAY-RT-08", 0);
+        PaymentInitiationResponse attempt = initiate(created, "webhook-foundation");
+
+        mockMvc.perform(post("/api/v1/payments/webhooks/TEST")
+                        .header("X-Test-Signature", "invalid")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(webhookBody(attempt, "invalid-event", "PAYMENT_SUCCEEDED",
+                                "900.00", "INR", Instant.now())))
+                .andExpect(status().isUnauthorized());
+        assertThat(paymentProviderEventRepository.count()).isZero();
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+
+        sendWebhook(attempt, "pending-event", "PAYMENT_PENDING", "900.00", "INR", Instant.now())
+                .andExpect(status().isOk());
+        assertThat(paymentAttemptRepository.findById(attempt.paymentAttemptId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.PENDING);
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+
+        sendWebhook(attempt, "failed-event", "PAYMENT_FAILED", "900.00", "INR", Instant.now())
+                .andExpect(status().isOk());
+        assertThat(paymentAttemptRepository.findById(attempt.paymentAttemptId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.FAILED);
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+
+        PaymentInitiationResponse retry = initiate(created, "retry-after-failure");
+        assertThat(retry.paymentAttemptId()).isNotEqualTo(attempt.paymentAttemptId());
+        assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(created.bookingId()))
+                .hasSize(2);
+        sendWebhook(retry, "retry-success-event", "PAYMENT_SUCCEEDED", "900.00", "INR", Instant.now())
+                .andExpect(status().isOk());
+        assertThat(paymentAttemptRepository.findById(retry.paymentAttemptId()).orElseThrow().getDisposition())
+                .isEqualTo(PaymentDisposition.APPLIED_TO_BOOKING);
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+    }
+
+    @Test
+    void verifiedSuccessConfirmsBookingAndDuplicateEventIsHarmless() throws Exception {
+        CreatedBooking created = createPaidPendingBooking("PAY-09", "PAY-RT-09", 0);
+        PaymentInitiationResponse attempt = initiate(created, "success-key");
+        Instant capturedAt = Instant.now();
+
+        sendWebhook(attempt, "success-event", "PAYMENT_SUCCEEDED", "900.00", "INR", capturedAt)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accepted").value(true))
+                .andExpect(jsonPath("$.duplicate").value(false));
+        sendWebhook(attempt, "success-event", "PAYMENT_SUCCEEDED", "900.00", "INR", capturedAt)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.duplicate").value(true));
+
+        var stored = paymentAttemptRepository.findById(attempt.paymentAttemptId()).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(stored.getDisposition()).isEqualTo(PaymentDisposition.APPLIED_TO_BOOKING);
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+        assertThat(allocationsFor(created))
+                .allMatch(a -> a.getState() == TripSeatAllocationState.BOOKED);
+        assertThat(paymentProviderEventRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isEqualTo(3);
+    }
+
+    @Test
+    void amountAndCurrencyMismatchNeverConfirmAndRequireResolution() throws Exception {
+        CreatedBooking amountBooking = createPaidPendingBooking("PAY-10", "PAY-RT-10", 0);
+        PaymentInitiationResponse amountAttempt = initiate(amountBooking, "amount-mismatch");
+        sendWebhook(amountAttempt, "amount-event", "PAYMENT_SUCCEEDED", "1.00", "INR", Instant.now())
+                .andExpect(status().isOk());
+        var amountStored = paymentAttemptRepository.findById(amountAttempt.paymentAttemptId()).orElseThrow();
+        assertThat(amountStored.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(amountStored.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        assertThat(amountStored.getResolutionReason()).isEqualTo("AMOUNT_MISMATCH");
+        assertThat(bookingRepository.findById(amountBooking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+
+        CreatedBooking currencyBooking = createPaidPendingBooking("PAY-11", "PAY-RT-11", 0);
+        PaymentInitiationResponse currencyAttempt = initiate(currencyBooking, "currency-mismatch");
+        sendWebhook(currencyAttempt, "currency-event", "PAYMENT_SUCCEEDED", "900.00", "USD", Instant.now())
+                .andExpect(status().isOk());
+        var currencyStored = paymentAttemptRepository.findById(currencyAttempt.paymentAttemptId()).orElseThrow();
+        assertThat(currencyStored.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        assertThat(currencyStored.getResolutionReason()).isEqualTo("CURRENCY_MISMATCH");
+        assertThat(bookingRepository.findById(currencyBooking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+    }
+
+    @Test
+    void lateSuccessAfterExpiryKeepsBookingAndAllocationsReleased() throws Exception {
+        CreatedBooking created = createPaidPendingBooking("PAY-12", "PAY-RT-12", 0);
+        PaymentInitiationResponse attempt = initiate(created, "late-payment");
+        Instant deadline = Instant.now().minusSeconds(10);
+        forcePaymentExpiresAt(created.bookingId(), deadline);
+        bookingExpiryService.expireDueBookings(Instant.now());
+
+        sendWebhook(
+                attempt,
+                "late-success-event",
+                "PAYMENT_SUCCEEDED",
+                "900.00",
+                "INR",
+                deadline.minusSeconds(1))
+                .andExpect(status().isOk());
+
+        var stored = paymentAttemptRepository.findById(attempt.paymentAttemptId()).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(stored.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        assertThat(stored.getResolutionReason()).isEqualTo("BOOKING_EXPIRED");
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(allocationsFor(created))
+                .hasSize(1)
+                .allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM trip_seat_allocations WHERE booking_item_id = "
+                        + "(SELECT booking_item_id FROM trip_seat_allocations WHERE hold_id = ?) ",
+                Integer.class,
+                created.holdId())).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentDuplicateWebhookProcessesSuccessOnce() throws Exception {
+        CreatedBooking created = createPaidPendingBooking("PAY-13", "PAY-RT-13", 0);
+        PaymentInitiationResponse attempt = initiate(created, "duplicate-race");
+        String body = webhookBody(
+                attempt, "duplicate-race-event", "PAYMENT_SUCCEEDED",
+                "900.00", "INR", Instant.now());
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<Integer>> futures = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                futures.add(executor.submit(() -> {
+                    ready.countDown();
+                    start.await();
+                    return mockMvc.perform(post("/api/v1/payments/webhooks/TEST")
+                                    .header("X-Test-Signature", "valid")
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(body))
+                            .andReturn().getResponse().getStatus();
+                }));
+            }
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(futures.get(0).get(20, TimeUnit.SECONDS)).isEqualTo(200);
+            assertThat(futures.get(1).get(20, TimeUnit.SECONDS)).isEqualTo(200);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(paymentProviderEventRepository.count()).isEqualTo(1);
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+        assertThat(outboxEventRepository.count()).isEqualTo(3);
+    }
+
+    @Test
+    void paymentSuccessRacesExpiryAndCancellationWithOneConsistentWinner() throws Exception {
+        CreatedBooking expiryRace = createPaidPendingBooking("PAY-14", "PAY-RT-14", 0);
+        PaymentInitiationResponse expiryAttempt = initiate(expiryRace, "expiry-race");
+        Instant deadline = Instant.now().minusSeconds(10);
+        forcePaymentExpiresAt(expiryRace.bookingId(), deadline);
+        runConcurrent(
+                () -> sendWebhook(expiryAttempt, "expiry-race-event", "PAYMENT_SUCCEEDED",
+                        "900.00", "INR", deadline.minusSeconds(1)).andReturn(),
+                () -> bookingExpiryService.expireDueBookings(Instant.now()));
+
+        BookingStatus expiryFinal =
+                bookingRepository.findById(expiryRace.bookingId()).orElseThrow().getStatus();
+        assertThat(expiryFinal).isIn(BookingStatus.CONFIRMED, BookingStatus.EXPIRED);
+        var expiryPayment = paymentAttemptRepository.findById(expiryAttempt.paymentAttemptId()).orElseThrow();
+        if (expiryFinal == BookingStatus.CONFIRMED) {
+            assertThat(expiryPayment.getDisposition()).isEqualTo(PaymentDisposition.APPLIED_TO_BOOKING);
+            assertThat(allocationsFor(expiryRace))
+                    .allMatch(a -> a.getState() == TripSeatAllocationState.BOOKED);
+        } else {
+            assertThat(expiryPayment.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+            assertThat(allocationsFor(expiryRace))
+                    .allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+        }
+
+        CreatedBooking cancelRace = createPaidPendingBooking("PAY-15", "PAY-RT-15", 0);
+        PaymentInitiationResponse cancelAttempt = initiate(cancelRace, "cancel-race");
+        runConcurrent(
+                () -> sendWebhook(cancelAttempt, "cancel-race-event", "PAYMENT_SUCCEEDED",
+                        "900.00", "INR", Instant.now()).andReturn(),
+                () -> bookingLifecycleService.cancelUnpaidBooking(cancelRace.bookingId()));
+
+        BookingStatus cancelFinal =
+                bookingRepository.findById(cancelRace.bookingId()).orElseThrow().getStatus();
+        assertThat(cancelFinal).isIn(BookingStatus.CONFIRMED, BookingStatus.CANCELLED);
+        var cancelPayment = paymentAttemptRepository.findById(cancelAttempt.paymentAttemptId()).orElseThrow();
+        if (cancelFinal == BookingStatus.CONFIRMED) {
+            assertThat(cancelPayment.getDisposition()).isEqualTo(PaymentDisposition.APPLIED_TO_BOOKING);
+            assertThat(allocationsFor(cancelRace))
+                    .allMatch(a -> a.getState() == TripSeatAllocationState.BOOKED);
+        } else {
+            assertThat(cancelPayment.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+            assertThat(allocationsFor(cancelRace))
+                    .allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+        }
+    }
+
+    private PaymentInitiationResponse initiate(CreatedBooking booking, String key) {
+        UUID userId = userRepository.findByEmailIgnoreCase(CUSTOMER_EMAIL).orElseThrow().getId();
+        return paymentInitiationService.initiate(userId, booking.bookingId(), key);
+    }
+
+    private ResultActions sendWebhook(
+            PaymentInitiationResponse attempt,
+            String eventId,
+            String eventType,
+            String amount,
+            String currency,
+            Instant occurredAt) throws Exception {
+        return mockMvc.perform(post("/api/v1/payments/webhooks/TEST")
+                .header("X-Test-Signature", "valid")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(webhookBody(attempt, eventId, eventType, amount, currency, occurredAt)));
+    }
+
+    private static String webhookBody(
+            PaymentInitiationResponse attempt,
+            String eventId,
+            String eventType,
+            String amount,
+            String currency,
+            Instant occurredAt) {
+        return """
+                {
+                  "eventId":"%s",
+                  "eventType":"%s",
+                  "merchantReference":"%s",
+                  "providerOrderId":"%s",
+                  "providerPaymentId":"PAYMENT-%s",
+                  "amount":%s,
+                  "currency":"%s",
+                  "providerStatus":"captured",
+                  "occurredAt":"%s"
+                }
+                """.formatted(
+                eventId,
+                eventType,
+                attempt.merchantReference(),
+                attempt.providerOrderId(),
+                eventId,
+                amount,
+                currency,
+                occurredAt);
+    }
+
+    private void runConcurrent(CheckedAction first, CheckedAction second) throws Exception {
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> a = executor.submit(() -> {
+                ready.countDown();
+                start.await();
+                try {
+                    first.run();
+                } catch (ApplicationConflictException ignored) {
+                    // A valid losing state transition may report conflict.
+                }
+                return null;
+            });
+            Future<?> b = executor.submit(() -> {
+                ready.countDown();
+                start.await();
+                try {
+                    second.run();
+                } catch (ApplicationConflictException ignored) {
+                    // A valid losing state transition may report conflict.
+                }
+                return null;
+            });
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            a.get(20, TimeUnit.SECONDS);
+            b.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @FunctionalInterface
+    private interface CheckedAction {
+        void run() throws Exception;
     }
 
     private CreatedBooking createPaidPendingBooking(String registration, String routeCode, int seatIndex)
@@ -718,6 +1152,64 @@ class BookingExpiryPostgresIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+    @TestConfiguration
+    static class TestPaymentProviderConfiguration {
+
+        @Bean
+        PaymentProvider testPaymentProvider(ObjectMapper objectMapper) {
+            return new PaymentProvider() {
+                @Override
+                public String providerCode() {
+                    return "TEST";
+                }
+
+                @Override
+                public ProviderInitiationResult initiate(ProviderInitiationCommand command) {
+                    PROVIDER_INITIATIONS.incrementAndGet();
+                    return new ProviderInitiationResult(
+                            "ORDER-" + command.paymentAttemptId(),
+                            "created",
+                            "test-checkout-" + command.paymentAttemptId());
+                }
+
+                @Override
+                public WebhookVerificationResult verifyAndNormalize(
+                        byte[] rawBody,
+                        Map<String, List<String>> headers) {
+                    boolean signatureValid = headers.entrySet().stream()
+                            .filter(entry -> entry.getKey().equalsIgnoreCase("X-Test-Signature"))
+                            .flatMap(entry -> entry.getValue().stream())
+                            .anyMatch("valid"::equals);
+                    if (!signatureValid) {
+                        return WebhookVerificationResult.invalid();
+                    }
+                    try {
+                        JsonNode body = objectMapper.readTree(rawBody);
+                        return WebhookVerificationResult.verified(new VerifiedProviderEvent(
+                                body.get("eventId").asText(),
+                                ProviderEventType.valueOf(body.get("eventType").asText()),
+                                body.get("merchantReference").asText(),
+                                body.get("providerOrderId").asText(),
+                                body.get("providerPaymentId").asText(),
+                                body.hasNonNull("amount") ? body.get("amount").decimalValue() : null,
+                                body.hasNonNull("currency") ? body.get("currency").asText() : null,
+                                body.hasNonNull("providerStatus")
+                                        ? body.get("providerStatus").asText()
+                                        : null,
+                                body.hasNonNull("failureCode")
+                                        ? body.get("failureCode").asText()
+                                        : null,
+                                body.hasNonNull("occurredAt")
+                                        ? Instant.parse(body.get("occurredAt").asText())
+                                        : null));
+                    } catch (Exception exception) {
+                        return WebhookVerificationResult.invalid();
+                    }
+                }
+            };
+        }
     }
 
     private record Fixture(UUID busId, UUID routeId) {

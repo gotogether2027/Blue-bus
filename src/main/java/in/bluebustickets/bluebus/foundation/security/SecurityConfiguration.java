@@ -58,6 +58,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/trips/*/holds").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/holds/*").permitAll()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/holds/*").permitAll()
+                        // Provider identity is established by the registered adapter's signature verifier.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/webhooks/*").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationEntryPoint((request, response, exception) ->

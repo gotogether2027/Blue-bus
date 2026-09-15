@@ -7,8 +7,10 @@ import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.domain.Booking;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +19,10 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     Optional<Booking> findByHoldId(UUID holdId);
 
     Optional<Booking> findByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select b from Booking b where b.id = :id")
+    Optional<Booking> findByIdForUpdate(@Param("id") UUID id);
 
     @Query("""
             select distinct b from Booking b

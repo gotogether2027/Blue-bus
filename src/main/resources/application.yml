@@ -49,6 +49,9 @@ blue-bus:
       enabled: true
       reaper-interval-ms: 30000
       batch-size: 100
+  payments:
+    # No production provider adapter is included. Configure this when a provider is selected.
+    default-provider: ${PAYMENT_PROVIDER:UNCONFIGURED}
 
 logging:
   level:

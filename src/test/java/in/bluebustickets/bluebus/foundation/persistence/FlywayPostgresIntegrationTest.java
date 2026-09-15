@@ -317,6 +317,33 @@ class FlywayPostgresIntegrationTest {
         assertThat(itemStatusCheck).contains("EXPIRED");
     }
 
+    @Test
+    void appliesPaymentFoundationMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '11'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("11");
+            assertThat(migration.get("description")).hasToString("payment foundation");
+            assertThat(migration.get("script")).hasToString("V11__payment_foundation.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("payment_attempts")).isTrue();
+        assertThat(tableExists("payment_provider_events")).isTrue();
+        assertThat(tableExists("refunds")).isTrue();
+        assertThat(tableExists("outbox_events")).isTrue();
+
+        assertThat(indexExists("uq_payment_attempts_user_idempotency")).isTrue();
+        assertThat(indexExists("uq_payment_attempts_active_booking")).isTrue();
+        assertThat(indexExists("uq_payment_attempts_applied_booking")).isTrue();
+        assertThat(indexExists("ix_payment_provider_events_processing")).isTrue();
+        assertThat(indexExists("ix_outbox_events_unpublished")).isTrue();
+    }
+
     private boolean tableExists(String tableName) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
@@ -332,6 +359,15 @@ class FlywayPostgresIntegrationTest {
                 FROM information_schema.columns
                 WHERE table_schema = 'public' AND table_name = ? AND column_name = ?
                 """, Integer.class, tableName, columnName);
+        return count != null && count == 1;
+    }
+
+    private boolean indexExists(String indexName) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = ?
+                """, Integer.class, indexName);
         return count != null && count == 1;
     }
 }

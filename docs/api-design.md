@@ -137,7 +137,7 @@ Required: `holdId`, matching OD stop IDs, non-blank `idempotencyKey`, one passen
 
 **Fare assumption:** `totalAmount = trips.base_fare × seatCount` (tax/fee/discount = 0) until `trip_fares` exists.
 
-**Allocation assumption:** seats become `BOOKED` at booking create so consumed holds are not left with expiring `HELD` rows. Booking status remains `PENDING_PAYMENT` until a future payment webhook sets `CONFIRMED`.
+**Allocation assumption:** seats become `BOOKED` at booking create so consumed holds are not left with expiring `HELD` rows. Booking status remains `PENDING_PAYMENT` until a verified provider event atomically sets the applied payment and booking to `CONFIRMED`.
 
 **Payment deadline:** `paymentExpiresAt` is set at create (`now + blue-bus.bookings.unpaid.ttl-seconds`, default 900 / 15 minutes) and persisted. It is returned on booking responses. Clients never supply it. The unpaid reaper uses this stored deadline — it does not recompute TTL from `createdAt`.
 
@@ -151,7 +151,23 @@ Required: `holdId`, matching OD stop IDs, non-blank `idempotencyKey`, one passen
 
 **Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`.
 
-Deferred: payment init/webhooks, `CONFIRMED` HTTP transition, refunds, tickets.
+## Customer payment foundation — V11
+
+| Method | Path | Auth | Success |
+|---|---|---|---|
+| `POST` | `/api/v1/bookings/{bookingId}/payments` | Bearer JWT (owner) + `Idempotency-Key` | `201 Created` |
+| `GET` | `/api/v1/payments/{paymentAttemptId}` | Bearer JWT (owner) | `200 OK` |
+| `POST` | `/api/v1/payments/webhooks/{provider}` | Provider signature through registered adapter; no JWT | `200 OK` |
+
+Initiation has no amount/currency request fields. The server locks the owned `PENDING_PAYMENT` booking, requires its persisted deadline to be in the future, and snapshots the booking total/currency. A provider call is made only by the transaction that creates the attempt and occurs outside the DB transaction. The response is an initiation/pending result, never proof of payment. With no production adapter registered, initiation/webhook requests return `503`; `blue-bus.payments.default-provider` selects an installed adapter but stores no secret.
+
+Database idempotency is `(user_id, idempotency_key)`. Same key/fingerprint returns the same attempt; different booking/provider fingerprint returns `409`; concurrent identical requests create one merchant/provider order. `GET` exposes safe status/disposition and monetary fields, not signatures, raw payload, provider secrets, or internal resolution reasons.
+
+The webhook endpoint supplies the untouched request bytes and headers to the provider adapter. Only a verified, normalized event is persisted. `(provider, provider_event_id)` makes duplicate and concurrent delivery harmless. Pending/failure events never confirm a booking; verified success validates provider references and exact `NUMERIC(12,2)` amount/ISO currency.
+
+Success processing locks `booking → payment_attempt → allocations`. On-time success for `PENDING_PAYMENT` atomically records `SUCCEEDED / APPLIED_TO_BOOKING` and confirms Booking. If expiry/cancellation won, the payment is `SUCCEEDED / REQUIRES_RESOLUTION`; Booking and released/cancelled allocations stay unchanged. Amount/currency/reference mismatch follows the same reconciliation path. Refund provider execution remains deferred.
+
+Deferred: production payment provider selection/credentials, provider-specific webhook policy, actual refunds, outbox publishing/RabbitMQ, tickets.
 
 ## Customer seat holds — Phase 7.6
 

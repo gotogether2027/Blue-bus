@@ -27,7 +27,7 @@ SeatHold 1---* TripSeatAllocation (HELD)
 SeatHold 1---0..1 Booking (consumed hold)
 Booking 1---* BookingItem *---0..1 BookingPassenger
 Booking 1---* BookingPassenger
-Booking 1---* Payment attempt (future); Payment attempt 1---* Refund (future)
+Booking 1---* PaymentAttempt; PaymentAttempt 1---* ProviderEvent; PaymentAttempt 1---* Refund
 Operator 1---* Operator user *---1 User
 ```
 
@@ -58,11 +58,14 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 | Trip inventory seat | AVAILABLE, BLOCKED (physical-seat status; availability is calculated from allocations) |
 | Seat allocation | HELD, BOOKED, RELEASED, CANCELLED, EXPIRED, BLOCKED |
 | Booking | INITIATED, PENDING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED, REFUND_PENDING, REFUNDED |
-| Payment | CREATED, INITIATED, PENDING, SUCCEEDED, FAILED, CANCELLED, REFUNDED, PARTIALLY_REFUNDED |
+| PaymentAttempt (V11) | INITIATING, PENDING, SUCCEEDED, FAILED, CANCELLED, EXPIRED |
+| Payment disposition (V11) | UNAPPLIED, APPLIED_TO_BOOKING, REQUIRES_RESOLUTION |
 | Refund | REQUESTED, INITIATED, SUCCEEDED, FAILED, REJECTED |
 | Review | PENDING_MODERATION, PUBLISHED, REJECTED, HIDDEN |
 
 Use explicit allowed transitions in application logic. Keep booking/payment state distinct: a booking may be pending while payment is pending, but never confirmed solely because a payment initiation request returned successfully.
+
+V11 allows `INITIATING → PENDING`, `INITIATING/PENDING → FAILED`, and any non-success attempt to record verified `SUCCEEDED`. A successful attempt is either `APPLIED_TO_BOOKING` or `REQUIRES_RESOLUTION`; success is never downgraded by a later pending/failure event. A verified on-time success locks Booking and confirms only `PENDING_PAYMENT`. Success against `EXPIRED`, `CANCELLED`, an already-confirmed booking, a post-deadline financial timestamp, or mismatched money remains auditable but requires resolution and never recreates inventory.
 
 The customer-facing state vocabulary remains `AVAILABLE`, `HELD`, `BOOKED`, and `BLOCKED`: for the requested segment it is derived from the physical inventory row plus overlapping active allocations. `AVAILABLE` means no overlap; `HELD`/`BOOKED` mean an overlapping allocation exists; `BLOCKED` means the physical seat or that segment was blocked. This preserves the required UI/business states without incorrectly treating a whole route seat as booked.
 

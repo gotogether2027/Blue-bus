@@ -71,7 +71,7 @@ Spring Boot modular monolith
 
 **What:** `trip_seat_inventory` represents the physical seat on a trip; a separate allocation/reservation row (booking phase) records each held or booked origin/destination stop-sequence range for that seat as `int4range(origin_sequence, destination_sequence, '[)')`. Example: Hyderabad(1) → Vijayawada(3) is `[1,3)`; Vijayawada(3) → Guntur(4) is `[3,4)`; those ranges do not overlap. Hyderabad→Vijayawada `[1,3)` and Suryapet→Guntur `[2,4)` do overlap and must be rejected.
 
-**Implementation status:** trip stops, trip points, route points, physical inventory, segment allocations, seat holds, bookings, and unpaid-booking expiry are in the schema. Payment tables remain deferred.
+**Implementation status:** trip stops, trip points, route points, physical inventory, segment allocations, seat holds, bookings, and unpaid-booking expiry are in the schema. V11 adds provider-neutral payment attempts, a verified-provider-event inbox, refund persistence foundation, and a transactional outbox. No production provider, refund execution, or message broker is integrated.
 
 ### Outbox pattern for events
 
@@ -115,6 +115,8 @@ The design is normalized for mutable master data: buses reference layouts, route
 ### Concurrency review
 
 The highest-risk race is two customers selecting the same seat **over overlapping route segments**. The required defense is a unique per-trip inventory row plus atomic insertion/transition of an active segment allocation protected by a PostgreSQL exclusion constraint, with short transactions and conflict handling. Holds carry an expiry and are reclaimed safely. Unpaid `PENDING_PAYMENT` bookings carry a persisted `payment_expires_at` and are reclaimed by a scheduled reaper (`FOR UPDATE SKIP LOCKED` per booking): booking → `EXPIRED`, items → `EXPIRED`, allocations `BOOKED` → `RELEASED`. A concurrent confirm/cancel that locks the booking first wins entirely; a confirmed booking cannot subsequently expire. Payment failure/expiry cannot leave seats stuck. A late successful payment after a released/expired unpaid booking must never re-book the seat automatically: record it, mark it as requiring compensation/refund workflow, and notify support/customer. The payment webhook ledger and payment/provider ID uniqueness make duplicates harmless. The design still needs a load test for hot trips, delayed webhooks, worker crashes between database commit and publish, cancellation while payment is pending, and same-seat overlapping/non-overlapping segment requests.
+
+Payment processing follows the global lock order `booking → payment_attempt → allocations`. Verified success, payment disposition, booking confirmation, provider-event completion, and outbox records commit atomically. Expiry/cancellation winning first leaves the booking terminal and records later captured money as `SUCCEEDED / REQUIRES_RESOLUTION`; it never recreates an allocation. Provider calls occur outside database transactions.
 
 ### Security review
 

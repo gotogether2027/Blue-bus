@@ -2,7 +2,7 @@
 
 ## Event delivery approach
 
-Publish business events from a transactional outbox after the owning database transaction commits. RabbitMQ is appropriate for work that does not need to delay the customer response: notifications, projections, reminders, reports, and integrations. Consumers must be idempotent because at-least-once delivery can duplicate messages.
+V11 persists business events in `outbox_events` in the same transaction as payment/booking changes. Publishing is intentionally not implemented yet. When a broker is added, publish only after the owning transaction commits; consumers remain idempotent because at-least-once delivery can duplicate messages.
 
 An event should include `event_id`, `event_type`, `occurred_at`, `aggregate_type`, `aggregate_id`, `schema_version`, correlation/causation IDs, and minimal non-sensitive payload. Do not send full passenger PII by default.
 
@@ -29,11 +29,11 @@ An event should include `event_id`, `event_type`, `occurred_at`, `aggregate_type
 
 Seat conditional update, hold validation, pending booking creation, and recording a payment webhook must be transactional request/workflow actions. Do not make availability or payment confirmation depend solely on a queued message; queue delay/failure would create inconsistent customer-visible state.
 
-The webhook transaction records the verified provider event exactly once and updates the payment state. In the modular monolith, the booking-confirmation application workflow is invoked reliably from that committed work (or a durable internal command), locks the held allocations, and writes its own outbox event. A consumer must re-check booking/hold/trip state rather than assuming `PAYMENT_SUCCEEDED` is still actionable. If the hold has expired, publish `PAYMENT_REQUIRES_RESOLUTION`; do not book a seat or silently lose the payment.
+The webhook ingress first records a verified normalized provider event exactly once. Processing then locks booking, payment attempt and allocations and atomically updates payment disposition, confirms an eligible booking, completes the inbox event, and writes outbox rows. Booking confirmation does not depend on a future queue. If Booking is expired/cancelled, money is recorded as `SUCCEEDED / REQUIRES_RESOLUTION` and `PAYMENT_REQUIRES_RESOLUTION` is written; no seat is recreated.
 
 ## Reliability controls
 
-- Unique `outbox_event.event_id`; publisher marks sent only after broker acknowledgement.
+- Unique `outbox_events.id`; a future publisher marks `published_at` only after broker acknowledgement.
 - Consumer inbox/deduplication by event ID and provider event ID.
 - Retry with bounded backoff; dead-letter queues with alerts and replay procedure.
 - Version events compatibly; consumers ignore unknown additive fields.
