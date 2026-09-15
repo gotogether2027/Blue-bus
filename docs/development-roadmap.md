@@ -20,7 +20,7 @@ The V4 whole-trip `trip_seats` sale-state model was replaced by V5. Do not reint
 
 Implement search, trip seat-map projection, segment-aware database-safe holds, bookings/passengers, expiry jobs, and customer booking views. Use trip-specific boarding/drop-point snapshots. Load-test simultaneous overlapping and non-overlapping seat selections before connecting real payments.
 
-**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, Phase 9.1 hold-to-book (`PENDING_PAYMENT` bookings + passengers + items), and optional JWT hold ownership for booking authorization. **Still outstanding:** payment provider/webhooks, ticket issuance, and booking expiry for unpaid bookings.
+**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, Phase 9.1 hold-to-book (`PENDING_PAYMENT` bookings + passengers + items), optional JWT hold ownership, and unpaid-booking expiry (`PENDING_PAYMENT` → `EXPIRED` with `BOOKED` → `RELEASED` allocations). **Still outstanding:** payment provider/webhooks, ticket issuance.
 
 ## Phase 4 — payments and transactional communication
 

@@ -33,6 +33,15 @@ public interface TripSeatAllocationRepository extends JpaRepository<TripSeatAllo
             """)
     List<TripSeatAllocation> findByHoldIdForUpdate(@Param("holdId") UUID holdId);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select a from TripSeatAllocation a
+            join fetch a.inventory
+            where a.bookingItemId in :itemIds
+            order by a.createdAt asc
+            """)
+    List<TripSeatAllocation> findByBookingItemIdInForUpdate(@Param("itemIds") Collection<UUID> itemIds);
+
     /**
      * Inventory IDs on the trip with an active occupancy overlapping {@code [origin, destination)}.
      * Uses PostgreSQL {@code int4range} {@code &&} semantics (authoritative for adjacency vs overlap).

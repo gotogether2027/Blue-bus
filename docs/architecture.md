@@ -71,7 +71,7 @@ Spring Boot modular monolith
 
 **What:** `trip_seat_inventory` represents the physical seat on a trip; a separate allocation/reservation row (booking phase) records each held or booked origin/destination stop-sequence range for that seat as `int4range(origin_sequence, destination_sequence, '[)')`. Example: Hyderabad(1) → Vijayawada(3) is `[1,3)`; Vijayawada(3) → Guntur(4) is `[3,4)`; those ranges do not overlap. Hyderabad→Vijayawada `[1,3)` and Suryapet→Guntur `[2,4)` do overlap and must be rejected.
 
-**Implementation status:** trip stops, trip points, route points, and physical inventory are in the schema. Allocation, hold, and booking tables are not created yet.
+**Implementation status:** trip stops, trip points, route points, physical inventory, segment allocations, seat holds, bookings, and unpaid-booking expiry are in the schema. Payment tables remain deferred.
 
 ### Outbox pattern for events
 
@@ -114,7 +114,7 @@ The design is normalized for mutable master data: buses reference layouts, route
 
 ### Concurrency review
 
-The highest-risk race is two customers selecting the same seat **over overlapping route segments**. The required defense is a unique per-trip inventory row plus atomic insertion/transition of an active segment allocation protected by a PostgreSQL exclusion constraint, with short transactions and conflict handling. Holds carry an expiry and are reclaimed safely; payment failure/expiry cannot leave seats stuck. A late successful payment after a released/expired hold must never re-book the seat automatically: record it, mark it as requiring compensation/refund workflow, and notify support/customer. The payment webhook ledger and payment/provider ID uniqueness make duplicates harmless. The design still needs a load test for hot trips, delayed webhooks, worker crashes between database commit and publish, cancellation while payment is pending, and same-seat overlapping/non-overlapping segment requests.
+The highest-risk race is two customers selecting the same seat **over overlapping route segments**. The required defense is a unique per-trip inventory row plus atomic insertion/transition of an active segment allocation protected by a PostgreSQL exclusion constraint, with short transactions and conflict handling. Holds carry an expiry and are reclaimed safely. Unpaid `PENDING_PAYMENT` bookings carry a persisted `payment_expires_at` and are reclaimed by a scheduled reaper (`FOR UPDATE SKIP LOCKED` per booking): booking → `EXPIRED`, items → `EXPIRED`, allocations `BOOKED` → `RELEASED`. A concurrent confirm/cancel that locks the booking first wins entirely; a confirmed booking cannot subsequently expire. Payment failure/expiry cannot leave seats stuck. A late successful payment after a released/expired unpaid booking must never re-book the seat automatically: record it, mark it as requiring compensation/refund workflow, and notify support/customer. The payment webhook ledger and payment/provider ID uniqueness make duplicates harmless. The design still needs a load test for hot trips, delayed webhooks, worker crashes between database commit and publish, cancellation while payment is pending, and same-seat overlapping/non-overlapping segment requests.
 
 ### Security review
 

@@ -107,9 +107,9 @@ Public without a token: health, **register**, login, **refresh**, **logout**, se
 
 Deferred: password reset, email/phone verification, profile editing, admin RBAC, operator-scoped authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup).
 
-## Customer bookings — Phase 9.1 foundation
+## Customer bookings — Phase 9.1 foundation + unpaid expiry
 
-Authenticated hold-to-booking conversion. Does **not** process payments or issue tickets.
+Authenticated hold-to-booking conversion. Does **not** process payments or issue tickets. Unpaid `PENDING_PAYMENT` bookings expire automatically after the persisted payment deadline.
 
 | Method | Path | Auth | Success |
 |---|---|---|---|
@@ -139,15 +139,19 @@ Required: `holdId`, matching OD stop IDs, non-blank `idempotencyKey`, one passen
 
 **Allocation assumption:** seats become `BOOKED` at booking create so consumed holds are not left with expiring `HELD` rows. Booking status remains `PENDING_PAYMENT` until a future payment webhook sets `CONFIRMED`.
 
+**Payment deadline:** `paymentExpiresAt` is set at create (`now + blue-bus.bookings.unpaid.ttl-seconds`, default 900 / 15 minutes) and persisted. It is returned on booking responses. Clients never supply it. The unpaid reaper uses this stored deadline — it does not recompute TTL from `createdAt`.
+
+**Unpaid expiry:** a scheduled job (default every 30s, batch 100, `blue-bus.bookings.expiry.*`) expires due `PENDING_PAYMENT` rows (`payment_expires_at <= now`). Each booking is locked `FOR UPDATE SKIP LOCKED` in its own transaction: booking → `EXPIRED`, items → `EXPIRED`, that booking's `BOOKED` allocations → `RELEASED`. Historical booking/passenger/item rows are kept. `CONFIRMED` / `CANCELLED` / other terminal states are never expired. Concurrent confirm/cancel lock the booking `FOR UPDATE` (wait); exactly one transition wins.
+
 **Idempotency:** unique partial index `(user_id, idempotency_key)`. Same key + same request fingerprint returns the existing booking (`201`). Same key + different fingerprint → `409`. Concurrent same-key/same-fingerprint resolves to one booking (hold `FOR UPDATE` serialization and/or unique constraint + fresh read). Unique `hold_id` prevents double-consume.
 
 **Hold ownership (booking):** `seat_holds.user_id` must equal the JWT booker. Anonymous holds (`user_id IS NULL`) → `409` (not bookable; UUID knowledge is not ownership). Another customer’s hold → `404`. Clients must create the hold with a Bearer JWT before `POST /bookings`.
 
-**Booking ownership:** JWT `sub` is the booking owner. Cross-customer get returns generic `404`. List returns only the caller’s bookings.
+**Booking ownership:** JWT `sub` is the booking owner. Cross-customer get returns generic `404`. List returns only the caller’s bookings. An owner may retrieve an `EXPIRED` booking (`200`, `status=EXPIRED`).
 
 **Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`.
 
-Deferred: payment init/webhooks, `CONFIRMED` transition, refunds, tickets, booking expiry reaper.
+Deferred: payment init/webhooks, `CONFIRMED` HTTP transition, refunds, tickets.
 
 ## Customer seat holds — Phase 7.6
 

@@ -19,3 +19,10 @@ blue-bus:
       enabled: false
       reaper-interval-ms: 60000
       batch-size: 50
+  bookings:
+    unpaid:
+      ttl-seconds: 900
+    expiry:
+      enabled: false
+      reaper-interval-ms: 30000
+      batch-size: 50

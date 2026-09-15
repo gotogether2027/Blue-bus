@@ -74,6 +74,7 @@ class BookingApiPostgresIntegrationTest {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("blue-bus.seat-holds.expiry.enabled", () -> "false");
+        registry.add("blue-bus.bookings.expiry.enabled", () -> "false");
     }
 
     @Autowired private MockMvc mockMvc;
@@ -126,6 +127,7 @@ class BookingApiPostgresIntegrationTest {
                                         passenger(seat2, "Alan Turing", 41)))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$.paymentExpiresAt").exists())
                 .andExpect(jsonPath("$.items.length()").value(2))
                 .andExpect(jsonPath("$.passengers.length()").value(2))
                 .andExpect(jsonPath("$.totalAmount").value(1800.00))
@@ -133,6 +135,9 @@ class BookingApiPostgresIntegrationTest {
 
         JsonNode booking = objectMapper.readTree(created.getResponse().getContentAsString());
         UUID bookingId = UUID.fromString(booking.get("bookingId").asText());
+        Instant paymentExpiresAt = Instant.parse(booking.get("paymentExpiresAt").asText());
+        assertThat(paymentExpiresAt).isAfter(Instant.parse(booking.get("createdAt").asText()));
+        assertThat(paymentExpiresAt).isBefore(Instant.now().plusSeconds(960));
 
         assertThat(seatHoldRepository.findById(holdId).orElseThrow().getStatus())
                 .isEqualTo(SeatHoldStatus.CONSUMED);

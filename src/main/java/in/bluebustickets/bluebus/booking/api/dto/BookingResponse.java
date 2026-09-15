@@ -24,6 +24,7 @@ public record BookingResponse(
         BigDecimal discountAmount,
         BigDecimal totalAmount,
         Instant createdAt,
+        Instant paymentExpiresAt,
         List<BookingItemResponse> items,
         List<BookingPassengerResponse> passengers) {
 }

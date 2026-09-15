@@ -139,8 +139,8 @@ public class TripSeatAllocation extends AuditableEntity {
     }
 
     public void release() {
-        if (state != TripSeatAllocationState.HELD) {
-            throw new IllegalArgumentException("Only HELD allocations can be released");
+        if (state != TripSeatAllocationState.HELD && state != TripSeatAllocationState.BOOKED) {
+            throw new IllegalArgumentException("Only HELD or BOOKED allocations can be released");
         }
         this.state = TripSeatAllocationState.RELEASED;
         this.expiresAt = null;

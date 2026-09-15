@@ -1,10 +1,13 @@
 package in.bluebustickets.bluebus.booking.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.domain.Booking;
+import in.bluebustickets.bluebus.booking.domain.BookingStatus;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -33,4 +36,14 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             order by b.createdAt desc
             """)
     List<Booking> findDetailedByUserIdOrderByCreatedAtDesc(@Param("userId") UUID userId);
+
+    @Query("""
+            select b.id from Booking b
+            where b.status = :status and b.paymentExpiresAt <= :now
+            order by b.paymentExpiresAt asc
+            """)
+    List<UUID> findDueUnpaidBookingIds(
+            @Param("status") BookingStatus status,
+            @Param("now") Instant now,
+            Pageable pageable);
 }

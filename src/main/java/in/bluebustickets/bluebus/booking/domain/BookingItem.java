@@ -108,6 +108,25 @@ public class BookingItem extends AuditableEntity {
         this.status = BookingItemStatus.ACTIVE;
     }
 
+    public void markExpired() {
+        if (status != BookingItemStatus.ACTIVE) {
+            throw new IllegalArgumentException(
+                    "Only ACTIVE booking items can expire; current is " + status);
+        }
+        this.status = BookingItemStatus.EXPIRED;
+    }
+
+    public void markCancelled() {
+        if (status == BookingItemStatus.CANCELLED) {
+            return;
+        }
+        if (status != BookingItemStatus.ACTIVE) {
+            throw new IllegalArgumentException(
+                    "Only ACTIVE booking items can be cancelled; current is " + status);
+        }
+        this.status = BookingItemStatus.CANCELLED;
+    }
+
     public Booking getBooking() {
         return booking;
     }

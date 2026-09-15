@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -42,7 +43,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Hold-to-booking conversion. Consumes an ACTIVE owned hold and marks its allocations BOOKED under a
- * {@code PENDING_PAYMENT} booking. Payment confirmation remains deferred.
+ * {@code PENDING_PAYMENT} booking with a persisted {@code paymentExpiresAt}. Payment confirmation
+ * remains deferred; unpaid bookings are expired by {@link BookingExpiryService}.
  *
  * <p><strong>Ownership:</strong> the hold must already belong to the authenticated customer
  * ({@code seat_holds.user_id}). Anonymous holds ({@code user_id IS NULL}) cannot be booked — UUID
@@ -143,16 +145,19 @@ public class BookingApplicationService {
         private final SeatHoldRepository seatHoldRepository;
         private final TripSeatAllocationRepository tripSeatAllocationRepository;
         private final TripStopRepository tripStopRepository;
+        private final BookingUnpaidProperties unpaidProperties;
 
         BookingCreateWorker(
                 BookingRepository bookingRepository,
                 SeatHoldRepository seatHoldRepository,
                 TripSeatAllocationRepository tripSeatAllocationRepository,
-                TripStopRepository tripStopRepository) {
+                TripStopRepository tripStopRepository,
+                BookingUnpaidProperties unpaidProperties) {
             this.bookingRepository = bookingRepository;
             this.seatHoldRepository = seatHoldRepository;
             this.tripSeatAllocationRepository = tripSeatAllocationRepository;
             this.tripStopRepository = tripStopRepository;
+            this.unpaidProperties = unpaidProperties;
         }
 
         @Transactional
@@ -261,6 +266,7 @@ public class BookingApplicationService {
 
             BigDecimal unitFare = trip.getBaseFare().setScale(2, RoundingMode.HALF_UP);
             BigDecimal baseTotal = unitFare.multiply(BigDecimal.valueOf(allocations.size()));
+            Instant paymentExpiresAt = now.plusSeconds(unpaidProperties.getTtlSeconds());
 
             Booking booking = new Booking(
                     newBookingReference(),
@@ -275,7 +281,8 @@ public class BookingApplicationService {
                     baseTotal,
                     baseTotal,
                     idempotencyKey,
-                    fingerprint);
+                    fingerprint,
+                    paymentExpiresAt);
 
             for (TripSeatAllocation allocation : allocations) {
                 TripSeatInventory inventory = allocation.getInventory();
@@ -431,6 +438,7 @@ public class BookingApplicationService {
                 booking.getDiscountAmount(),
                 booking.getTotalAmount(),
                 booking.getCreatedAt(),
+                booking.getPaymentExpiresAt(),
                 items,
                 passengers);
     }

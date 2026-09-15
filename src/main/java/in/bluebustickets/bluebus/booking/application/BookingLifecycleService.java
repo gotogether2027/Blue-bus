@@ -1,0 +1,131 @@
+package in.bluebustickets.bluebus.booking.application;
+
+import java.util.List;
+import java.util.UUID;
+
+import in.bluebustickets.bluebus.booking.domain.Booking;
+import in.bluebustickets.bluebus.booking.domain.BookingItem;
+import in.bluebustickets.bluebus.booking.domain.BookingItemStatus;
+import in.bluebustickets.bluebus.booking.domain.BookingStatus;
+import in.bluebustickets.bluebus.booking.repository.BookingRepository;
+import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
+import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation;
+import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
+import in.bluebustickets.bluebus.scheduling.repository.TripSeatAllocationRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+/**
+ * Lock-safe unpaid booking confirm/cancel hooks for the later payment phase and concurrency tests.
+ * Always locks the booking row {@code FOR UPDATE} (wait) before inspecting status, so a concurrent
+ * expiry worker either wins completely or skips; never a partial release.
+ * <p>
+ * Not an HTTP API. Payment provider confirmation remains deferred.
+ */
+@Service
+@ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
+public class BookingLifecycleService {
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    private final BookingRepository bookingRepository;
+    private final TripSeatAllocationRepository tripSeatAllocationRepository;
+
+    public BookingLifecycleService(
+            BookingRepository bookingRepository,
+            TripSeatAllocationRepository tripSeatAllocationRepository) {
+        this.bookingRepository = bookingRepository;
+        this.tripSeatAllocationRepository = tripSeatAllocationRepository;
+    }
+
+    /**
+     * Future payment-success hook: {@code PENDING_PAYMENT → CONFIRMED}. Allocations stay {@code BOOKED}.
+     * Idempotent if already confirmed. Conflicts if the booking expired or cancelled first.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public BookingStatus confirmPendingPayment(UUID bookingId) {
+        Booking booking = lockBookingForUpdate(bookingId);
+        if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            return BookingStatus.CONFIRMED;
+        }
+        if (booking.getStatus() != BookingStatus.PENDING_PAYMENT) {
+            throw new ApplicationConflictException(
+                    "Booking cannot be confirmed from status " + booking.getStatus() + ".");
+        }
+        booking.markConfirmed();
+        entityManager.flush();
+        return booking.getStatus();
+    }
+
+    /**
+     * Unpaid cancel hook: {@code PENDING_PAYMENT → CANCELLED}, items {@code CANCELLED},
+     * allocations {@code BOOKED → CANCELLED}. Idempotent if already cancelled.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public BookingStatus cancelUnpaidBooking(UUID bookingId) {
+        Booking booking = lockBookingForUpdate(bookingId);
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return BookingStatus.CANCELLED;
+        }
+        if (booking.getStatus() != BookingStatus.PENDING_PAYMENT) {
+            throw new ApplicationConflictException(
+                    "Booking cannot be cancelled from status " + booking.getStatus() + ".");
+        }
+
+        Booking detailed = bookingRepository.findDetailedById(booking.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
+        List<UUID> itemIds = detailed.getItems().stream().map(BookingItem::getId).toList();
+        List<TripSeatAllocation> allocations = itemIds.isEmpty()
+                ? List.of()
+                : tripSeatAllocationRepository.findByBookingItemIdInForUpdate(itemIds);
+
+        if (allocations.size() != itemIds.size()) {
+            throw new IllegalStateException(
+                    "Refusing to cancel booking " + bookingId
+                            + " because allocation count does not match item count");
+        }
+        for (TripSeatAllocation allocation : allocations) {
+            if (allocation.getState() != TripSeatAllocationState.BOOKED) {
+                throw new IllegalStateException(
+                        "Refusing to cancel booking " + bookingId
+                                + " because allocation " + allocation.getId()
+                                + " has unexpected state " + allocation.getState());
+            }
+        }
+
+        detailed.markCancelled();
+        for (BookingItem item : detailed.getItems()) {
+            if (item.getStatus() == BookingItemStatus.ACTIVE) {
+                item.markCancelled();
+            }
+        }
+        for (TripSeatAllocation allocation : allocations) {
+            allocation.cancel();
+        }
+        entityManager.flush();
+        tripSeatAllocationRepository.saveAllAndFlush(allocations);
+        return detailed.getStatus();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Booking lockBookingForUpdate(UUID bookingId) {
+        List<Booking> rows = entityManager.createNativeQuery("""
+                SELECT *
+                FROM bookings
+                WHERE id = :id
+                FOR UPDATE
+                """, Booking.class)
+                .setParameter("id", bookingId)
+                .getResultList();
+        if (rows.isEmpty()) {
+            throw new ResourceNotFoundException("Booking was not found.");
+        }
+        return rows.get(0);
+    }
+}

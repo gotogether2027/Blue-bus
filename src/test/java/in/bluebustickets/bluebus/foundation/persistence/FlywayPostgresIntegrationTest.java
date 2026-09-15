@@ -274,6 +274,49 @@ class FlywayPostgresIntegrationTest {
         assertThat(holdUnique).isEqualTo(1);
     }
 
+    @Test
+    void appliesUnpaidBookingExpiryMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '10'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("10");
+            assertThat(migration.get("description")).hasToString("unpaid booking expiry");
+            assertThat(migration.get("script")).hasToString("V10__unpaid_booking_expiry.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(columnExists("bookings", "payment_expires_at")).isTrue();
+
+        Integer notNull = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'bookings'
+                  AND column_name = 'payment_expires_at'
+                  AND is_nullable = 'NO'
+                """, Integer.class);
+        assertThat(notNull).isEqualTo(1);
+
+        Integer pendingIndex = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = 'ix_bookings_pending_payment_expires'
+                """, Integer.class);
+        assertThat(pendingIndex).isEqualTo(1);
+
+        String itemStatusCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_booking_items_status'
+                """, String.class);
+        assertThat(itemStatusCheck).contains("EXPIRED");
+    }
+
     private boolean tableExists(String tableName) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)

@@ -1,6 +1,7 @@
 package in.bluebustickets.bluebus.booking.domain;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -93,6 +94,10 @@ public class Booking extends AuditableEntity {
     @Column(name = "request_fingerprint", length = 128, updatable = false)
     private String requestFingerprint;
 
+    @NotNull
+    @Column(name = "payment_expires_at", nullable = false, updatable = false)
+    private Instant paymentExpiresAt;
+
     @Min(1)
     @Column(nullable = false)
     private int version = 1;
@@ -121,7 +126,8 @@ public class Booking extends AuditableEntity {
             BigDecimal baseAmount,
             BigDecimal totalAmount,
             String idempotencyKey,
-            String requestFingerprint) {
+            String requestFingerprint,
+            Instant paymentExpiresAt) {
         if (bookingReference == null || bookingReference.isBlank()) {
             throw new IllegalArgumentException("bookingReference is required");
         }
@@ -133,6 +139,9 @@ public class Booking extends AuditableEntity {
         }
         if (baseAmount == null || totalAmount == null) {
             throw new IllegalArgumentException("amounts are required");
+        }
+        if (paymentExpiresAt == null) {
+            throw new IllegalArgumentException("paymentExpiresAt is required");
         }
         this.bookingReference = bookingReference.trim();
         this.userId = userId;
@@ -147,6 +156,7 @@ public class Booking extends AuditableEntity {
         this.totalAmount = totalAmount;
         this.idempotencyKey = blankToNull(idempotencyKey);
         this.requestFingerprint = blankToNull(requestFingerprint);
+        this.paymentExpiresAt = paymentExpiresAt;
         this.status = BookingStatus.PENDING_PAYMENT;
     }
 
@@ -265,6 +275,10 @@ public class Booking extends AuditableEntity {
 
     public String getRequestFingerprint() {
         return requestFingerprint;
+    }
+
+    public Instant getPaymentExpiresAt() {
+        return paymentExpiresAt;
     }
 
     public int getVersion() {

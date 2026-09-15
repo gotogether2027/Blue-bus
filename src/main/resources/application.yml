@@ -41,6 +41,14 @@ blue-bus:
       enabled: true
       reaper-interval-ms: 30000
       batch-size: 100
+  bookings:
+    unpaid:
+      # Server-owned payment deadline from booking create. Clients never supply paymentExpiresAt.
+      ttl-seconds: 900
+    expiry:
+      enabled: true
+      reaper-interval-ms: 30000
+      batch-size: 100
 
 logging:
   level:
