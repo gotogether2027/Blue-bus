@@ -4,7 +4,56 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health`, admin master-data/trip APIs, and public journey seat availability below. Future hold/booking/payment endpoints remain deferred. Authentication and rate limiting for public trip reads will be addressed in a later phase.
+Implemented so far: `GET /api/v1/health`, admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment and authenticated ownership remain deferred. Authentication and rate limiting for public trip/hold APIs will be addressed in a later phase.
+
+## Customer seat holds — Phase 7.6
+
+Temporary reservation of one or more seats on a trip segment. Creates an `ACTIVE` `SeatHold` and matching `HELD` `TripSeatAllocation` rows atomically. Does **not** create bookings or payments.
+
+| Method | Path | Success |
+|---|---|---|
+| `POST` | `/api/v1/trips/{tripId}/holds` | `201 Created` |
+| `GET` | `/api/v1/holds/{holdId}` | `200 OK` |
+| `DELETE` | `/api/v1/holds/{holdId}` | `204 No Content` (cancel) |
+
+`DELETE` cancels an `ACTIVE` hold (`ACTIVE` → `CANCELLED`, associated `HELD` → `CANCELLED`). Rows are not physically deleted. Repeated cancel of an already `CANCELLED` hold is safe/idempotent. `EXPIRED` / `CONSUMED` holds cannot become `CANCELLED` (`409`).
+
+Create request body:
+
+```json
+{
+  "originStopId": "...",
+  "destinationStopId": "...",
+  "seatInventoryIds": ["...", "..."],
+  "idempotencyKey": "..."
+}
+```
+
+Required: `originStopId`, `destinationStopId`, at least one unique `seatInventoryId`. Optional: `idempotencyKey`. Clients must **not** send `userId`, sequences, `status`, `expiresAt`, fare, booking, or payment fields. The server resolves stop IDs to trip sequences (same semantics as Phase 7.5), owns hold status/expiry, and sets `expiresAt` from configured `blue-bus.seat-holds.create.ttl-seconds`.
+
+Create/get response (conceptual):
+
+```json
+{
+  "holdId": "...",
+  "tripId": "...",
+  "originStopId": "...",
+  "destinationStopId": "...",
+  "originSequence": 1,
+  "destinationSequence": 3,
+  "status": "ACTIVE",
+  "expiresAt": "...",
+  "seatInventoryIds": ["...", "..."]
+}
+```
+
+Lifecycle: `ACTIVE` → `CONSUMED` (internal/future booking), `EXPIRED` (reaper only), or `CANCELLED` (customer DELETE). `GET` is read-only and does **not** implicitly expire past-due `ACTIVE` holds; Phase 7.4 reaper remains the sole expiry mechanism.
+
+Concurrency: PostgreSQL V6 GiST exclusion on active overlapping allocations remains authoritative. Overlap conflicts map to `409`. Multi-seat create is one transaction — if any seat conflicts, the entire hold rolls back (no partial `HELD` rows, no orphan hold).
+
+Authentication (this phase): endpoints are temporarily public. `userId` is always `null` for anonymous holds; the hold UUID is a capability-style identifier. **Do not** accept client-supplied `userId`. Authenticated ownership/authorization must be added before production. V7 uniquely enforces `(user_id, idempotency_key)` only when `user_id` is non-null; anonymous idempotency is accepted/stored but **not** DB-enforced — do not treat replay as strongly guaranteed for anonymous callers.
+
+Errors follow the existing `ApiError` envelope: `400` validation / bad segment / duplicate seats / blocked inventory / wrong-trip inventory; `404` unknown trip/stop/hold/inventory; `409` seat overlap or non-cancellable status.
 
 ## Customer journey seat availability (Phase 7.5)
 

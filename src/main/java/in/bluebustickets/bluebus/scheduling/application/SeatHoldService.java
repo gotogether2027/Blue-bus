@@ -200,6 +200,13 @@ public class SeatHoldService {
     @Transactional
     public SeatHoldResult cancel(UUID holdId) {
         SeatHold hold = requireHoldForUpdate(holdId);
+        if (hold.getStatus() == SeatHoldStatus.CANCELLED) {
+            return toResult(hold);
+        }
+        if (hold.getStatus() != SeatHoldStatus.ACTIVE) {
+            throw new ApplicationConflictException(
+                    "Seat hold cannot be cancelled from status " + hold.getStatus() + ".");
+        }
         hold.cancel();
         List<TripSeatAllocation> allocations = tripSeatAllocationRepository.findByHoldIdOrderByCreatedAtAsc(holdId);
         for (TripSeatAllocation allocation : allocations) {

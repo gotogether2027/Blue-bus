@@ -3,6 +3,7 @@ package in.bluebustickets.bluebus.foundation.security;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -44,6 +45,10 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/health", "/error").permitAll()
                         .requestMatchers("/api/v1/trips/*/seat-availability").permitAll()
+                        // Temporary public hold APIs until authentication/ownership ships.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/trips/*/holds").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/holds/*").permitAll()
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/holds/*").permitAll()
                         .anyRequest().authenticated())
                 .build();
     }

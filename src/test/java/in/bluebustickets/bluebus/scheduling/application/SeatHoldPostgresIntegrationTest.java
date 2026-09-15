@@ -311,8 +311,13 @@ class SeatHoldPostgresIntegrationTest {
         SeatHoldService.SeatHoldResult afterCancel = seatHoldService.cancel(toCancel.hold().getId());
         assertThat(afterCancel.hold().getStatus()).isEqualTo(SeatHoldStatus.CANCELLED);
         assertThat(afterCancel.allocations()).allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
-        assertThatThrownBy(() -> seatHoldService.cancel(toCancel.hold().getId()))
-                .isInstanceOf(IllegalArgumentException.class);
+        SeatHoldService.SeatHoldResult cancelAgain = seatHoldService.cancel(toCancel.hold().getId());
+        assertThat(cancelAgain.hold().getStatus()).isEqualTo(SeatHoldStatus.CANCELLED);
+
+        assertThatThrownBy(() -> seatHoldService.cancel(consumed.hold().getId()))
+                .isInstanceOf(ApplicationConflictException.class);
+        assertThatThrownBy(() -> seatHoldService.cancel(toExpire.hold().getId()))
+                .isInstanceOf(ApplicationConflictException.class);
     }
 
     @Test

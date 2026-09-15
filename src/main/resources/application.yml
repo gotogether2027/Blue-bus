@@ -27,6 +27,9 @@ blue-bus:
       issuer: ${JWT_ISSUER:blue-bus}
       secret: ${JWT_SECRET:}
   seat-holds:
+    create:
+      # Server-owned hold lifetime. Clients never supply expiresAt.
+      ttl-seconds: 600
     expiry:
       enabled: true
       reaper-interval-ms: 30000

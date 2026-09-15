@@ -17,6 +17,8 @@ public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
 
     long countByTripId(UUID tripId);
 
+    java.util.Optional<TripStop> findByTripIdAndSequenceNumber(UUID tripId, int sequenceNumber);
+
     @Query("""
             select ts from TripStop ts
             where ts.tripId = :tripId and ts.id in :stopIds
