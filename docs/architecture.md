@@ -83,7 +83,7 @@ Spring Boot modular monolith
 
 ## Authorization model
 
-JWT establishes identity; backend policy checks establish access. Permissions are named actions (for example `TRIP_WRITE`, `BOOKING_READ_ALL`) and roles group permissions. An operator-scoped request must always derive the effective operator scope from the authenticated membership, never trust a client-supplied `operatorId`. Admin access is permission-based rather than a blanket bypass. Customer booking access requires `booking.user_id == authenticatedUserId`.
+JWT establishes identity (`POST /api/v1/auth/login` issues a Bearer access token; resource-server validation is stateless). Backend policy checks establish access. Platform roles from `user_roles` are embedded in the token `roles` claim as `ROLE_<code>` authorities. Permissions are named actions (for example `TRIP_WRITE`, `BOOKING_READ_ALL`) and roles group permissions — fine-grained permission checks remain future work. An operator-scoped request must always derive the effective operator scope from the authenticated membership, never trust a client-supplied `operatorId`. Admin access is permission-based rather than a blanket bypass. Customer booking access requires `booking.user_id == authenticatedUserId`.
 
 ## Future extraction seams
 

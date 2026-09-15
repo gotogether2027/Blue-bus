@@ -8,7 +8,9 @@ blue-bus:
   security:
     jwt:
       issuer: test-issuer
-      secret: test-only-placeholder-not-a-secret
+      # Test-only HS256 secret (>= 32 bytes). Not for production use.
+      secret: test-only-placeholder-not-a-secret!!
+      access-token-ttl-seconds: 3600
   seat-holds:
     expiry:
       enabled: false

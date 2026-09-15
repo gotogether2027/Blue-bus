@@ -30,4 +30,10 @@ public class User extends AuditableEntity {
     public String getPhoneE164() { return phoneE164; }
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+    public String getFirstName() { return firstName; }
+    public String getLastName() { return lastName; }
+    public UserStatus getStatus() { return status; }
+    public void setStatus(UserStatus status) {
+        this.status = status == null ? UserStatus.ACTIVE : status;
+    }
 }
