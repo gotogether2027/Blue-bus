@@ -20,11 +20,11 @@ The V4 whole-trip `trip_seats` sale-state model was replaced by V5. Do not reint
 
 Implement search, trip seat-map projection, segment-aware database-safe holds, bookings/passengers, expiry jobs, and customer booking views. Use trip-specific boarding/drop-point snapshots. Load-test simultaneous overlapping and non-overlapping seat selections before connecting real payments.
 
-**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, hold-to-book, unpaid-booking expiry, V11 payment foundation, V12 customer booking views/unpaid cancellation/search, and **Phase 9.3 Razorpay** (Orders, Checkout HMAC, raw-body webhooks, refund execution, INITIATING retry via Razorpay idempotency). **Still outstanding:** confirmed-booking cancellation/refund *policy*, outbox publishing/RabbitMQ, ticket issuance, and operational reconciliation of abandoned `INITIATING` attempts that the customer never retries.
+**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, hold-to-book, unpaid-booking expiry, V11 payment foundation, V12 customer booking views/unpaid cancellation/search, **Phase 9.3 Razorpay** (Orders, Checkout HMAC, raw-body webhooks, refund execution, INITIATING retry via Razorpay idempotency), and **Phase 9.4A Ticket Foundation** (immutable ticket snapshot + customer issue/retrieve APIs; no PDF/QR/notifications). **Still outstanding:** confirmed-booking cancellation/refund *policy*, outbox publishing/RabbitMQ, event-driven ticket issuance (9.4B), PDF/QR, and operational reconciliation of abandoned `INITIATING` attempts that the customer never retries.
 
 ## Phase 4 — payments and transactional communication
 
-**Phase 9.3 done:** Razorpay is wired behind the V11 `PaymentProvider` adapter with signed Checkout/webhook rules and refund execution. Remaining: outbox publishing/RabbitMQ consumers, tickets, and channel-agnostic notification adapters. Preserve V11's database idempotency and booking-first lock order.
+**Phase 9.3 done:** Razorpay is wired behind the V11 `PaymentProvider` adapter with signed Checkout/webhook rules and refund execution. **Phase 9.4A done:** Ticket domain + ownership APIs (manual/idempotent issue from `CONFIRMED` bookings). Remaining: outbox publishing/RabbitMQ consumers, async ticket generation from `BOOKING_CONFIRMED`, PDF/QR, and channel-agnostic notification adapters. Preserve V11's database idempotency and booking-first lock order.
 
 ## Phase 5 — operations
 

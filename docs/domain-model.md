@@ -10,7 +10,8 @@
 - **Trip inventory:** the physical-seat snapshot for one trip. It is independent from the bus's permanent seat definition.
 - **Seat allocation:** a held or booked seat for one origin-to-destination sequence range. It prevents overlap, while allowing the same physical seat to be sold for a later non-overlapping segment.
 - **Hold:** short temporary claim over one or more seat allocations during checkout.
-- **Booking:** customer purchase record containing one or more seats and passengers.
+- **Booking:** customer purchase record containing one or more seats and passengers (commercial transaction).
+- **Ticket:** immutable customer-facing travel document issued from a `CONFIRMED` booking (one ticket per booking). Snapshots journey OD, schedule, passengers, seats, fares, and operator display name at issuance.
 
 ## Relationships
 
@@ -29,6 +30,7 @@ Booking 1---* BookingItem *---0..1 BookingPassenger
 Booking 1---* BookingPassenger
 Booking 1---0..1 BookingCancellation
 Booking 1---* PaymentAttempt; PaymentAttempt 1---* ProviderEvent; PaymentAttempt 1---* Refund
+Booking 1---0..1 Ticket 1---* TicketPassenger
 Operator 1---* Operator user *---1 User
 ```
 
@@ -36,7 +38,7 @@ Customer-facing journey availability for a requested OD segment is a **read-only
 
 Customer-facing UI vocabulary `AVAILABLE` / `HELD` / `BOOKED` / `BLOCKED` for a requested journey remains **derived** from physical inventory plus overlapping active allocations. It is not stored as a whole-trip flag on `TripSeatInventory`. Physical inventory status is only `AVAILABLE` or `BLOCKED`.
 
-V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Phase 7.4 adds an explicit hold expiry reaper: due `ACTIVE` holds (`expires_at <= now`) become `EXPIRED` and their `HELD` allocations become `EXPIRED` in one DB transaction per hold (`FOR UPDATE SKIP LOCKED`). Availability does **not** invent implicit expiry from timestamps — only the committed state change stops blocking. **V9 / Phase 9.1** implements bookings + passengers + hold-to-book: an authenticated customer converts an ACTIVE **owned** hold (`seat_holds.user_id` = booker) into a `PENDING_PAYMENT` booking with persisted `payment_expires_at`; allocations become `BOOKED` and the hold becomes `CONSUMED` in one transaction. Anonymous holds remain creatable but are not bookable. **V10 / unpaid expiry** expires due `PENDING_PAYMENT` bookings (`payment_expires_at <= now`) to `EXPIRED`, marks items `EXPIRED`, and releases matching allocations `BOOKED` → `RELEASED` (historical rows retained). Availability unblocks only after that committed release — timestamps are not implicit. **V12** adds customer booking views (JWT-subject ownership; cross-customer `404`), unpaid customer cancellation (`PENDING_PAYMENT` → `CANCELLED`, allocations `BOOKED` → `CANCELLED`, immutable `booking_cancellations`), and public OD search using trip-stop sequences plus the existing segment-overlap availability count. **Phase 9.3** adds Razorpay behind the provider-neutral payment adapter; Booking still has no Razorpay-specific fields. Confirmed cancellation/refund policy and tickets remain deferred.
+V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Phase 7.4 adds an explicit hold expiry reaper: due `ACTIVE` holds (`expires_at <= now`) become `EXPIRED` and their `HELD` allocations become `EXPIRED` in one DB transaction per hold (`FOR UPDATE SKIP LOCKED`). Availability does **not** invent implicit expiry from timestamps — only the committed state change stops blocking. **V9 / Phase 9.1** implements bookings + passengers + hold-to-book: an authenticated customer converts an ACTIVE **owned** hold (`seat_holds.user_id` = booker) into a `PENDING_PAYMENT` booking with persisted `payment_expires_at`; allocations become `BOOKED` and the hold becomes `CONSUMED` in one transaction. Anonymous holds remain creatable but are not bookable. **V10 / unpaid expiry** expires due `PENDING_PAYMENT` bookings (`payment_expires_at <= now`) to `EXPIRED`, marks items `EXPIRED`, and releases matching allocations `BOOKED` → `RELEASED` (historical rows retained). Availability unblocks only after that committed release — timestamps are not implicit. **V12** adds customer booking views (JWT-subject ownership; cross-customer `404`), unpaid customer cancellation (`PENDING_PAYMENT` → `CANCELLED`, allocations `BOOKED` → `CANCELLED`, immutable `booking_cancellations`), and public OD search using trip-stop sequences plus the existing segment-overlap availability count. **Phase 9.3** adds Razorpay behind the provider-neutral payment adapter; Booking still has no Razorpay-specific fields. **Phase 9.4A / V13** adds `Ticket` / `TicketPassenger` snapshots with customer-facing ticket numbers (`BB` + 8 unambiguous chars via `SecureRandom`); status lifecycle is `ACTIVE` / `CANCELLED` (no auto-cancel wiring in 9.4A). Confirmed cancellation/refund policy, event-driven issuance, PDF/QR, and notifications remain deferred.
 
 `trips.base_fare` is a temporary draft/default. Future origin–destination prices belong on `trip_fares`.
 
@@ -50,6 +52,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 4. A pending booking is created from held seats; payment attempts reference that booking.
 5. Only a verified, idempotently processed payment success can change the booking to CONFIRMED. Allocations are already BOOKED at hold-to-book; unpaid expiry releases them (`BOOKED` → `RELEASED`) if payment never arrives. A late payment after unpaid expiry must not recreate an allocation automatically.
 6. Expiry, failed payment, cancellation, or refund changes allocations according to the cancellation/refund policy. No state may be inferred only from a browser session. Unpaid booking expiry uses the persisted `payment_expires_at` and PostgreSQL row locks (`FOR UPDATE SKIP LOCKED` per booking). Unpaid customer cancellation locks the booking first, then allocations, and is refused with a conflict when the booking is already `CONFIRMED` because confirmed refund policy is not yet defined.
+7. A ticket may be issued only for a `CONFIRMED` booking. Issuance is idempotent (database unique on `booking_id`). The ticket stores a customer-facing snapshot and does not silently follow later booking/trip/fleet changes. Phase 9.4A does not auto-cancel tickets when bookings cancel; PDF/QR and notifications remain deferred.
 
 ## Recommended state machines
 
@@ -60,6 +63,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 | Seat allocation | HELD, BOOKED, RELEASED, CANCELLED, EXPIRED, BLOCKED |
 | Booking | INITIATED, PENDING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED, REFUND_PENDING, REFUNDED |
 | BookingCancellation (V12) | COMPLETED (unpaid customer cancellation only) |
+| Ticket (V13) | ACTIVE, CANCELLED |
 | PaymentAttempt (V11) | INITIATING, PENDING, SUCCEEDED, FAILED, CANCELLED, EXPIRED |
 | Payment disposition (V11) | UNAPPLIED, APPLIED_TO_BOOKING, REQUIRES_RESOLUTION |
 | Refund | REQUESTED, INITIATED, SUCCEEDED, FAILED, REJECTED |

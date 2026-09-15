@@ -11,7 +11,9 @@ An event should include `event_id`, `event_type`, `occurred_at`, `aggregate_type
 | Event | Publisher | RabbitMQ consumers / reason |
 |---|---|---|
 | `BOOKING_CREATED` | Booking | audit/read-model update; notifies only when useful |
-| `BOOKING_CONFIRMED` | Booking | ticket notification, operator dashboard, settlement accrual, analytics |
+| `BOOKING_CONFIRMED` | Booking | **future** ticket issuance (Phase 9.4B), ticket notification, operator dashboard, settlement accrual, analytics |
+
+Phase 9.4A exposes synchronous/idempotent `TicketApplicationService.issueForBooking` and customer retrieve APIs only. It does **not** consume outbox/`BOOKING_CONFIRMED` for automatic issuance, and does not send notifications.
 | `BOOKING_CANCELLED` | Booking | notification, inventory projection, refund workflow trigger |
 | `PAYMENT_INITIATED` | Payments | audit/monitoring |
 | `PAYMENT_SUCCEEDED` | Payments | booking confirmation command/workflow, receipt notification |

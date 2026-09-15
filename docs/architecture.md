@@ -71,7 +71,13 @@ Spring Boot modular monolith
 
 **What:** `trip_seat_inventory` represents the physical seat on a trip; a separate allocation/reservation row (booking phase) records each held or booked origin/destination stop-sequence range for that seat as `int4range(origin_sequence, destination_sequence, '[)')`. Example: Hyderabad(1) → Vijayawada(3) is `[1,3)`; Vijayawada(3) → Guntur(4) is `[3,4)`; those ranges do not overlap. Hyderabad→Vijayawada `[1,3)` and Suryapet→Guntur `[2,4)` do overlap and must be rejected.
 
-**Implementation status:** trip stops, trip points, route points, physical inventory, segment allocations, seat holds, bookings, unpaid-booking expiry, customer booking views, unpaid cancellation, and origin/destination search are in the schema. V11 adds provider-neutral payment attempts, a verified-provider-event inbox, refund persistence foundation, and a transactional outbox. **Phase 9.3** adds `RazorpayPaymentProvider` behind `PaymentProvider` (Orders, Checkout HMAC, raw-body webhooks, refunds). Confirmed-booking cancellation policy and message-broker publishing remain deferred.
+**Implementation status:** trip stops, trip points, route points, physical inventory, segment allocations, seat holds, bookings, unpaid-booking expiry, customer booking views, unpaid cancellation, and origin/destination search are in the schema. V11 adds provider-neutral payment attempts, a verified-provider-event inbox, refund persistence foundation, and a transactional outbox. **Phase 9.3** adds `RazorpayPaymentProvider` behind `PaymentProvider` (Orders, Checkout HMAC, raw-body webhooks, refunds). **Phase 9.4A** adds immutable `tickets` / `ticket_passengers` snapshots issued from `CONFIRMED` bookings (customer issue/retrieve only). Confirmed-booking cancellation policy, message-broker publishing, event-driven ticket issuance, PDF/QR, and notifications remain deferred.
+
+### Ticket vs booking
+
+**What:** a **Booking** is the commercial transaction (`PENDING_PAYMENT` → `CONFIRMED` / `EXPIRED` / `CANCELLED`). A **Ticket** is a separate customer-facing travel document issued only from a `CONFIRMED` booking. Ticket rows snapshot journey/passenger/seat/fare/operator display data at issuance so later operational edits do not silently rewrite the customer document.
+
+**Phase 9.4A:** `TicketApplicationService.issueForBooking` is idempotent (`UNIQUE(tickets.booking_id)`). Customer `POST /api/v1/bookings/{bookingId}/tickets` and `GET /api/v1/tickets/{ticketId}` use JWT subject ownership (cross-customer `404`). Booking confirmation does **not** depend on ticket generation; async issue from `BOOKING_CONFIRMED` is deferred to 9.4B. PDF/QR and notifications are out of scope.
 
 ### Outbox pattern for events
 

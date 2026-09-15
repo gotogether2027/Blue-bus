@@ -379,6 +379,36 @@ class FlywayPostgresIntegrationTest {
         assertThat(refundCheck).contains("0");
     }
 
+    @Test
+    void appliesTicketFoundationMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '13'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("13");
+            assertThat(migration.get("description")).hasToString("tickets");
+            assertThat(migration.get("script")).hasToString("V13__tickets.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("tickets")).isTrue();
+        assertThat(tableExists("ticket_passengers")).isTrue();
+        assertThat(indexExists("uq_tickets_booking")).isTrue();
+        assertThat(indexExists("uq_tickets_ticket_number")).isTrue();
+        assertThat(indexExists("ix_tickets_user_issued")).isTrue();
+        assertThat(indexExists("ix_ticket_passengers_ticket")).isTrue();
+
+        String statusCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_tickets_status'
+                """, String.class);
+        assertThat(statusCheck).contains("ACTIVE").contains("CANCELLED");
+    }
+
     private boolean tableExists(String tableName) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)

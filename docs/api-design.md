@@ -4,7 +4,7 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health`, customer registration + login + refresh/logout + `/auth/me`, admin master-data/trip APIs, public journey seat availability, public temporary seat holds (optional JWT ownership), and authenticated hold-to-booking (`/api/v1/bookings`). Payment provider integration, tickets, refunds, email verification, and profile editing remain deferred.
+Implemented so far: `GET /api/v1/health`, customer registration + login + refresh/logout + `/auth/me`, admin master-data/trip APIs, public journey seat availability, public temporary seat holds (optional JWT ownership), authenticated hold-to-booking (`/api/v1/bookings`), Razorpay payment APIs, and **Phase 9.4A tickets** (`POST /api/v1/bookings/{bookingId}/tickets`, `GET /api/v1/tickets/{ticketId}`). Email verification, profile editing, PDF/QR, and notifications remain deferred.
 
 ## Customer registration & identity — Phase 8.2
 
@@ -113,7 +113,7 @@ Deferred: password reset, email/phone verification, profile editing, permission 
 
 ## Customer bookings — Phase 9.1 foundation + unpaid expiry + V12 views/cancellation
 
-Authenticated hold-to-booking conversion, owner views, and unpaid customer cancellation. Does **not** process production payments, invent a confirmed-booking refund policy, or issue tickets. Unpaid `PENDING_PAYMENT` bookings expire automatically after the persisted payment deadline.
+Authenticated hold-to-booking conversion, owner views, and unpaid customer cancellation. Does **not** invent a confirmed-booking refund policy. Tickets are issued via the dedicated ticket APIs (Phase 9.4A), not inside booking create/confirm. Unpaid `PENDING_PAYMENT` bookings expire automatically after the persisted payment deadline.
 
 | Method | Path | Auth | Success |
 |---|---|---|---|
@@ -220,7 +220,43 @@ The webhook endpoint supplies the untouched request bytes and headers to the pro
 
 Success processing locks `booking → payment_attempt → allocations`. On-time success for `PENDING_PAYMENT` atomically records `SUCCEEDED / APPLIED_TO_BOOKING` and confirms Booking. If expiry/cancellation won, the payment is `SUCCEEDED / REQUIRES_RESOLUTION`; Booking and released/cancelled allocations stay unchanged. Amount/currency/reference mismatch follows the same reconciliation path.
 
-Deferred: additional providers, confirmed-booking cancellation policy, outbox publishing/RabbitMQ, tickets.
+Deferred: additional providers, confirmed-booking cancellation policy, outbox publishing/RabbitMQ, event-driven ticket issuance (9.4B), PDF/QR, notifications.
+
+## Customer tickets — Phase 9.4A foundation
+
+Booking = commercial transaction. Ticket = immutable customer-facing travel document issued from a `CONFIRMED` booking. One ticket per booking (`UNIQUE(tickets.booking_id)`). Ticket numbers are customer-facing references: `BB` + 8 unambiguous uppercase alphanumerics (alphabet omits `I`/`O`/`0`/`1`), generated with `SecureRandom`, uniqueness enforced by the database. Snapshot fields (operator display name, OD stop names, schedule, passenger/seat/fare) are copied at issuance and do not silently follow later operational edits. PDF/QR and notifications are deferred.
+
+| Method | Path | Auth | Success |
+|---|---|---|---|
+| `POST` | `/api/v1/bookings/{bookingId}/tickets` | Bearer JWT (booking owner) | `201 Created` |
+| `GET` | `/api/v1/tickets/{ticketId}` | Bearer JWT (ticket owner) | `200 OK` |
+
+**Issuance rules:** only `CONFIRMED` bookings; idempotent (repeat calls return the same ticket); concurrent races resolve via `uq_tickets_booking` and return the winner. Non-owners and unknown IDs → `404`. Unauthenticated → `401`. Amounts come from persisted booking/item values — never recalculated and never accepted from the client. Booking confirmation does not depend on ticket generation; Phase 9.4B will consume `BOOKING_CONFIRMED` asynchronously.
+
+Example response:
+
+```json
+{
+  "ticketId": "...",
+  "ticketNumber": "BB7K4M92",
+  "status": "ACTIVE",
+  "issuedAt": "2026-09-15T12:00:00Z",
+  "bookingReference": "BB...",
+  "bookingId": "...",
+  "operator": { "name": "Blue Travels" },
+  "journey": {
+    "origin": "Hyderabad, Telangana",
+    "destination": "Vijayawada, Andhra Pradesh",
+    "departure": "2026-12-01T10:00:00Z",
+    "arrival": "2026-12-01T13:00:00Z"
+  },
+  "passengers": [
+    { "name": "Rider 1", "age": 25, "gender": "F", "seat": "S1", "fareAmount": 900.00, "currency": "INR" }
+  ],
+  "amount": 900.00,
+  "currency": "INR"
+}
+```
 
 ## Customer seat holds — Phase 7.6
 
@@ -486,6 +522,7 @@ A user may hold ACTIVE memberships in multiple operators; each path `operatorId`
 | `/api/v1/search` | origin, destination, service date, passenger count search | public |
 | `/api/v1/trips/{tripId}/inventory` | seat map and availability for requested origin/destination and boarding/drop points | public/signed-in per policy |
 | `/api/v1/bookings` | hold seats, create booking, retrieve/cancel own booking | customer/scoped staff/admin |
+| `/api/v1/tickets` | issue ticket for confirmed booking; retrieve own ticket | booking/ticket owner |
 | `/api/v1/payments` | initialize payment, status | booking owner/staff/admin |
 | `/api/v1/payments/webhooks/{provider}` | provider callbacks | verified provider signature only |
 | `/api/v1/refunds` | request/view refund | policy-authorized |
