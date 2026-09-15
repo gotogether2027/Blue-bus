@@ -12,6 +12,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -63,6 +64,17 @@ public class GlobalExceptionHandler {
                 "Request validation failed.",
                 request.getRequestURI(),
                 violations));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiError> handleMissingParameter(
+            MissingServletRequestParameterException exception,
+            HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(error(
+                HttpStatus.BAD_REQUEST,
+                "Missing required parameter '" + exception.getParameterName() + "'.",
+                request.getRequestURI(),
+                List.of(new ApiError.FieldViolation(exception.getParameterName(), "Required."))));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

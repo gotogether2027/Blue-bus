@@ -4,7 +4,48 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health` and the Phase 6A.1 admin master-data slice below. Future `GET /api/v1/trips/{tripId}/inventory` must derive seat state for the requested origin/destination stop sequences from physical `TripSeatInventory` plus overlapping allocations, not from a whole-trip BOOKED flag.
+Implemented so far: `GET /api/v1/health`, admin master-data/trip APIs, and public journey seat availability below. Future hold/booking/payment endpoints remain deferred. Authentication and rate limiting for public trip reads will be addressed in a later phase.
+
+## Customer journey seat availability (Phase 7.5)
+
+Read-only public endpoint. Availability is **derived** from physical `TripSeatInventory` plus overlapping active segment allocations (`HELD`/`BOOKED`/`BLOCKED`). It is not a stored column. Past-due `HELD` rows still block until the hold expiry reaper transitions them to `EXPIRED`.
+
+| Method | Path | Success |
+|---|---|---|
+| `GET` | `/api/v1/trips/{tripId}/seat-availability` | `200 OK` |
+
+Query parameters (both required UUIDs):
+
+- `originStopId` — `TripStop` id on the requested trip
+- `destinationStopId` — `TripStop` id on the requested trip (must be after origin)
+
+Callers must not send sequence numbers; the server resolves stop IDs to sequences.
+
+Response (conceptual):
+
+```json
+{
+  "tripId": "...",
+  "originStopId": "...",
+  "destinationStopId": "...",
+  "originSequence": 1,
+  "destinationSequence": 3,
+  "seats": [
+    {
+      "inventoryId": "...",
+      "seatNumber": "S1",
+      "seatType": "SEATER",
+      "deck": 1,
+      "row": 1,
+      "column": 1,
+      "physicalStatus": "AVAILABLE",
+      "availability": "AVAILABLE"
+    }
+  ]
+}
+```
+
+`availability` is `AVAILABLE` or `UNAVAILABLE`. Validation: missing/malformed params → `400`; unknown trip or stop not on trip → `404`; origin not before destination → `400`. No mutation. No authentication in this phase.
 
 ## Admin master data (Phase 6A.1)
 

@@ -43,6 +43,7 @@ public class SecurityConfiguration {
                                 apiErrorResponseWriter.write(request, response, HttpStatus.FORBIDDEN)))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/health", "/error").permitAll()
+                        .requestMatchers("/api/v1/trips/*/seat-availability").permitAll()
                         .anyRequest().authenticated())
                 .build();
     }
