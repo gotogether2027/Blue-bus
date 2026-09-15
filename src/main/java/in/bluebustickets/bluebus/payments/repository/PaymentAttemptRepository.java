@@ -18,6 +18,8 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttempt, 
 
     Optional<PaymentAttempt> findByProviderAndMerchantReference(String provider, String merchantReference);
 
+    Optional<PaymentAttempt> findByProviderAndProviderOrderId(String provider, String providerOrderId);
+
     Optional<PaymentAttempt> findByProviderAndProviderPaymentId(String provider, String providerPaymentId);
 
     List<PaymentAttempt> findByBookingIdOrderByCreatedAtDesc(UUID bookingId);

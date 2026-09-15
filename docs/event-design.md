@@ -29,7 +29,9 @@ An event should include `event_id`, `event_type`, `occurred_at`, `aggregate_type
 
 Seat conditional update, hold validation, pending booking creation, and recording a payment webhook must be transactional request/workflow actions. Do not make availability or payment confirmation depend solely on a queued message; queue delay/failure would create inconsistent customer-visible state.
 
-The webhook ingress first records a verified normalized provider event exactly once. Processing then locks booking, payment attempt and allocations and atomically updates payment disposition, confirms an eligible booking, completes the inbox event, and writes outbox rows. Booking confirmation does not depend on a future queue. If Booking is expired/cancelled, money is recorded as `SUCCEEDED / REQUIRES_RESOLUTION` and `PAYMENT_REQUIRES_RESOLUTION` is written; no seat is recreated.
+The webhook ingress first records a verified normalized provider event exactly once. Razorpay Checkout verification uses the same inbox (`provider_event_id` = `checkout:{payment_id}`) after HMAC over the stored order id. Processing then locks booking, payment attempt and allocations and atomically updates payment disposition, confirms an eligible booking, completes the inbox event, and writes outbox rows. Booking confirmation does not depend on a future queue. If Booking is expired/cancelled, money is recorded as `SUCCEEDED / REQUIRES_RESOLUTION` and `PAYMENT_REQUIRES_RESOLUTION` is written; no seat is recreated. `REFUND_SUCCEEDED` is written when a refund reaches a terminal success either from the Razorpay refund API or a later `refund.processed` webhook.
+
+Razorpay webhook handlers must acknowledge within ~5s. That path never performs outbound provider HTTP; it only verifies the raw body, records the inbox row, and runs the bounded local state machine above before returning 2xx.
 
 ## Reliability controls
 

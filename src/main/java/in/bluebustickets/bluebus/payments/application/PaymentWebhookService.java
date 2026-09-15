@@ -15,6 +15,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 
+/**
+ * Provider webhook ingress. Designed for Razorpay's ~5s acknowledgement window:
+ * verify raw-body signature → validate provider event id → durable inbox insert →
+ * bounded local payment-state-machine DB work → 2xx. This path never performs outbound
+ * provider HTTP (Orders/Refunds). Provider network calls stay on initiate/refund/checkout flows.
+ */
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
 public class PaymentWebhookService {
@@ -40,6 +46,7 @@ public class PaymentWebhookService {
             byte[] rawBody,
             Map<String, List<String>> headers) {
         PaymentProvider provider = providerRegistry.require(providerCode);
+        // Local only: HMAC over raw bytes + normalize. No provider API calls.
         PaymentProvider.WebhookVerificationResult verification =
                 provider.verifyAndNormalize(rawBody, headers);
         if (!verification.verified() || verification.event() == null) {
@@ -52,6 +59,8 @@ public class PaymentWebhookService {
                 verification.event(),
                 clock.instant(),
                 sha256Hex(rawBody));
+        // Local DB state machine only. Duplicate deliveries re-enter process so a crash
+        // after insert but before process is recovered without a second Razorpay call.
         var result = eventProcessor.process(ingress.eventId());
         return new WebhookReceiptResponse(true, ingress.duplicate(), result.result());
     }

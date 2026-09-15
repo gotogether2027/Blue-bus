@@ -8,7 +8,7 @@ import java.util.UUID;
 
 /**
  * Provider-neutral boundary. Implementations own provider DTOs, network calls, status mapping,
- * and signature rules. No real provider implementation is included in this phase.
+ * and signature rules. Booking/payment domain code must not contain provider-specific logic.
  */
 public interface PaymentProvider {
 
@@ -17,6 +17,14 @@ public interface PaymentProvider {
     ProviderInitiationResult initiate(ProviderInitiationCommand command);
 
     WebhookVerificationResult verifyAndNormalize(byte[] rawBody, Map<String, List<String>> headers);
+
+    default WebhookVerificationResult verifyCheckout(CheckoutVerificationCommand command) {
+        return WebhookVerificationResult.invalid();
+    }
+
+    default ProviderRefundResult refund(ProviderRefundCommand command) {
+        throw new PaymentProviderUnavailableException("Refunds are not configured for this provider.");
+    }
 
     record ProviderInitiationCommand(
             UUID paymentAttemptId,
@@ -30,6 +38,29 @@ public interface PaymentProvider {
             String providerOrderId,
             String providerStatus,
             String checkoutReference) {
+    }
+
+    record CheckoutVerificationCommand(
+            String storedProviderOrderId,
+            String presentedProviderOrderId,
+            String providerPaymentId,
+            String signature,
+            String merchantReference,
+            BigDecimal amount,
+            String currency) {
+    }
+
+    record ProviderRefundCommand(
+            UUID refundId,
+            String providerPaymentId,
+            BigDecimal amount,
+            String currency,
+            String idempotencyKey) {
+    }
+
+    record ProviderRefundResult(
+            String providerRefundId,
+            String providerStatus) {
     }
 
     record WebhookVerificationResult(boolean verified, VerifiedProviderEvent event) {
@@ -62,6 +93,8 @@ public interface PaymentProvider {
         PAYMENT_PENDING,
         PAYMENT_FAILED,
         PAYMENT_SUCCEEDED,
+        REFUND_SUCCEEDED,
+        REFUND_FAILED,
         UNKNOWN
     }
 }

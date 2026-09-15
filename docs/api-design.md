@@ -174,23 +174,53 @@ Query parameters (all required):
 
 Only `SCHEDULED` / `ON_SALE` trips are returned, and only when the origin trip-stop sequence is strictly less than the destination trip-stop sequence. The response includes operator/bus/route identity, base fare, trip-specific boarding points at origin, drop points at destination, and `availableSeatCount` from the existing segment-overlap availability projection (active `HELD`/`BOOKED`/`BLOCKED` allocations on `[origin,destination)`). Adjacent non-overlapping segments remain independently countable. Same origin and destination → `400`. Unknown location → `404`. Empty result is `200 []`.
 
-## Customer payment foundation — V11
+## Customer payment foundation — V11 + Phase 9.3 Razorpay
 
 | Method | Path | Auth | Success |
 |---|---|---|---|
 | `POST` | `/api/v1/bookings/{bookingId}/payments` | Bearer JWT (owner) + `Idempotency-Key` | `201 Created` |
 | `GET` | `/api/v1/payments/{paymentAttemptId}` | Bearer JWT (owner) | `200 OK` |
+| `POST` | `/api/v1/payments/{paymentAttemptId}/checkout` | Bearer JWT (owner) | `200 OK` |
+| `POST` | `/api/v1/payments/{paymentAttemptId}/refunds` | Bearer JWT (owner) + `Idempotency-Key` | `201 Created` |
 | `POST` | `/api/v1/payments/webhooks/{provider}` | Provider signature through registered adapter; no JWT | `200 OK` |
 
-Initiation has no amount/currency request fields. The server locks the owned `PENDING_PAYMENT` booking, requires its persisted deadline to be in the future, and snapshots the booking total/currency. A provider call is made only by the transaction that creates the attempt and occurs outside the DB transaction. The response is an initiation/pending result, never proof of payment. With no production adapter registered, initiation/webhook requests return `503`; `blue-bus.payments.default-provider` selects an installed adapter but stores no secret.
+Initiation has no amount/currency request fields. The server locks the owned `PENDING_PAYMENT` booking, requires its persisted deadline to be in the future, and snapshots the booking total/currency. A provider call is made only by the transaction that creates the attempt and occurs outside the DB transaction. The response is an initiation/pending result, never proof of payment.
 
-Database idempotency is `(user_id, idempotency_key)`. Same key/fingerprint returns the same attempt; different booking/provider fingerprint returns `409`; concurrent identical requests create one merchant/provider order. `GET` exposes safe status/disposition and monetary fields, not signatures, raw payload, provider secrets, or internal resolution reasons.
+`blue-bus.payments.default-provider` selects the installed adapter (`RAZORPAY` or a test adapter). Credentials are never stored in this property. With no matching adapter, initiation/webhook/checkout/refund requests return `503`.
+
+Database idempotency is `(user_id, idempotency_key)`. Same key/fingerprint returns the same attempt; different booking/provider fingerprint returns `409`; concurrent identical requests create one merchant/provider order. `GET` exposes safe status/disposition and monetary fields, not signatures, raw payload, provider secrets, or internal resolution reasons. `checkoutReference` may contain the public Razorpay Key ID required by Checkout; the Key Secret and webhook secret are never returned.
+
+### Razorpay adapter
+
+Set `PAYMENT_PROVIDER=RAZORPAY` plus environment secrets. Test and Live are separated by which Key ID/secret/webhook secret/base URL are supplied (Razorpay test keys vs live keys). Missing required credentials fail application startup.
+
+| Variable | Purpose | Secret? |
+|---|---|---|
+| `PAYMENT_PROVIDER` | `RAZORPAY` to enable the production adapter | no |
+| `RAZORPAY_KEY_ID` | Public Key ID returned as `checkoutReference` | no (public) |
+| `RAZORPAY_KEY_SECRET` | Orders API Basic auth and Checkout HMAC | yes |
+| `RAZORPAY_WEBHOOK_SECRET` | Webhook HMAC of the raw body | yes |
+| `RAZORPAY_BASE_URL` | Defaults to `https://api.razorpay.com` | no |
+
+Order creation uses the persisted INR amount converted to paise with `BigDecimal` (`₹850.00` → `85000`). Receipt/notes carry only the payment-attempt id and merchant reference. The Razorpay order id is stored on `payment_attempts.provider_order_id`. Checkout verification HMAC is `order_id|payment_id` using the **stored** order id and `RAZORPAY_KEY_SECRET`. The browser-supplied order id is rejected unless it matches the stored value.
+
+Webhook URL: `POST /api/v1/payments/webhooks/RAZORPAY`. Authentication is `X-Razorpay-Signature` over the **raw** request bytes (not re-serialized JSON). `X-Razorpay-Event-Id` is the inbox idempotency key. Normalized events: `payment.captured` / `order.paid` → `PAYMENT_SUCCEEDED` (only these confirm an eligible booking); `payment.failed` → `PAYMENT_FAILED`; `payment.authorized` → `PAYMENT_PENDING` (booking stays `PENDING_PAYMENT`; never final success by itself); `refund.processed` / `refund.failed` → refund outcomes. Unknown events are ignored after a verified inbox insert. Out-of-order pending/authorized events cannot downgrade `SUCCEEDED`.
+
+**Razorpay acknowledgement window (~5s):** the webhook path is intentionally free of outbound Razorpay HTTP. Order is: verify raw-body signature → require event id → durable `(provider, provider_event_id)` inbox insert → bounded local payment/booking DB transitions (existing state machine + outbox rows) → `200` for accepted and duplicate deliveries. Orders/Refunds API calls are never made from this path; they remain on payment initiation and refund initiation only. Duplicate delivery still re-enters local process so a crash after inbox insert but before state-machine completion is recovered without calling Razorpay.
+
+Checkout verification and webhooks both enter the existing verified-event processor. Frontend “payment success” is never sufficient by itself.
+
+Refunds use the captured amount from the database (client `amount` is ignored), Razorpay `X-Razorpay-Idempotency-Key` = our refund id, and the existing `refunds` row. Duplicate refund requests and duplicate refund webhooks do not create a second provider refund.
+
+### INITIATING recovery
+
+If Razorpay accepts an order and BLUE BUS crashes before persisting `provider_order_id`, the attempt remains `INITIATING`. Retrying the same customer `Idempotency-Key` calls Orders again with `X-Razorpay-Idempotency-Key` = `payment_attempt_id`, which returns the existing Razorpay order instead of creating another charge. Remaining operational requirement: if the customer never retries, an `INITIATING` row with a null provider order id should be reconciled from the Razorpay dashboard using the receipt/merchant reference; there is no automatic poller in this phase.
 
 The webhook endpoint supplies the untouched request bytes and headers to the provider adapter. Only a verified, normalized event is persisted. `(provider, provider_event_id)` makes duplicate and concurrent delivery harmless. Pending/failure events never confirm a booking; verified success validates provider references and exact `NUMERIC(12,2)` amount/ISO currency.
 
-Success processing locks `booking → payment_attempt → allocations`. On-time success for `PENDING_PAYMENT` atomically records `SUCCEEDED / APPLIED_TO_BOOKING` and confirms Booking. If expiry/cancellation won, the payment is `SUCCEEDED / REQUIRES_RESOLUTION`; Booking and released/cancelled allocations stay unchanged. Amount/currency/reference mismatch follows the same reconciliation path. Refund provider execution remains deferred.
+Success processing locks `booking → payment_attempt → allocations`. On-time success for `PENDING_PAYMENT` atomically records `SUCCEEDED / APPLIED_TO_BOOKING` and confirms Booking. If expiry/cancellation won, the payment is `SUCCEEDED / REQUIRES_RESOLUTION`; Booking and released/cancelled allocations stay unchanged. Amount/currency/reference mismatch follows the same reconciliation path.
 
-Deferred: production payment provider selection/credentials, provider-specific webhook policy, actual refunds, outbox publishing/RabbitMQ, tickets.
+Deferred: additional providers, confirmed-booking cancellation policy, outbox publishing/RabbitMQ, tickets.
 
 ## Customer seat holds — Phase 7.6
 
@@ -468,7 +498,7 @@ A user may hold ACTIVE memberships in multiple operators; each path `operatorId`
 1. `POST /trips/{tripId}/holds` requests seat IDs, origin/destination trip-stop IDs, and boarding/drop point IDs. It returns a hold ID and expiry only if every requested seat is atomically allocated for that segment.
 2. `POST /bookings` consumes that valid hold and creates a pending-payment booking with passenger, point, fare, tax, coupon, and commission snapshots.
 3. `POST /payments` starts a provider payment for that booking using an `Idempotency-Key`.
-4. The server trusts a signed provider webhook, not a client success callback, to confirm payment and booking.
+4. Payment confirmation requires a verified Razorpay Checkout HMAC and/or a verified webhook. Both use the stored provider order id and the existing payment state machine. An unsigned browser success callback is never enough.
 5. `GET /bookings/{id}` returns current state; the UI may poll briefly or receive a later notification.
 
 If a provider reports success after the hold has expired or the trip is no longer saleable, the API must show a non-confirmed resolution state. It must not claim a released seat; the payment/refund workflow resolves the money separately.

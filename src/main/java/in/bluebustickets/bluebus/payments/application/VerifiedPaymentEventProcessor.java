@@ -2,6 +2,7 @@ package in.bluebustickets.bluebus.payments.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.application.BookingPaymentPort;
@@ -13,9 +14,12 @@ import in.bluebustickets.bluebus.payments.domain.PaymentDisposition;
 import in.bluebustickets.bluebus.payments.domain.PaymentProviderEvent;
 import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
 import in.bluebustickets.bluebus.payments.domain.ProviderEventProcessingStatus;
+import in.bluebustickets.bluebus.payments.domain.Refund;
+import in.bluebustickets.bluebus.payments.domain.RefundStatus;
 import in.bluebustickets.bluebus.payments.provider.PaymentProvider.ProviderEventType;
 import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
 import in.bluebustickets.bluebus.payments.repository.PaymentProviderEventRepository;
+import in.bluebustickets.bluebus.payments.repository.RefundRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -27,6 +31,7 @@ public class VerifiedPaymentEventProcessor {
 
     private final PaymentProviderEventRepository eventRepository;
     private final PaymentAttemptRepository attemptRepository;
+    private final RefundRepository refundRepository;
     private final BookingPaymentPort bookingPaymentPort;
     private final OutboxEventRepository outboxEventRepository;
     private final Clock clock;
@@ -34,11 +39,13 @@ public class VerifiedPaymentEventProcessor {
     public VerifiedPaymentEventProcessor(
             PaymentProviderEventRepository eventRepository,
             PaymentAttemptRepository attemptRepository,
+            RefundRepository refundRepository,
             BookingPaymentPort bookingPaymentPort,
             OutboxEventRepository outboxEventRepository,
             Clock clock) {
         this.eventRepository = eventRepository;
         this.attemptRepository = attemptRepository;
+        this.refundRepository = refundRepository;
         this.bookingPaymentPort = bookingPaymentPort;
         this.outboxEventRepository = outboxEventRepository;
         this.clock = clock;
@@ -55,9 +62,7 @@ public class VerifiedPaymentEventProcessor {
             return resultFromStored(event);
         }
 
-        PaymentAttempt candidate = attemptRepository
-                .findByProviderAndMerchantReference(event.getProvider(), event.getMerchantReference())
-                .orElse(null);
+        PaymentAttempt candidate = resolveAttempt(event);
         Instant now = clock.instant();
         if (candidate == null) {
             event.requireReview("UNKNOWN_PAYMENT_REFERENCE", now);
@@ -80,6 +85,8 @@ public class VerifiedPaymentEventProcessor {
             case PAYMENT_PENDING -> processPending(event, attempt, booking.status(), now);
             case PAYMENT_FAILED -> processFailed(event, attempt, booking.status(), now);
             case PAYMENT_SUCCEEDED -> processSuccess(event, attempt, booking, now);
+            case REFUND_SUCCEEDED -> processRefund(event, attempt, booking.status(), now, true);
+            case REFUND_FAILED -> processRefund(event, attempt, booking.status(), now, false);
             case UNKNOWN -> {
                 event.ignore("UNSUPPORTED_EVENT_TYPE", now);
                 yield new PaymentProcessingResult(
@@ -87,6 +94,28 @@ public class VerifiedPaymentEventProcessor {
                         booking.status(), false, "UNSUPPORTED_EVENT_TYPE");
             }
         };
+    }
+
+    private PaymentAttempt resolveAttempt(PaymentProviderEvent event) {
+        if (event.getMerchantReference() != null && !event.getMerchantReference().isBlank()) {
+            var byReference = attemptRepository.findByProviderAndMerchantReference(
+                    event.getProvider(), event.getMerchantReference());
+            if (byReference.isPresent()) {
+                return byReference.get();
+            }
+        }
+        if (event.getProviderOrderId() != null && !event.getProviderOrderId().isBlank()) {
+            var byOrder = attemptRepository.findByProviderAndProviderOrderId(
+                    event.getProvider(), event.getProviderOrderId());
+            if (byOrder.isPresent()) {
+                return byOrder.get();
+            }
+        }
+        if (event.getProviderPaymentId() != null && !event.getProviderPaymentId().isBlank()) {
+            return attemptRepository.findByProviderAndProviderPaymentId(
+                    event.getProvider(), event.getProviderPaymentId()).orElse(null);
+        }
+        return null;
     }
 
     private PaymentProcessingResult processPending(
@@ -187,6 +216,65 @@ public class VerifiedPaymentEventProcessor {
                 finalBookingStatus,
                 disposition == PaymentDisposition.REQUIRES_RESOLUTION,
                 event.getProcessingResult());
+    }
+
+    private PaymentProcessingResult processRefund(
+            PaymentProviderEvent event,
+            PaymentAttempt attempt,
+            BookingStatus bookingStatus,
+            Instant now,
+            boolean succeeded) {
+        Refund refund = resolveRefund(event, attempt);
+        if (refund == null) {
+            event.requireReview("UNKNOWN_REFUND_REFERENCE", now);
+            return new PaymentProcessingResult(
+                    attempt.getId(), attempt.getStatus(), attempt.getDisposition(),
+                    bookingStatus, true, "UNKNOWN_REFUND_REFERENCE");
+        }
+        Refund locked = refundRepository.findByIdForUpdate(refund.getId()).orElse(refund);
+        if (succeeded) {
+            if (locked.getStatus() == RefundStatus.SUCCEEDED) {
+                event.complete("DUPLICATE_REFUND", now);
+            } else {
+                String providerRefundId = locked.getProviderRefundId() != null
+                        ? locked.getProviderRefundId()
+                        : event.getProviderOrderId();
+                if (providerRefundId == null) {
+                    providerRefundId = event.getProviderEventId();
+                }
+                locked.markSucceeded(providerRefundId, event.getProviderStatus(), now);
+                event.complete("REFUND_SUCCEEDED", now);
+                writeOutbox("REFUND_SUCCEEDED", attempt, event, now);
+            }
+        } else if (locked.getStatus() == RefundStatus.SUCCEEDED) {
+            event.ignore("REFUND_ALREADY_SUCCEEDED", now);
+        } else {
+            locked.markFailed(event.getProviderStatus(), event.getFailureCode(), now);
+            event.complete("REFUND_FAILED", now);
+        }
+        return new PaymentProcessingResult(
+                attempt.getId(), attempt.getStatus(), attempt.getDisposition(),
+                bookingStatus, false, event.getProcessingResult());
+    }
+
+    private Refund resolveRefund(PaymentProviderEvent event, PaymentAttempt attempt) {
+        if (event.getProviderOrderId() != null) {
+            var byProviderId = refundRepository.findByProviderAndProviderRefundId(
+                    event.getProvider(), event.getProviderOrderId());
+            if (byProviderId.isPresent()) {
+                return byProviderId.get();
+            }
+        }
+        var open = refundRepository.findByPaymentAttemptIdAndStatusIn(
+                attempt.getId(),
+                List.of(RefundStatus.REQUESTED, RefundStatus.PROCESSING));
+        if (open.size() == 1) {
+            return open.get(0);
+        }
+        return open.stream()
+                .filter(refund -> event.getAmount() == null || refund.getAmount().compareTo(event.getAmount()) == 0)
+                .findFirst()
+                .orElse(null);
     }
 
     private static boolean sameSuccessfulPayment(

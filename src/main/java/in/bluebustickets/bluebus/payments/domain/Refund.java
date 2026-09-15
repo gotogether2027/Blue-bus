@@ -11,9 +11,6 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 
-/**
- * Persistence foundation only. Provider refund execution is deferred.
- */
 @Entity
 @Table(name = "refunds")
 public class Refund extends AuditableEntity {
@@ -66,4 +63,103 @@ public class Refund extends AuditableEntity {
 
     protected Refund() {
     }
+
+    public Refund(
+            UUID paymentAttemptId,
+            UUID bookingId,
+            String provider,
+            String idempotencyKey,
+            String requestFingerprint,
+            BigDecimal amount,
+            String currency,
+            String reason,
+            Instant requestedAt) {
+        if (paymentAttemptId == null || bookingId == null || amount == null || requestedAt == null) {
+            throw new IllegalArgumentException("payment, booking, amount, and requestedAt are required");
+        }
+        this.paymentAttemptId = paymentAttemptId;
+        this.bookingId = bookingId;
+        this.provider = requireText(provider, "provider");
+        this.idempotencyKey = requireText(idempotencyKey, "idempotencyKey");
+        this.requestFingerprint = requireText(requestFingerprint, "requestFingerprint");
+        this.amount = amount;
+        this.currency = requireText(currency, "currency").toUpperCase();
+        this.reason = requireText(reason, "reason");
+        this.requestedAt = requestedAt;
+        this.status = RefundStatus.REQUESTED;
+    }
+
+    public void markProcessing(String providerRefundId, String providerStatus) {
+        if (status == RefundStatus.SUCCEEDED) {
+            return;
+        }
+        if (status != RefundStatus.REQUESTED && status != RefundStatus.PROCESSING) {
+            return;
+        }
+        if (providerRefundId != null && !providerRefundId.isBlank()) {
+            this.providerRefundId = providerRefundId.trim();
+        }
+        this.providerStatus = normalize(providerStatus);
+        this.status = RefundStatus.PROCESSING;
+        this.version++;
+    }
+
+    public void markSucceeded(String providerRefundId, String providerStatus, Instant processedAt) {
+        if (status == RefundStatus.SUCCEEDED) {
+            if (this.providerRefundId == null && providerRefundId != null) {
+                this.providerRefundId = providerRefundId.trim();
+            }
+            return;
+        }
+        if (status != RefundStatus.REQUESTED && status != RefundStatus.PROCESSING) {
+            return;
+        }
+        this.providerRefundId = requireText(providerRefundId, "providerRefundId");
+        this.providerStatus = normalize(providerStatus);
+        this.processedAt = processedAt;
+        this.failureCode = null;
+        this.status = RefundStatus.SUCCEEDED;
+        this.version++;
+    }
+
+    public void markFailed(String providerStatus, String failureCode, Instant processedAt) {
+        if (status == RefundStatus.SUCCEEDED) {
+            return;
+        }
+        if (status != RefundStatus.REQUESTED && status != RefundStatus.PROCESSING && status != RefundStatus.FAILED) {
+            return;
+        }
+        this.providerStatus = normalize(providerStatus);
+        this.failureCode = normalize(failureCode);
+        this.processedAt = processedAt;
+        this.status = RefundStatus.FAILED;
+        this.version++;
+    }
+
+    private static String requireText(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value.trim();
+    }
+
+    private static String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    public UUID getPaymentAttemptId() { return paymentAttemptId; }
+    public UUID getBookingId() { return bookingId; }
+    public String getProvider() { return provider; }
+    public String getProviderRefundId() { return providerRefundId; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public String getRequestFingerprint() { return requestFingerprint; }
+    public BigDecimal getAmount() { return amount; }
+    public String getCurrency() { return currency; }
+    public String getReason() { return reason; }
+    public RefundStatus getStatus() { return status; }
+    public String getProviderStatus() { return providerStatus; }
+    public String getFailureCode() { return failureCode; }
+    public Instant getRequestedAt() { return requestedAt; }
+    public Instant getProcessedAt() { return processedAt; }
+    public int getVersion() { return version; }
 }

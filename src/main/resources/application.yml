@@ -50,8 +50,13 @@ blue-bus:
       reaper-interval-ms: 30000
       batch-size: 100
   payments:
-    # No production provider adapter is included. Configure this when a provider is selected.
+    # Set PAYMENT_PROVIDER=RAZORPAY and supply Razorpay environment secrets to enable checkout.
     default-provider: ${PAYMENT_PROVIDER:UNCONFIGURED}
+    razorpay:
+      key-id: ${RAZORPAY_KEY_ID:}
+      key-secret: ${RAZORPAY_KEY_SECRET:}
+      webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+      base-url: ${RAZORPAY_BASE_URL:https://api.razorpay.com}
 
 logging:
   level:

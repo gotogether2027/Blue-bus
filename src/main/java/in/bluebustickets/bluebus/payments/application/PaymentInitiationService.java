@@ -9,6 +9,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import in.bluebustickets.bluebus.booking.application.BookingPaymentPort;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
@@ -38,6 +39,7 @@ public class PaymentInitiationService {
     private final PaymentProperties properties;
     private final PaymentInitiationWorker worker;
     private final Clock clock;
+    private final ConcurrentHashMap<UUID, Object> providerCallLocks = new ConcurrentHashMap<>();
 
     public PaymentInitiationService(
             PaymentAttemptRepository paymentAttemptRepository,
@@ -62,7 +64,7 @@ public class PaymentInitiationService {
                 .findByUserIdAndIdempotencyKey(userId, key)
                 .orElse(null);
         if (existing != null) {
-            return sameRequest(existing, bookingId, fingerprint);
+            return resumeOrReturn(existing, bookingId, fingerprint, provider);
         }
 
         PaymentReservation reservation;
@@ -73,25 +75,61 @@ public class PaymentInitiationService {
                     .findByUserIdAndIdempotencyKey(userId, key)
                     .orElse(null);
             if (raced != null) {
-                return sameRequest(raced, bookingId, fingerprint);
+                return resumeOrReturn(raced, bookingId, fingerprint, provider);
             }
             throw new ApplicationConflictException("Payment initiation conflicts with an active attempt.");
         }
 
         if (!reservation.created()) {
-            return toInitiationResponse(reservation.attempt());
+            return resumeOrReturn(reservation.attempt(), bookingId, fingerprint, provider);
         }
 
-        PaymentAttempt attempt = reservation.attempt();
-        PaymentProvider.ProviderInitiationResult providerResult = provider.initiate(
-                new PaymentProvider.ProviderInitiationCommand(
-                        attempt.getId(),
-                        attempt.getMerchantReference(),
-                        attempt.getRequestedAmount(),
-                        attempt.getCurrency(),
-                        attempt.getBookingPaymentExpiresAt()));
-        return toInitiationResponse(worker.completeInitiation(
-                attempt.getId(), providerResult, clock.instant()));
+        return completeProviderOrder(reservation.attempt(), provider);
+    }
+
+    private PaymentInitiationResponse resumeOrReturn(
+            PaymentAttempt existing,
+            UUID bookingId,
+            String fingerprint,
+            PaymentProvider provider) {
+        if (!existing.getBookingId().equals(bookingId)
+                || !Objects.equals(existing.getRequestFingerprint(), fingerprint)) {
+            throw new ApplicationConflictException(
+                    "Idempotency key was reused with a different payment request.");
+        }
+        if (needsProviderRecovery(existing)) {
+            return completeProviderOrder(existing, provider);
+        }
+        return toInitiationResponse(existing);
+    }
+
+    private PaymentInitiationResponse completeProviderOrder(PaymentAttempt attempt, PaymentProvider provider) {
+        Object lock = providerCallLocks.computeIfAbsent(attempt.getId(), id -> new Object());
+        try {
+            synchronized (lock) {
+                PaymentAttempt current = paymentAttemptRepository.findById(attempt.getId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
+                if (!needsProviderRecovery(current)) {
+                    return toInitiationResponse(current);
+                }
+                PaymentProvider.ProviderInitiationResult providerResult = provider.initiate(
+                        new PaymentProvider.ProviderInitiationCommand(
+                                current.getId(),
+                                current.getMerchantReference(),
+                                current.getRequestedAmount(),
+                                current.getCurrency(),
+                                current.getBookingPaymentExpiresAt()));
+                return toInitiationResponse(worker.completeInitiation(
+                        current.getId(), providerResult, clock.instant()));
+            }
+        } finally {
+            providerCallLocks.remove(attempt.getId(), lock);
+        }
+    }
+
+    private static boolean needsProviderRecovery(PaymentAttempt attempt) {
+        return attempt.getStatus() == PaymentStatus.INITIATING
+                && (attempt.getProviderOrderId() == null || attempt.getProviderOrderId().isBlank());
     }
 
     @Transactional(readOnly = true)
@@ -101,16 +139,6 @@ public class PaymentInitiationService {
             throw new ResourceNotFoundException("Payment attempt was not found.");
         }
         return toPaymentResponse(attempt);
-    }
-
-    private PaymentInitiationResponse sameRequest(
-            PaymentAttempt existing, UUID bookingId, String fingerprint) {
-        if (!existing.getBookingId().equals(bookingId)
-                || !Objects.equals(existing.getRequestFingerprint(), fingerprint)) {
-            throw new ApplicationConflictException(
-                    "Idempotency key was reused with a different payment request.");
-        }
-        return toInitiationResponse(existing);
     }
 
     static PaymentInitiationResponse toInitiationResponse(PaymentAttempt attempt) {
