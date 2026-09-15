@@ -12,7 +12,7 @@ Create the repository structure, modular-monolith conventions, PostgreSQL migrat
 
 Implement identity/access, operators and memberships, fleet, layout versioning, locations, routes/stops/points, and scheduled trips. Add operator-scoped authorization tests.
 
-**Implemented in schema/entities (not yet operator APIs or authorization):** identity, operators, fleet, locations, routes/stops, route points, trips with `service_date`/`time_zone`, trip-stop and trip-point snapshots, and physical `trip_seat_inventory`. Authentication and operator-scoped HTTP APIs are still outstanding.
+**Implemented in schema/entities:** identity, operators, fleet, locations, routes/stops, route points, trips with `service_date`/`time_zone`, trip-stop and trip-point snapshots, and physical `trip_seat_inventory`. **Phase 8.1:** email/password login with BCrypt and JWT access tokens (admin APIs still require authentication; fine-grained permission and operator-scoped HTTP authorization remain outstanding).
 
 The V4 whole-trip `trip_seats` sale-state model was replaced by V5. Do not reintroduce `HELD`/`BOOKED` on physical inventory.
 

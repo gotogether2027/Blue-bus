@@ -4,7 +4,46 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health`, admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment and authenticated ownership remain deferred. Authentication and rate limiting for public trip/hold APIs will be addressed in a later phase.
+Implemented so far: `GET /api/v1/health`, `POST /api/v1/auth/login` (JWT access tokens), admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment, refresh tokens, registration, and authenticated hold ownership remain deferred.
+
+## Authentication — Phase 8.1
+
+Stateless JWT access-token login for existing users. Passwords are verified with BCrypt against `users.password_hash` (schema since V2; no new migration). Tokens are HS256 JWTs signed with `blue-bus.security.jwt.secret`.
+
+| Method | Path | Success |
+|---|---|---|
+| `POST` | `/api/v1/auth/login` | `200 OK` |
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "..."
+}
+```
+
+Response:
+
+```json
+{
+  "accessToken": "...",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
+}
+```
+
+JWT claims (non-sensitive): `sub` (user id), `iss`, `iat`, `exp`, `email`, `roles` (platform `user_roles` codes such as `ADMIN`, `CUSTOMER`). Operator memberships (`operator_users`) are not embedded yet.
+
+Configuration:
+
+- `blue-bus.security.jwt.issuer` / `JWT_ISSUER` (default `blue-bus`)
+- `blue-bus.security.jwt.secret` / `JWT_SECRET` (**required**, ≥ 32 bytes; never commit production secrets)
+- `blue-bus.security.jwt.access-token-ttl-seconds` / `JWT_ACCESS_TOKEN_TTL_SECONDS` (default `3600`)
+
+Public without a token: health, login, seat-availability, and temporary seat-hold create/get/cancel. All other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes are never returned.
+
+Deferred: registration, refresh tokens, password reset, profile APIs, authenticated seat-hold ownership, operator-scoped authorization.
 
 ## Customer seat holds — Phase 7.6
 

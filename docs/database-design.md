@@ -12,7 +12,7 @@ Do not store derived availability, passenger names, payment totals, or operator 
 
 | Table | Purpose and columns | Keys, constraints, indexes |
 |---|---|---|
-| `users` | Platform identity: `id uuid`, `email varchar(320)`, `phone_e164 varchar(20)`, `password_hash varchar`, `status varchar`, `email_verified_at`, `phone_verified_at`, `first_name varchar(100) NOT NULL`, optional `last_name`, timestamps. Email/phone may be nullable during staged onboarding but one verified login identifier is required before active use. | PK `id`; unique non-null normalized `email`, unique non-null `phone_e164`; indexes `(status)`. Password hash is never returned in APIs. |
+| `users` | Platform identity: `id uuid`, `email varchar(320)`, `phone_e164 varchar(20)`, `password_hash varchar` (BCrypt; never returned by APIs), `status varchar`, `email_verified_at`, `phone_verified_at`, `first_name varchar(100) NOT NULL`, optional `last_name`, timestamps. Email/phone may be nullable during staged onboarding but one verified login identifier is required before active use. Login (Phase 8.1) uses email + password hash. | PK `id`; unique non-null normalized `email`, unique non-null `phone_e164`; indexes `(status)`. Password hash is never returned in APIs. |
 | `roles` | Role definitions: `id`, `code`, `name`, `scope` (`PLATFORM`/`OPERATOR`), description, timestamps. | PK; unique `code`; database check enforces approved mappings: `SUPER_ADMIN`, `ADMIN`, and `CUSTOMER` are `PLATFORM`; `OPERATOR_ADMIN` and `OPERATOR_STAFF` are `OPERATOR`. |
 | `permissions` | Atomic authorizations: `id`, `code`, `description`, timestamps. | PK; unique `code`. |
 | `role_permissions` | Role-to-permission association: `role_id`, `permission_id`. | Composite PK/FKs; index `permission_id`. |

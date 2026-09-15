@@ -11,6 +11,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -135,6 +137,17 @@ public class GlobalExceptionHandler {
                 exception.getMessage() == null || exception.getMessage().isBlank()
                         ? "Request conflicts with the current state."
                         : exception.getMessage(),
+                request.getRequestURI(),
+                List.of()));
+    }
+
+    @ExceptionHandler({BadCredentialsException.class, AuthenticationException.class})
+    public ResponseEntity<ApiError> handleAuthenticationFailure(
+            AuthenticationException exception,
+            HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error(
+                HttpStatus.UNAUTHORIZED,
+                "Invalid credentials.",
                 request.getRequestURI(),
                 List.of()));
     }

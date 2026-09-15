@@ -22,4 +22,7 @@ public class UserRole {
         if (role.getScope() != RoleScope.PLATFORM) throw new IllegalArgumentException("User roles require PLATFORM scope");
         this.user = user; this.role = role; this.id = new UserRoleId(user.getId(), role.getId());
     }
+
+    public User getUser() { return user; }
+    public Role getRole() { return role; }
 }
