@@ -11,11 +11,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.scheduling.domain.Int4Range;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
 import in.bluebustickets.bluebus.scheduling.repository.TripSeatAllocationRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -60,6 +62,13 @@ class TripSeatAllocationPostgresIntegrationTest {
     @Autowired private ObjectMapper objectMapper;
     @Autowired private TripSeatAllocationService allocationService;
     @Autowired private TripSeatAllocationRepository allocationRepository;
+    @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    private String adminToken;
+
+    @BeforeEach
+    void seedPlatformAdmin() {
+        adminToken = testAccessTokenFactory.issuePlatformAdmin().accessToken();
+    }
 
     @Test
     void createValidAllocationHalfOpenRange() throws Exception {
@@ -400,6 +409,7 @@ class TripSeatAllocationPostgresIntegrationTest {
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -456,6 +466,7 @@ class TripSeatAllocationPostgresIntegrationTest {
 
     private UUID createOperator(String legalName, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/operators")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"legalName":"%s","displayName":"%s"}
@@ -467,6 +478,7 @@ class TripSeatAllocationPostgresIntegrationTest {
 
     private UUID createBusType(String code, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/bus-types")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"code":"%s","displayName":"%s"}
@@ -494,6 +506,7 @@ class TripSeatAllocationPostgresIntegrationTest {
         seats.append(']');
 
         MvcResult result = mockMvc.perform(post("/api/v1/admin/seat-layouts")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -513,6 +526,7 @@ class TripSeatAllocationPostgresIntegrationTest {
 
     private UUID createBus(UUID operatorId, UUID busTypeId, UUID layoutId, String registration) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -529,6 +543,7 @@ class TripSeatAllocationPostgresIntegrationTest {
 
     private UUID createLocation(String state, String city) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/locations")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"countryCode":"IN","state":"%s","city":"%s","timeZone":"Asia/Kolkata"}
@@ -546,6 +561,7 @@ class TripSeatAllocationPostgresIntegrationTest {
             UUID vijayawadaId,
             UUID gunturId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -582,6 +598,11 @@ class TripSeatAllocationPostgresIntegrationTest {
 
     private UUID idOf(MvcResult result) throws Exception {
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminAuth() {
+        return TestAccessTokenFactory.bearer(adminToken);
     }
 
     private record Fixture(UUID busId, UUID routeId) { }

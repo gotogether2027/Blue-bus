@@ -2,12 +2,14 @@ package in.bluebustickets.bluebus.fleet.api.admin;
 
 import java.util.UUID;
 
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -29,7 +31,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@WithMockUser
 class BusAdminApiPostgresIntegrationTest {
 
     @Container
@@ -44,6 +45,13 @@ class BusAdminApiPostgresIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    private String adminToken;
+
+    @BeforeEach
+    void seedPlatformAdmin() {
+        adminToken = testAccessTokenFactory.issuePlatformAdmin().accessToken();
+    }
 
     @Test
     void createGetListUpdateActivateDeactivateAndRejectMissingOrDuplicateData() throws Exception {
@@ -52,6 +60,7 @@ class BusAdminApiPostgresIntegrationTest {
         UUID seatLayoutId = createSeatLayout(operatorId, "2x2 Seater Layout", 1);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -73,7 +82,7 @@ class BusAdminApiPostgresIntegrationTest {
 
         UUID busId = UUID.fromString(objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText());
 
-        mockMvc.perform(get("/api/v1/admin/buses/{id}", busId))
+        mockMvc.perform(get("/api/v1/admin/buses/{id}", busId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.registrationNumber").value("TS09AB1234"))
                 .andExpect(jsonPath("$.operatorId").value(operatorId.toString()))
@@ -81,6 +90,7 @@ class BusAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.seatLayoutId").value(seatLayoutId.toString()));
 
         mockMvc.perform(get("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .param("operatorId", operatorId.toString())
                         .param("status", "ACTIVE"))
                 .andExpect(status().isOk())
@@ -90,6 +100,7 @@ class BusAdminApiPostgresIntegrationTest {
         UUID otherLayoutId = createSeatLayout(operatorId, "2x2 Seater Layout", 2);
 
         mockMvc.perform(put("/api/v1/admin/buses/{id}", busId)
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -105,21 +116,23 @@ class BusAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.registrationNumber").value("TS09AB1234"))
                 .andExpect(jsonPath("$.operatorId").value(operatorId.toString()));
 
-        mockMvc.perform(post("/api/v1/admin/buses/{id}/deactivate", busId))
+        mockMvc.perform(post("/api/v1/admin/buses/{id}/deactivate", busId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INACTIVE"));
 
         mockMvc.perform(get("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .param("operatorId", operatorId.toString())
                         .param("status", "INACTIVE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.id=='%s')]".formatted(busId)).exists());
 
-        mockMvc.perform(post("/api/v1/admin/buses/{id}/activate", busId))
+        mockMvc.perform(post("/api/v1/admin/buses/{id}/activate", busId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
         mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -133,6 +146,7 @@ class BusAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Operator was not found."));
 
         mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -146,6 +160,7 @@ class BusAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Bus type was not found."));
 
         mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -159,6 +174,7 @@ class BusAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Seat layout was not found."));
 
         mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -171,7 +187,7 @@ class BusAdminApiPostgresIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("Bus registration number already exists."));
 
-        mockMvc.perform(get("/api/v1/admin/buses/{id}", UUID.randomUUID()))
+        mockMvc.perform(get("/api/v1/admin/buses/{id}", UUID.randomUUID()).with(adminAuth()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Bus was not found."));
@@ -179,6 +195,7 @@ class BusAdminApiPostgresIntegrationTest {
 
     private UUID createOperator(String legalName, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/operators")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"legalName":"%s","displayName":"%s"}
@@ -190,6 +207,7 @@ class BusAdminApiPostgresIntegrationTest {
 
     private UUID createBusType(String code, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/bus-types")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"code":"%s","displayName":"%s"}
@@ -201,6 +219,7 @@ class BusAdminApiPostgresIntegrationTest {
 
     private UUID createSeatLayout(UUID operatorId, String name, int version) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/seat-layouts")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -219,5 +238,9 @@ class BusAdminApiPostgresIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminAuth() {
+        return TestAccessTokenFactory.bearer(adminToken);
     }
 }

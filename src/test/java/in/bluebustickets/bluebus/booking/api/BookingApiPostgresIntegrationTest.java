@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
 import in.bluebustickets.bluebus.booking.application.BookingExpiryService;
 import in.bluebustickets.bluebus.booking.application.BookingLifecycleService;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
@@ -97,6 +98,8 @@ class BookingApiPostgresIntegrationTest {
     @Autowired private BookingLifecycleService bookingLifecycleService;
     @Autowired private BookingExpiryService bookingExpiryService;
     @Autowired private SeatAvailabilityService seatAvailabilityService;
+    @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    private String adminToken;
 
     private String customerAToken;
     private String customerBToken;
@@ -113,6 +116,7 @@ class BookingApiPostgresIntegrationTest {
         seedCustomer(CUSTOMER_B_EMAIL, "+919933300002", customerRole);
         customerAToken = loginToken(CUSTOMER_A_EMAIL);
         customerBToken = loginToken(CUSTOMER_B_EMAIL);
+        adminToken = testAccessTokenFactory.issuePlatformAdmin().accessToken();
     }
 
     @Test
@@ -875,6 +879,7 @@ class BookingApiPostgresIntegrationTest {
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -933,6 +938,7 @@ class BookingApiPostgresIntegrationTest {
 
     private UUID createOperator(String legal, String display) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/operators")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"legalName":"%s","displayName":"%s"}
@@ -944,6 +950,7 @@ class BookingApiPostgresIntegrationTest {
 
     private UUID createBusType(String code, String name) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/bus-types")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"code":"%s","displayName":"%s"}
@@ -970,6 +977,7 @@ class BookingApiPostgresIntegrationTest {
         }
         seats.append(']');
         MvcResult result = mockMvc.perform(post("/api/v1/admin/seat-layouts")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -989,6 +997,7 @@ class BookingApiPostgresIntegrationTest {
 
     private UUID createBus(UUID operatorId, UUID busTypeId, UUID layoutId, String registration) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -1005,6 +1014,7 @@ class BookingApiPostgresIntegrationTest {
 
     private UUID createLocation(String state, String city) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/locations")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -1027,6 +1037,7 @@ class BookingApiPostgresIntegrationTest {
             UUID vijayawadaId,
             UUID gunturId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -1059,6 +1070,11 @@ class BookingApiPostgresIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminAuth() {
+        return TestAccessTokenFactory.bearer(adminToken);
     }
 
     private record Fixture(UUID busId, UUID routeId) {

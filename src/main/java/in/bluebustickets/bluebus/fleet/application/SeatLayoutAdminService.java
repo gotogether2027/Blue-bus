@@ -17,6 +17,7 @@ import in.bluebustickets.bluebus.fleet.repository.SeatLayoutRepository;
 import in.bluebustickets.bluebus.fleet.repository.SeatRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.identity.application.AuthorizationService;
 import in.bluebustickets.bluebus.operator.domain.Operator;
 import in.bluebustickets.bluebus.operator.repository.OperatorRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -30,14 +31,17 @@ public class SeatLayoutAdminService {
     private final SeatLayoutRepository seatLayoutRepository;
     private final SeatRepository seatRepository;
     private final OperatorRepository operatorRepository;
+    private final AuthorizationService authorizationService;
 
     public SeatLayoutAdminService(
             SeatLayoutRepository seatLayoutRepository,
             SeatRepository seatRepository,
-            OperatorRepository operatorRepository) {
+            OperatorRepository operatorRepository,
+            AuthorizationService authorizationService) {
         this.seatLayoutRepository = seatLayoutRepository;
         this.seatRepository = seatRepository;
         this.operatorRepository = operatorRepository;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
@@ -49,6 +53,7 @@ public class SeatLayoutAdminService {
             int rowCount,
             int columnCount,
             List<SeatDefinitionRequest> seats) {
+        authorizationService.requirePlatformAdmin();
         Operator operator = operatorRepository.findById(operatorId)
                 .orElseThrow(() -> new ResourceNotFoundException("Operator was not found."));
         String normalizedName = requireText(name, "Seat layout name is required");
@@ -69,12 +74,14 @@ public class SeatLayoutAdminService {
 
     @Transactional(readOnly = true)
     public SeatLayoutResponse get(UUID id) {
+        authorizationService.requirePlatformAdmin();
         SeatLayout layout = requireLayout(id);
         return SeatLayoutResponse.from(layout, seatsFor(layout.getId()));
     }
 
     @Transactional(readOnly = true)
     public List<SeatLayoutResponse> list(UUID operatorId, SeatLayoutStatus status) {
+        authorizationService.requirePlatformAdmin();
         List<SeatLayout> layouts;
         if (operatorId != null && status != null) {
             layouts = seatLayoutRepository.findByOperator_IdAndStatusOrderByNameAscVersionAsc(operatorId, status);
@@ -90,6 +97,7 @@ public class SeatLayoutAdminService {
 
     @Transactional
     public SeatLayoutResponse update(UUID id, String name, int deckCount, int rowCount, int columnCount) {
+        authorizationService.requirePlatformAdmin();
         SeatLayout layout = requireLayout(id);
         layout.updateMetadata(
                 requireText(name, "Seat layout name is required"),
@@ -105,6 +113,7 @@ public class SeatLayoutAdminService {
      */
     @Transactional
     public SeatLayoutResponse activate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         SeatLayout layout = requireLayout(id);
         layout.publish();
         return SeatLayoutResponse.from(layout, seatsFor(layout.getId()));
@@ -115,6 +124,7 @@ public class SeatLayoutAdminService {
      */
     @Transactional
     public SeatLayoutResponse deactivate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         SeatLayout layout = requireLayout(id);
         layout.archive();
         return SeatLayoutResponse.from(layout, seatsFor(layout.getId()));

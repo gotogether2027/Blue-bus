@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
 import in.bluebustickets.bluebus.booking.repository.BookingCancellationRepository;
 import in.bluebustickets.bluebus.booking.repository.BookingRepository;
 import in.bluebustickets.bluebus.identity.domain.Role;
@@ -74,6 +75,8 @@ class TripSearchApiPostgresIntegrationTest {
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private BookingRepository bookingRepository;
     @Autowired private BookingCancellationRepository cancellationRepository;
+    @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    private String adminToken;
 
     private String customerToken;
 
@@ -90,6 +93,7 @@ class TripSearchApiPostgresIntegrationTest {
         user = userRepository.saveAndFlush(user);
         userRoleRepository.saveAndFlush(new UserRole(user, customerRole));
         customerToken = loginToken();
+        adminToken = testAccessTokenFactory.issuePlatformAdmin().accessToken();
     }
 
     @Test
@@ -276,6 +280,7 @@ class TripSearchApiPostgresIntegrationTest {
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -295,7 +300,7 @@ class TripSearchApiPostgresIntegrationTest {
         JsonNode body = objectMapper.readTree(created.getResponse().getContentAsString());
         UUID tripId = UUID.fromString(body.get("id").asText());
         if (activate) {
-            mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId))
+            mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId).with(adminAuth()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.status").value("SCHEDULED"));
         }
@@ -321,6 +326,7 @@ class TripSearchApiPostgresIntegrationTest {
 
     private UUID createOperator(String legal, String display) throws Exception {
         return idOf(mockMvc.perform(post("/api/v1/admin/operators")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"legalName":"%s","displayName":"%s"}
@@ -331,6 +337,7 @@ class TripSearchApiPostgresIntegrationTest {
 
     private UUID createBusType(String code, String name) throws Exception {
         return idOf(mockMvc.perform(post("/api/v1/admin/bus-types")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"code":"%s","displayName":"%s"}
@@ -356,6 +363,7 @@ class TripSearchApiPostgresIntegrationTest {
         }
         seats.append(']');
         return idOf(mockMvc.perform(post("/api/v1/admin/seat-layouts")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -374,6 +382,7 @@ class TripSearchApiPostgresIntegrationTest {
 
     private UUID createBus(UUID operatorId, UUID busTypeId, UUID layoutId, String registration) throws Exception {
         return idOf(mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -389,6 +398,7 @@ class TripSearchApiPostgresIntegrationTest {
 
     private UUID createLocation(String state, String city) throws Exception {
         return idOf(mockMvc.perform(post("/api/v1/admin/locations")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -404,6 +414,7 @@ class TripSearchApiPostgresIntegrationTest {
 
     private UUID createRoute(UUID operatorId, String code, NetworkFixture network) throws Exception {
         return idOf(mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -440,6 +451,11 @@ class TripSearchApiPostgresIntegrationTest {
 
     private UUID idOf(MvcResult result) throws Exception {
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminAuth() {
+        return TestAccessTokenFactory.bearer(adminToken);
     }
 
     private record NetworkFixture(UUID hyderabadId, UUID suryapetId, UUID vijayawadaId, UUID gunturId) {

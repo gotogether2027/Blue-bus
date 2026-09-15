@@ -2,13 +2,15 @@ package in.bluebustickets.bluebus.scheduling.api.admin;
 
 import java.util.UUID;
 
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -32,7 +34,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@WithMockUser
 class RouteAdminApiPostgresIntegrationTest {
 
     @Container
@@ -48,6 +49,13 @@ class RouteAdminApiPostgresIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    private String adminToken;
+
+    @BeforeEach
+    void seedPlatformAdmin() {
+        adminToken = testAccessTokenFactory.issuePlatformAdmin().accessToken();
+    }
 
     @Test
     void manageRoutesStopsAndPointsWithValidation() throws Exception {
@@ -58,6 +66,7 @@ class RouteAdminApiPostgresIntegrationTest {
         UUID gunturId = createLocation("Andhra Pradesh", "Guntur");
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -146,18 +155,20 @@ class RouteAdminApiPostgresIntegrationTest {
                 routeId);
         assertThat(pointCount).isEqualTo(3);
 
-        mockMvc.perform(get("/api/v1/admin/routes/{id}", routeId))
+        mockMvc.perform(get("/api/v1/admin/routes/{id}", routeId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stops[1].locationId").value(suryapetId.toString()))
                 .andExpect(jsonPath("$.stops[2].locationId").value(vijayawadaId.toString()));
 
         mockMvc.perform(get("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .param("operatorId", operatorId.toString())
                         .param("status", "ACTIVE"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.id=='%s')]".formatted(routeId)).exists());
 
         mockMvc.perform(put("/api/v1/admin/routes/{id}", routeId)
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -171,15 +182,16 @@ class RouteAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.code").value("HYD-GNT"))
                 .andExpect(jsonPath("$.stops.length()").value(4));
 
-        mockMvc.perform(post("/api/v1/admin/routes/{id}/deactivate", routeId))
+        mockMvc.perform(post("/api/v1/admin/routes/{id}/deactivate", routeId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("INACTIVE"));
 
-        mockMvc.perform(post("/api/v1/admin/routes/{id}/activate", routeId))
+        mockMvc.perform(post("/api/v1/admin/routes/{id}/activate", routeId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
 
         mockMvc.perform(post("/api/v1/admin/routes/{routeId}/stops/{stopId}/points", routeId, intermediateStopId)
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -193,6 +205,7 @@ class RouteAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.pointType").value("BOARDING"));
 
         mockMvc.perform(post("/api/v1/admin/routes/{routeId}/stops/{stopId}/points", routeId, intermediateStopId)
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"Vijayawada Drop","pointType":"DROPPING"}
@@ -204,6 +217,7 @@ class RouteAdminApiPostgresIntegrationTest {
         UUID otherSource = createLocation("Karnataka", "Bengaluru");
         UUID otherDest = createLocation("Tamil Nadu", "Chennai");
         MvcResult otherRoute = mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -224,6 +238,7 @@ class RouteAdminApiPostgresIntegrationTest {
                 objectMapper.readTree(otherRoute.getResponse().getContentAsString()).get("id").asText());
 
         mockMvc.perform(post("/api/v1/admin/routes/{routeId}/stops/{stopId}/points", otherRouteId, sourceStopId)
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"Cross Route Point","pointType":"BOARDING"}
@@ -232,6 +247,7 @@ class RouteAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Route stop was not found."));
 
         mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -246,6 +262,7 @@ class RouteAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Location was not found."));
 
         mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -263,6 +280,7 @@ class RouteAdminApiPostgresIntegrationTest {
                 .andExpect(status().isConflict());
 
         mockMvc.perform(post("/api/v1/admin/routes/{routeId}/stops", routeId)
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -273,16 +291,17 @@ class RouteAdminApiPostgresIntegrationTest {
                                 """.formatted(suryapetId)))
                 .andExpect(status().isConflict());
 
-        mockMvc.perform(get("/api/v1/admin/routes/{id}", UUID.randomUUID()))
+        mockMvc.perform(get("/api/v1/admin/routes/{id}", UUID.randomUUID()).with(adminAuth()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Route was not found."));
 
-        mockMvc.perform(get("/api/v1/admin/routes/{routeId}/stops/{stopId}", routeId, UUID.randomUUID()))
+        mockMvc.perform(get("/api/v1/admin/routes/{routeId}/stops/{stopId}", routeId, UUID.randomUUID()).with(adminAuth()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Route stop was not found."));
 
         mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -298,6 +317,7 @@ class RouteAdminApiPostgresIntegrationTest {
 
     private UUID createOperator(String legalName, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/operators")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"legalName":"%s","displayName":"%s"}
@@ -309,6 +329,7 @@ class RouteAdminApiPostgresIntegrationTest {
 
     private UUID createLocation(String state, String city) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/locations")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"countryCode":"IN","state":"%s","city":"%s","timeZone":"Asia/Kolkata"}
@@ -316,5 +337,9 @@ class RouteAdminApiPostgresIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn();
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminAuth() {
+        return TestAccessTokenFactory.bearer(adminToken);
     }
 }

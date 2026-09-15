@@ -11,6 +11,7 @@ import java.util.UUID;
 
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.identity.application.AuthorizationService;
 import in.bluebustickets.bluebus.operator.domain.Operator;
 import in.bluebustickets.bluebus.operator.repository.OperatorRepository;
 import in.bluebustickets.bluebus.scheduling.api.admin.dto.RoutePointDefinitionRequest;
@@ -42,18 +43,21 @@ public class RouteAdminService {
     private final RoutePointRepository routePointRepository;
     private final OperatorRepository operatorRepository;
     private final LocationRepository locationRepository;
+    private final AuthorizationService authorizationService;
 
     public RouteAdminService(
             RouteRepository routeRepository,
             RouteStopRepository routeStopRepository,
             RoutePointRepository routePointRepository,
             OperatorRepository operatorRepository,
-            LocationRepository locationRepository) {
+            LocationRepository locationRepository,
+            AuthorizationService authorizationService) {
         this.routeRepository = routeRepository;
         this.routeStopRepository = routeStopRepository;
         this.routePointRepository = routePointRepository;
         this.operatorRepository = operatorRepository;
         this.locationRepository = locationRepository;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
@@ -64,6 +68,7 @@ public class RouteAdminService {
             UUID sourceLocationId,
             UUID destinationLocationId,
             List<RouteStopDefinitionRequest> stops) {
+        authorizationService.requirePlatformAdmin();
         Operator operator = requireOperator(operatorId);
         Location source = requireLocation(sourceLocationId);
         Location destination = requireLocation(destinationLocationId);
@@ -86,11 +91,13 @@ public class RouteAdminService {
 
     @Transactional(readOnly = true)
     public RouteResponse get(UUID id) {
+        authorizationService.requirePlatformAdmin();
         return toResponse(requireRoute(id));
     }
 
     @Transactional(readOnly = true)
     public List<RouteResponse> list(UUID operatorId, RouteStatus status) {
+        authorizationService.requirePlatformAdmin();
         List<Route> routes;
         if (operatorId != null && status != null) {
             routes = routeRepository.findByOperator_IdAndStatusOrderByCodeAsc(operatorId, status);
@@ -106,6 +113,7 @@ public class RouteAdminService {
 
     @Transactional
     public RouteResponse update(UUID id, String name, UUID sourceLocationId, UUID destinationLocationId) {
+        authorizationService.requirePlatformAdmin();
         Route route = requireRoute(id);
         route.updateMetadata(
                 requireText(name, "Route name is required"),
@@ -116,6 +124,7 @@ public class RouteAdminService {
 
     @Transactional
     public RouteResponse activate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Route route = requireRoute(id);
         route.activate();
         return toResponse(route);
@@ -123,6 +132,7 @@ public class RouteAdminService {
 
     @Transactional
     public RouteResponse deactivate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Route route = requireRoute(id);
         route.deactivate();
         return toResponse(route);
@@ -138,6 +148,7 @@ public class RouteAdminService {
             Integer departureOffsetMinutes,
             BigDecimal distanceKm,
             List<RoutePointDefinitionRequest> points) {
+        authorizationService.requirePlatformAdmin();
         Route route = requireRoute(routeId);
         if (routeStopRepository.existsByRoute_IdAndSequenceNumber(routeId, sequenceNumber)) {
             throw new ApplicationConflictException("Route stop sequence already exists on this route.");
@@ -164,6 +175,7 @@ public class RouteAdminService {
             Integer arrivalOffsetMinutes,
             Integer departureOffsetMinutes,
             BigDecimal distanceKm) {
+        authorizationService.requirePlatformAdmin();
         RouteStop stop = requireStopOnRoute(routeId, stopId);
         if (sequenceNumber != stop.getSequenceNumber()
                 && routeStopRepository.existsByRoute_IdAndSequenceNumber(routeId, sequenceNumber)) {
@@ -181,6 +193,7 @@ public class RouteAdminService {
 
     @Transactional(readOnly = true)
     public RouteStopResponse getStop(UUID routeId, UUID stopId) {
+        authorizationService.requirePlatformAdmin();
         RouteStop stop = requireStopOnRoute(routeId, stopId);
         return RouteStopResponse.from(stop, pointsFor(stop.getId()));
     }
@@ -194,6 +207,7 @@ public class RouteAdminService {
             String address,
             BigDecimal latitude,
             BigDecimal longitude) {
+        authorizationService.requirePlatformAdmin();
         RouteStop stop = requireStopOnRoute(routeId, stopId);
         String normalizedName = requireText(name, "Route point name is required");
         if (pointType == null) {
@@ -217,6 +231,7 @@ public class RouteAdminService {
             String address,
             BigDecimal latitude,
             BigDecimal longitude) {
+        authorizationService.requirePlatformAdmin();
         requireStopOnRoute(routeId, stopId);
         RoutePoint point = requirePointOnStop(stopId, pointId);
         String normalizedName = requireText(name, "Route point name is required");
@@ -230,6 +245,7 @@ public class RouteAdminService {
 
     @Transactional
     public RoutePointResponse activatePoint(UUID routeId, UUID stopId, UUID pointId) {
+        authorizationService.requirePlatformAdmin();
         requireStopOnRoute(routeId, stopId);
         RoutePoint point = requirePointOnStop(stopId, pointId);
         point.activate();
@@ -238,6 +254,7 @@ public class RouteAdminService {
 
     @Transactional
     public RoutePointResponse deactivatePoint(UUID routeId, UUID stopId, UUID pointId) {
+        authorizationService.requirePlatformAdmin();
         requireStopOnRoute(routeId, stopId);
         RoutePoint point = requirePointOnStop(stopId, pointId);
         point.deactivate();

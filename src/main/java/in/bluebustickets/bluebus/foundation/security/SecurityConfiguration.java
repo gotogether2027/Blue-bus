@@ -1,9 +1,11 @@
 package in.bluebustickets.bluebus.foundation.security;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -11,12 +13,14 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 
 import in.bluebustickets.bluebus.foundation.api.error.ApiErrorResponseWriter;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfiguration {
 
     /**
@@ -34,9 +38,10 @@ public class SecurityConfiguration {
     SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             ApiErrorResponseWriter apiErrorResponseWriter,
-            JwtAuthenticationConverter jwtAuthenticationConverter)
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            ObjectProvider<ActiveUserAuthenticationFilter> activeUserAuthenticationFilter)
             throws Exception {
-        return http
+        http
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
@@ -67,7 +72,11 @@ public class SecurityConfiguration {
                                 apiErrorResponseWriter.write(request, response, HttpStatus.UNAUTHORIZED))
                         .accessDeniedHandler((request, response, exception) ->
                                 apiErrorResponseWriter.write(request, response, HttpStatus.FORBIDDEN))
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)))
-                .build();
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
+        ActiveUserAuthenticationFilter activeUserFilter = activeUserAuthenticationFilter.getIfAvailable();
+        if (activeUserFilter != null) {
+            http.addFilterAfter(activeUserFilter, BearerTokenAuthenticationFilter.class);
+        }
+        return http.build();
     }
 }

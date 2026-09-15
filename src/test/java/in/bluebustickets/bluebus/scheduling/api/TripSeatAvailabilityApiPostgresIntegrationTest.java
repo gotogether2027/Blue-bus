@@ -5,12 +5,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
 import in.bluebustickets.bluebus.scheduling.application.JourneySeatAvailability;
 import in.bluebustickets.bluebus.scheduling.application.TripSeatAllocationService;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
 import jakarta.persistence.EntityManagerFactory;
 import org.hibernate.SessionFactory;
 import org.hibernate.stat.Statistics;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -58,6 +60,13 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private TripSeatAllocationService allocationService;
     @Autowired private EntityManagerFactory entityManagerFactory;
+    @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    private String adminToken;
+
+    @BeforeEach
+    void seedPlatformAdmin() {
+        adminToken = testAccessTokenFactory.issuePlatformAdmin().accessToken();
+    }
 
     @Test
     @WithMockUser
@@ -256,6 +265,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -321,6 +331,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
 
     private UUID createOperator(String legalName, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/operators")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"legalName":"%s","displayName":"%s"}
@@ -332,6 +343,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
 
     private UUID createBusType(String code, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/bus-types")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"code":"%s","displayName":"%s"}
@@ -358,6 +370,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
         }
         seats.append(']');
         MvcResult result = mockMvc.perform(post("/api/v1/admin/seat-layouts")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -377,6 +390,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
 
     private UUID createBus(UUID operatorId, UUID busTypeId, UUID layoutId, String registration) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -393,6 +407,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
 
     private UUID createLocation(String state, String city) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/locations")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"countryCode":"IN","state":"%s","city":"%s","timeZone":"Asia/Kolkata"}
@@ -410,6 +425,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
             UUID vijayawadaId,
             UUID gunturId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -446,6 +462,11 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
 
     private UUID idOf(MvcResult result) throws Exception {
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminAuth() {
+        return TestAccessTokenFactory.bearer(adminToken);
     }
 
     private record Fixture(UUID busId, UUID routeId) { }

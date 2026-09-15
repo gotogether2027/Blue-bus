@@ -7,6 +7,7 @@ import in.bluebustickets.bluebus.fleet.domain.BusType;
 import in.bluebustickets.bluebus.fleet.repository.BusTypeRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.identity.application.AuthorizationService;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,13 +17,18 @@ import org.springframework.transaction.annotation.Transactional;
 public class BusTypeAdminService {
 
     private final BusTypeRepository busTypeRepository;
+    private final AuthorizationService authorizationService;
 
-    public BusTypeAdminService(BusTypeRepository busTypeRepository) {
+    public BusTypeAdminService(
+            BusTypeRepository busTypeRepository,
+            AuthorizationService authorizationService) {
         this.busTypeRepository = busTypeRepository;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
     public BusType create(String code, String displayName) {
+        authorizationService.requirePlatformAdmin();
         String normalizedCode = requireText(code, "Bus type code is required");
         String normalizedName = requireText(displayName, "Bus type display name is required");
         if (busTypeRepository.existsByCodeIgnoreCase(normalizedCode)) {
@@ -33,12 +39,14 @@ public class BusTypeAdminService {
 
     @Transactional(readOnly = true)
     public BusType get(UUID id) {
+        authorizationService.requirePlatformAdmin();
         return busTypeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Bus type was not found."));
     }
 
     @Transactional(readOnly = true)
     public List<BusType> list(Boolean active) {
+        authorizationService.requirePlatformAdmin();
         if (active == null) {
             return busTypeRepository.findAllByOrderByCodeAsc();
         }
@@ -47,6 +55,7 @@ public class BusTypeAdminService {
 
     @Transactional
     public BusType update(UUID id, String displayName) {
+        authorizationService.requirePlatformAdmin();
         BusType busType = get(id);
         busType.updateDisplayName(requireText(displayName, "Bus type display name is required"));
         return busType;
@@ -54,6 +63,7 @@ public class BusTypeAdminService {
 
     @Transactional
     public BusType activate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         BusType busType = get(id);
         busType.activate();
         return busType;
@@ -61,6 +71,7 @@ public class BusTypeAdminService {
 
     @Transactional
     public BusType deactivate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         BusType busType = get(id);
         busType.deactivate();
         return busType;

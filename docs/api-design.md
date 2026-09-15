@@ -105,7 +105,9 @@ Configuration:
 
 Public without a token: health, **register**, login, **refresh**, **logout**, **trip search**, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes and refresh-token hashes are never returned.
 
-Deferred: password reset, email/phone verification, profile editing, admin RBAC, operator-scoped authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup).
+**Phase 9.2A authorization:** protected application requests re-check `users.status` in the database. An otherwise valid access JWT for a `SUSPENDED` or `INACTIVE` user receives generic `401` (same envelope as a missing/invalid JWT). Existing `/api/v1/admin/**` application services additionally require `user_roles` to contain `ADMIN` or `SUPER_ADMIN`; authenticated callers without that privilege receive `403`. JWT `roles` claims are not used as the source of truth for platform admin. Customer booking/payment APIs remain owner-based (`JWT sub` == resource owner) and do **not** require a `CUSTOMER` role. Operator portal APIs are not in this slice.
+
+Deferred: password reset, email/phone verification, profile editing, permission catalogs, operator-scoped HTTP authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup), access-token denylist.
 
 ## Customer bookings — Phase 9.1 foundation + unpaid expiry + V12 views/cancellation
 
@@ -291,7 +293,7 @@ Convention for this slice:
 | `POST` | `/api/v1/admin/{resource}/{id}/activate` | `200 OK` |
 | `POST` | `/api/v1/admin/{resource}/{id}/deactivate` | `200 OK` |
 
-Errors use the existing global handler: `400` validation/domain argument errors, `404` missing resource, `409` conflicts (including unique/data integrity). Endpoints require authentication; JWT login is not implemented in this phase.
+Errors use the existing global handler: `400` validation/domain argument errors, `404` missing resource, `409` conflicts (including unique/data integrity). Endpoints require an ACTIVE platform `ADMIN` or `SUPER_ADMIN` (database `user_roles`, not JWT claims alone): anonymous `401`, authenticated non-admin `403`.
 
 ### Bus types — `/api/v1/admin/bus-types`
 

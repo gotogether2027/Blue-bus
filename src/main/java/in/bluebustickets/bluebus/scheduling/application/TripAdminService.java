@@ -15,6 +15,7 @@ import in.bluebustickets.bluebus.fleet.repository.BusRepository;
 import in.bluebustickets.bluebus.fleet.repository.SeatRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.identity.application.AuthorizationService;
 import in.bluebustickets.bluebus.scheduling.api.admin.dto.TripResponse;
 import in.bluebustickets.bluebus.scheduling.api.admin.dto.TripSeatInventoryResponse;
 import in.bluebustickets.bluebus.scheduling.api.admin.dto.TripStopResponse;
@@ -52,6 +53,7 @@ public class TripAdminService {
     private final RouteStopRepository routeStopRepository;
     private final RoutePointRepository routePointRepository;
     private final SeatRepository seatRepository;
+    private final AuthorizationService authorizationService;
 
     public TripAdminService(
             TripRepository tripRepository,
@@ -62,7 +64,8 @@ public class TripAdminService {
             RouteRepository routeRepository,
             RouteStopRepository routeStopRepository,
             RoutePointRepository routePointRepository,
-            SeatRepository seatRepository) {
+            SeatRepository seatRepository,
+            AuthorizationService authorizationService) {
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
         this.tripPointRepository = tripPointRepository;
@@ -72,6 +75,7 @@ public class TripAdminService {
         this.routeStopRepository = routeStopRepository;
         this.routePointRepository = routePointRepository;
         this.seatRepository = seatRepository;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
@@ -84,6 +88,7 @@ public class TripAdminService {
             Instant bookingOpensAt,
             Instant bookingClosesAt,
             String timeZone) {
+        authorizationService.requirePlatformAdmin();
         Bus bus = busRepository.findById(busId)
                 .orElseThrow(() -> new ResourceNotFoundException("Bus was not found."));
         Route route = routeRepository.findById(routeId)
@@ -115,17 +120,20 @@ public class TripAdminService {
 
     @Transactional(readOnly = true)
     public TripResponse get(UUID id) {
+        authorizationService.requirePlatformAdmin();
         return toResponse(requireTrip(id));
     }
 
     @Transactional(readOnly = true)
     public List<TripResponse> list(UUID busId, UUID routeId, LocalDate serviceDate, TripStatus status) {
+        authorizationService.requirePlatformAdmin();
         List<Trip> trips = findTrips(busId, routeId, serviceDate, status);
         return trips.stream().map(this::toResponse).toList();
     }
 
     @Transactional
     public TripResponse update(UUID id, BigDecimal baseFare, Instant bookingOpensAt, Instant bookingClosesAt) {
+        authorizationService.requirePlatformAdmin();
         Trip trip = requireTrip(id);
         trip.updateCommercialTerms(baseFare, bookingOpensAt, bookingClosesAt);
         return toResponse(trip);
@@ -133,6 +141,7 @@ public class TripAdminService {
 
     @Transactional
     public TripResponse activate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Trip trip = requireTrip(id);
         trip.schedule();
         return toResponse(trip);
@@ -140,6 +149,7 @@ public class TripAdminService {
 
     @Transactional
     public TripResponse deactivate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Trip trip = requireTrip(id);
         trip.cancel();
         return toResponse(trip);

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.identity.application.AuthorizationService;
 import in.bluebustickets.bluebus.scheduling.domain.Location;
 import in.bluebustickets.bluebus.scheduling.repository.LocationRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -16,9 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class LocationAdminService {
 
     private final LocationRepository locationRepository;
+    private final AuthorizationService authorizationService;
 
-    public LocationAdminService(LocationRepository locationRepository) {
+    public LocationAdminService(
+            LocationRepository locationRepository,
+            AuthorizationService authorizationService) {
         this.locationRepository = locationRepository;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
@@ -31,6 +36,7 @@ public class LocationAdminService {
             BigDecimal latitude,
             BigDecimal longitude,
             String timeZone) {
+        authorizationService.requirePlatformAdmin();
         Location location = new Location(
                 requireText(state, "Location state is required"),
                 requireText(city, "Location city is required"));
@@ -48,12 +54,14 @@ public class LocationAdminService {
 
     @Transactional(readOnly = true)
     public Location get(UUID id) {
+        authorizationService.requirePlatformAdmin();
         return locationRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Location was not found."));
     }
 
     @Transactional(readOnly = true)
     public List<Location> search(Boolean active, String state, String city) {
+        authorizationService.requirePlatformAdmin();
         boolean hasFilters = active != null
                 || (state != null && !state.isBlank())
                 || (city != null && !city.isBlank());
@@ -77,6 +85,7 @@ public class LocationAdminService {
             BigDecimal latitude,
             BigDecimal longitude,
             String timeZone) {
+        authorizationService.requirePlatformAdmin();
         Location location = get(id);
         location.updateDetails(
                 normalizeCountryCode(countryCode),
@@ -92,6 +101,7 @@ public class LocationAdminService {
 
     @Transactional
     public Location activate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Location location = get(id);
         location.activate();
         return location;
@@ -99,6 +109,7 @@ public class LocationAdminService {
 
     @Transactional
     public Location deactivate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Location location = get(id);
         location.deactivate();
         return location;

@@ -13,6 +13,7 @@ import in.bluebustickets.bluebus.fleet.repository.BusTypeRepository;
 import in.bluebustickets.bluebus.fleet.repository.SeatLayoutRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
+import in.bluebustickets.bluebus.identity.application.AuthorizationService;
 import in.bluebustickets.bluebus.operator.domain.Operator;
 import in.bluebustickets.bluebus.operator.repository.OperatorRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,16 +28,19 @@ public class BusAdminService {
     private final OperatorRepository operatorRepository;
     private final BusTypeRepository busTypeRepository;
     private final SeatLayoutRepository seatLayoutRepository;
+    private final AuthorizationService authorizationService;
 
     public BusAdminService(
             BusRepository busRepository,
             OperatorRepository operatorRepository,
             BusTypeRepository busTypeRepository,
-            SeatLayoutRepository seatLayoutRepository) {
+            SeatLayoutRepository seatLayoutRepository,
+            AuthorizationService authorizationService) {
         this.busRepository = busRepository;
         this.operatorRepository = operatorRepository;
         this.busTypeRepository = busTypeRepository;
         this.seatLayoutRepository = seatLayoutRepository;
+        this.authorizationService = authorizationService;
     }
 
     @Transactional
@@ -46,6 +50,7 @@ public class BusAdminService {
             UUID seatLayoutId,
             String registrationNumber,
             String displayName) {
+        authorizationService.requirePlatformAdmin();
         Operator operator = requireOperator(operatorId);
         BusType busType = requireBusType(busTypeId);
         SeatLayout seatLayout = requireSeatLayout(seatLayoutId);
@@ -62,11 +67,13 @@ public class BusAdminService {
 
     @Transactional(readOnly = true)
     public BusResponse get(UUID id) {
+        authorizationService.requirePlatformAdmin();
         return BusResponse.from(requireBus(id));
     }
 
     @Transactional(readOnly = true)
     public List<BusResponse> list(UUID operatorId, BusStatus status) {
+        authorizationService.requirePlatformAdmin();
         List<Bus> buses;
         if (operatorId != null && status != null) {
             buses = busRepository.findByOperator_IdAndStatusOrderByRegistrationNumberAsc(operatorId, status);
@@ -82,6 +89,7 @@ public class BusAdminService {
 
     @Transactional
     public BusResponse update(UUID id, String displayName, UUID busTypeId, UUID seatLayoutId) {
+        authorizationService.requirePlatformAdmin();
         Bus bus = requireBus(id);
         bus.updateDisplayName(blankToNull(displayName));
         bus.assignBusType(requireBusType(busTypeId));
@@ -91,6 +99,7 @@ public class BusAdminService {
 
     @Transactional
     public BusResponse activate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Bus bus = requireBus(id);
         bus.activate();
         return BusResponse.from(bus);
@@ -98,6 +107,7 @@ public class BusAdminService {
 
     @Transactional
     public BusResponse deactivate(UUID id) {
+        authorizationService.requirePlatformAdmin();
         Bus bus = requireBus(id);
         bus.deactivate();
         return BusResponse.from(bus);

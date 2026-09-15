@@ -3,13 +3,15 @@ package in.bluebustickets.bluebus.scheduling.api.admin;
 import java.time.Instant;
 import java.util.UUID;
 
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -33,7 +35,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@WithMockUser
 class TripAdminApiPostgresIntegrationTest {
 
     @Container
@@ -49,6 +50,13 @@ class TripAdminApiPostgresIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    private String adminToken;
+
+    @BeforeEach
+    void seedPlatformAdmin() {
+        adminToken = testAccessTokenFactory.issuePlatformAdmin().accessToken();
+    }
 
     @Test
     void createTripWithSnapshotsIsolationLifecycleAndIntegrity() throws Exception {
@@ -60,6 +68,7 @@ class TripAdminApiPostgresIntegrationTest {
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -104,13 +113,14 @@ class TripAdminApiPostgresIntegrationTest {
         int inventoryCount = tripBody.get("seatInventory").size();
         String firstSeatNumber = tripBody.get("seatInventory").get(0).get("seatNumber").asText();
 
-        mockMvc.perform(get("/api/v1/admin/trips/{id}", tripId))
+        mockMvc.perform(get("/api/v1/admin/trips/{id}", tripId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scheduledDepartureAt").value(departure.toString()))
                 .andExpect(jsonPath("$.stops.length()").value(4))
                 .andExpect(jsonPath("$.seatInventory.length()").value(4));
 
         mockMvc.perform(get("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .param("busId", fixture.busId().toString())
                         .param("routeId", fixture.routeId().toString())
                         .param("serviceDate", "2026-11-10")
@@ -119,6 +129,7 @@ class TripAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$[?(@.id=='%s')]".formatted(tripId)).exists());
 
         mockMvc.perform(put("/api/v1/admin/trips/{id}", tripId)
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -132,15 +143,16 @@ class TripAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.busId").value(fixture.busId().toString()))
                 .andExpect(jsonPath("$.stops.length()").value(4));
 
-        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId))
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SCHEDULED"));
 
-        mockMvc.perform(post("/api/v1/admin/trips/{id}/deactivate", tripId))
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/deactivate", tripId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
 
         mockMvc.perform(put("/api/v1/admin/routes/{id}", fixture.routeId())
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -152,6 +164,7 @@ class TripAdminApiPostgresIntegrationTest {
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/v1/admin/routes/{routeId}/stops", fixture.routeId())
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -162,13 +175,14 @@ class TripAdminApiPostgresIntegrationTest {
                                 """.formatted(fixture.vijayawadaId())))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(get("/api/v1/admin/trips/{id}", tripId))
+        mockMvc.perform(get("/api/v1/admin/trips/{id}", tripId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.stops.length()").value(4))
                 .andExpect(jsonPath("$.stops[0].locationId").value(firstStopLocation))
                 .andExpect(jsonPath("$.stops[0].points[0].name").value(firstPointName));
 
         mockMvc.perform(put("/api/v1/admin/seat-layouts/{id}", fixture.layoutId())
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -180,12 +194,13 @@ class TripAdminApiPostgresIntegrationTest {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/v1/admin/trips/{id}", tripId))
+        mockMvc.perform(get("/api/v1/admin/trips/{id}", tripId).with(adminAuth()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.seatInventory.length()").value(inventoryCount))
                 .andExpect(jsonPath("$.seatInventory[0].seatNumber").value(firstSeatNumber));
 
         mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -207,6 +222,7 @@ class TripAdminApiPostgresIntegrationTest {
                 .andExpect(status().isConflict());
 
         mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -229,6 +245,7 @@ class TripAdminApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.message").value("Bus was not found."));
 
         mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -256,6 +273,7 @@ class TripAdminApiPostgresIntegrationTest {
         long inventoryBefore = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM trip_seat_inventory", Long.class);
 
         mockMvc.perform(post("/api/v1/admin/trips")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -281,7 +299,7 @@ class TripAdminApiPostgresIntegrationTest {
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM trip_seat_inventory", Long.class))
                 .isEqualTo(inventoryBefore);
 
-        mockMvc.perform(get("/api/v1/admin/trips/{id}", UUID.randomUUID()))
+        mockMvc.perform(get("/api/v1/admin/trips/{id}", UUID.randomUUID()).with(adminAuth()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("Trip was not found."));
     }
@@ -303,6 +321,7 @@ class TripAdminApiPostgresIntegrationTest {
 
     private UUID createOperator(String legalName, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/operators")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"legalName":"%s","displayName":"%s"}
@@ -314,6 +333,7 @@ class TripAdminApiPostgresIntegrationTest {
 
     private UUID createBusType(String code, String displayName) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/bus-types")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"code":"%s","displayName":"%s"}
@@ -350,6 +370,7 @@ class TripAdminApiPostgresIntegrationTest {
         }
 
         MvcResult result = mockMvc.perform(post("/api/v1/admin/seat-layouts")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -369,6 +390,7 @@ class TripAdminApiPostgresIntegrationTest {
 
     private UUID createBus(UUID operatorId, UUID busTypeId, UUID layoutId, String registration) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/buses")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -385,6 +407,7 @@ class TripAdminApiPostgresIntegrationTest {
 
     private UUID createLocation(String state, String city) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/locations")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"countryCode":"IN","state":"%s","city":"%s","timeZone":"Asia/Kolkata"}
@@ -402,6 +425,7 @@ class TripAdminApiPostgresIntegrationTest {
             UUID vijayawadaId,
             UUID gunturId) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/v1/admin/routes")
+                        .with(adminAuth())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -438,6 +462,11 @@ class TripAdminApiPostgresIntegrationTest {
 
     private UUID idOf(MvcResult result) throws Exception {
         return UUID.fromString(objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asText());
+    }
+
+
+    private org.springframework.test.web.servlet.request.RequestPostProcessor adminAuth() {
+        return TestAccessTokenFactory.bearer(adminToken);
     }
 
     private record Fixture(
