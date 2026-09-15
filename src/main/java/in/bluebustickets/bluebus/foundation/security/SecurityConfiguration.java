@@ -51,6 +51,8 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/v1/health", "/error").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
                         .requestMatchers("/api/v1/trips/*/seat-availability").permitAll()
                         // Temporary public hold APIs until authenticated ownership ships.
                         .requestMatchers(HttpMethod.POST, "/api/v1/trips/*/holds").permitAll()

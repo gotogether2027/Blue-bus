@@ -10,7 +10,10 @@ blue-bus:
       issuer: test-issuer
       # Test-only HS256 secret (>= 32 bytes). Not for production use.
       secret: test-only-placeholder-not-a-secret!!
-      access-token-ttl-seconds: 3600
+      access-token-ttl-seconds: 900
+    refresh:
+      ttl-seconds: 1209600
+      concurrent-reuse-grace-seconds: 5
   seat-holds:
     expiry:
       enabled: false

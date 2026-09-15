@@ -4,7 +4,7 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health`, customer registration + login + `/auth/me`, admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment, refresh tokens, email verification, profile editing, and authenticated hold ownership remain deferred.
+Implemented so far: `GET /api/v1/health`, customer registration + login + refresh/logout + `/auth/me`, admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment, email verification, profile editing, and authenticated hold ownership remain deferred.
 
 ## Customer registration & identity — Phase 8.2
 
@@ -45,15 +45,17 @@ Duplicate email (including case-insensitive / whitespace variants) → `409` wit
 
 `GET /api/v1/auth/me` loads identity from the JWT `sub` (user id). Query parameters such as `userId` are ignored. Missing/invalid JWT → `401`.
 
-## Authentication — Phase 8.1
+## Authentication — Phase 8.1 / 8.3
 
-Stateless JWT access-token login for existing users. Passwords are verified with BCrypt against `users.password_hash` (schema since V2; no new migration). Tokens are HS256 JWTs signed with `blue-bus.security.jwt.secret`.
+Stateless JWT **access** tokens plus opaque **refresh** tokens (session families). Passwords are verified with BCrypt against `users.password_hash`. Access tokens are HS256 JWTs signed with `blue-bus.security.jwt.secret`. Refresh tokens are random 32-byte secrets (URL-safe Base64, no padding); only `SHA-256` digests are stored (`refresh_tokens.token_hash`).
 
-| Method | Path | Success |
-|---|---|---|
-| `POST` | `/api/v1/auth/login` | `200 OK` |
+| Method | Path | Auth | Success |
+|---|---|---|---|
+| `POST` | `/api/v1/auth/login` | public | `200 OK` |
+| `POST` | `/api/v1/auth/refresh` | public (refresh credential) | `200 OK` |
+| `POST` | `/api/v1/auth/logout` | public (refresh credential) | `204 No Content` |
 
-Request:
+Login request:
 
 ```json
 {
@@ -62,27 +64,48 @@ Request:
 }
 ```
 
-Response:
+Login / refresh success response:
 
 ```json
 {
   "accessToken": "...",
   "tokenType": "Bearer",
-  "expiresIn": 3600
+  "expiresIn": 900,
+  "refreshToken": "..."
 }
 ```
 
-JWT claims (non-sensitive): `sub` (user id), `iss`, `iat`, `exp`, `email`, `roles` (platform `user_roles` codes such as `ADMIN`, `CUSTOMER`). Operator memberships (`operator_users`) are not embedded yet.
+Refresh / logout request:
+
+```json
+{
+  "refreshToken": "..."
+}
+```
+
+**Rotation:** each successful refresh revokes the presented token, inserts a replacement in the same `family_id`, and returns a new access + refresh pair. The old refresh token never works again.
+
+**Concurrent refresh:** two clients presenting the same active token are serialized with `SELECT … FOR UPDATE`. Exactly one rotation succeeds (`200`). The loser sees the predecessor already rotated to a still-active successor within a short configured window (`blue-bus.security.refresh.concurrent-reuse-grace-seconds`, default `5`) and receives generic `401` **without** family revocation, so the winner’s new refresh token remains usable. The server cannot re-issue the winner’s opaque token (hash-only storage), so the loser must retry with a fresh login or the winner’s token if shared by the client.
+
+**Reuse / replay:** presenting a revoked/replaced refresh token **after** that concurrency window (or when the successor is no longer the active family tip) revokes **all active tokens in that family** and returns generic `401`. Other families for the same user (other devices) stay active. Logout-revoked tokens (no `replaced_by_id`) are never treated as concurrent collisions.
+
+**Multi-device:** each login creates a new family. Logout revokes only the presented family. Access JWTs are not revoked on logout and remain valid until `exp`.
+
+**Errors:** blank/malformed refresh body → `400`. Unknown, expired, revoked, reused, or inactive/suspended user → generic `401` (`Invalid credentials.`). No token/family/user existence leaks.
+
+JWT claims (non-sensitive): `sub` (user id), `iss`, `iat`, `exp`, `email`, `roles` (platform `user_roles` codes such as `ADMIN`, `CUSTOMER`). Operator memberships (`operator_users`) are not embedded yet. Refresh tokens are never placed in JWT claims.
 
 Configuration:
 
 - `blue-bus.security.jwt.issuer` / `JWT_ISSUER` (default `blue-bus`)
 - `blue-bus.security.jwt.secret` / `JWT_SECRET` (**required**, ≥ 32 bytes; never commit production secrets)
-- `blue-bus.security.jwt.access-token-ttl-seconds` / `JWT_ACCESS_TOKEN_TTL_SECONDS` (default `3600`)
+- `blue-bus.security.jwt.access-token-ttl-seconds` / `JWT_ACCESS_TOKEN_TTL_SECONDS` (default `900`)
+- `blue-bus.security.refresh.ttl-seconds` / `REFRESH_TOKEN_TTL_SECONDS` (default `1209600` / 14 days)
+- `blue-bus.security.refresh.concurrent-reuse-grace-seconds` / `REFRESH_TOKEN_CONCURRENT_REUSE_GRACE_SECONDS` (default `5`; max `30`)
 
-Public without a token: health, **register**, login, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes are never returned.
+Public without a token: health, **register**, login, **refresh**, **logout**, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes and refresh-token hashes are never returned.
 
-Deferred: refresh tokens, password reset, email/phone verification, profile editing, authenticated seat-hold ownership, admin RBAC, operator-scoped authorization.
+Deferred: password reset, email/phone verification, profile editing, authenticated seat-hold ownership, admin RBAC, operator-scoped authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup).
 
 ## Customer seat holds — Phase 7.6
 

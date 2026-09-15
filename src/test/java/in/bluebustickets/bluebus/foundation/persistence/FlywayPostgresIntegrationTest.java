@@ -186,6 +186,62 @@ class FlywayPostgresIntegrationTest {
         assertThat(columnExists("seat_holds", "idempotency_key")).isTrue();
     }
 
+    @Test
+    void appliesRefreshTokensMigrationWithHashAndActiveFamilyGuards() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '8'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("8");
+            assertThat(migration.get("description")).hasToString("refresh tokens");
+            assertThat(migration.get("script")).hasToString("V8__refresh_tokens.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("refresh_tokens")).isTrue();
+
+        Integer hashLengthCheck = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_constraint
+                WHERE conname = 'ck_refresh_tokens_hash_length'
+                """, Integer.class);
+        assertThat(hashLengthCheck).isEqualTo(1);
+
+        Integer tokenHashUnique = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_constraint
+                WHERE conname = 'uq_refresh_tokens_token_hash'
+                  AND contype = 'u'
+                """, Integer.class);
+        assertThat(tokenHashUnique).isEqualTo(1);
+
+        Integer activeFamilyIndex = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = 'uq_refresh_tokens_active_family'
+                """, Integer.class);
+        assertThat(activeFamilyIndex).isEqualTo(1);
+
+        String indexDef = jdbcTemplate.queryForObject("""
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = 'uq_refresh_tokens_active_family'
+                """, String.class);
+        assertThat(indexDef).containsIgnoringCase("UNIQUE");
+        assertThat(indexDef).containsIgnoringCase("family_id");
+        assertThat(indexDef).containsIgnoringCase("revoked_at IS NULL");
+
+        assertThat(columnExists("refresh_tokens", "token_hash")).isTrue();
+        assertThat(columnExists("refresh_tokens", "family_id")).isTrue();
+        assertThat(columnExists("refresh_tokens", "replaced_by_id")).isTrue();
+        assertThat(columnExists("refresh_tokens", "last_used_at")).isTrue();
+    }
+
     private boolean tableExists(String tableName) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)

@@ -27,7 +27,12 @@ blue-bus:
       issuer: ${JWT_ISSUER:blue-bus}
       # Required: set JWT_SECRET to a value of at least 32 bytes. Never commit production secrets.
       secret: ${JWT_SECRET}
-      access-token-ttl-seconds: ${JWT_ACCESS_TOKEN_TTL_SECONDS:3600}
+      access-token-ttl-seconds: ${JWT_ACCESS_TOKEN_TTL_SECONDS:900}
+    refresh:
+      # Opaque refresh-token lifetime (default 14 days). Cleanup/reaper deferred.
+      ttl-seconds: ${REFRESH_TOKEN_TTL_SECONDS:1209600}
+      # Concurrent refresh loser window (seconds). Later replay still revokes the family.
+      concurrent-reuse-grace-seconds: ${REFRESH_TOKEN_CONCURRENT_REUSE_GRACE_SECONDS:5}
   seat-holds:
     create:
       # Server-owned hold lifetime. Clients never supply expiresAt.

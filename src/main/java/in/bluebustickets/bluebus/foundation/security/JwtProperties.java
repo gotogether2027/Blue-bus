@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record JwtProperties(
         String issuer,
         String secret,
-        @DefaultValue("3600") long accessTokenTtlSeconds) {
+        @DefaultValue("900") long accessTokenTtlSeconds) {
 
     public JwtProperties {
         if (issuer == null || issuer.isBlank()) {

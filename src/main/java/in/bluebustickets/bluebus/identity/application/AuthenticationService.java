@@ -18,8 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Email/password login for existing users. Issues a JWT access token; registration and refresh
- * tokens are deferred.
+ * Email/password login for existing users. Issues a JWT access token and opaque refresh token.
  */
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
@@ -29,19 +28,22 @@ public class AuthenticationService {
     private final UserRoleRepository userRoleRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenService jwtTokenService;
+    private final RefreshTokenService refreshTokenService;
 
     public AuthenticationService(
             UserRepository userRepository,
             UserRoleRepository userRoleRepository,
             PasswordEncoder passwordEncoder,
-            JwtTokenService jwtTokenService) {
+            JwtTokenService jwtTokenService,
+            RefreshTokenService refreshTokenService) {
         this.userRepository = userRepository;
         this.userRoleRepository = userRoleRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenService = jwtTokenService;
+        this.refreshTokenService = refreshTokenService;
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public LoginResponse login(LoginRequest request) {
         if (request == null || request.email() == null || request.password() == null) {
             throw invalidCredentials();
@@ -62,8 +64,9 @@ public class AuthenticationService {
                 .map(membership -> membership.getRole().getCode().name())
                 .toList();
 
+        String refreshToken = refreshTokenService.issueForLogin(user);
         IssuedAccessToken token = jwtTokenService.issueAccessToken(user.getId(), user.getEmail(), roles);
-        return LoginResponse.bearer(token.tokenValue(), token.expiresInSeconds());
+        return LoginResponse.bearer(token.tokenValue(), token.expiresInSeconds(), refreshToken);
     }
 
     private static BadCredentialsException invalidCredentials() {
