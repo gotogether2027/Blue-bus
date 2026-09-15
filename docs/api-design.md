@@ -4,7 +4,46 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health`, `POST /api/v1/auth/login` (JWT access tokens), admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment, refresh tokens, registration, and authenticated hold ownership remain deferred.
+Implemented so far: `GET /api/v1/health`, customer registration + login + `/auth/me`, admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment, refresh tokens, email verification, profile editing, and authenticated hold ownership remain deferred.
+
+## Customer registration & identity — Phase 8.2
+
+Self-service customer account creation. Registration does **not** issue a JWT; clients call login afterwards.
+
+| Method | Path | Auth | Success |
+|---|---|---|---|
+| `POST` | `/api/v1/auth/register` | public | `201 Created` |
+| `GET` | `/api/v1/auth/me` | Bearer JWT | `200 OK` |
+
+Register request:
+
+```json
+{
+  "firstName": "Rahul",
+  "lastName": "Kumar",
+  "email": "rahul@example.com",
+  "password": "StrongPassword123!"
+}
+```
+
+Required: `firstName`, `email`, `password` (8–72 chars, at least one letter and one digit). Optional: `lastName`. Email is trimmed and lower-cased (same normalization as login). Password is BCrypt-hashed with the Phase 8.1 encoder and never stored or returned in plaintext. Server always assigns platform role `CUSTOMER` and status `ACTIVE`. Clients cannot choose role, status, or `password_hash`.
+
+Register / me response:
+
+```json
+{
+  "userId": "...",
+  "firstName": "Rahul",
+  "lastName": "Kumar",
+  "email": "rahul@example.com",
+  "roles": ["CUSTOMER"],
+  "status": "ACTIVE"
+}
+```
+
+Duplicate email (including case-insensitive / whitespace variants) → `409` with a safe conflict message. DB unique index `uq_users_email_normalized` on `lower(email)` remains authoritative under races.
+
+`GET /api/v1/auth/me` loads identity from the JWT `sub` (user id). Query parameters such as `userId` are ignored. Missing/invalid JWT → `401`.
 
 ## Authentication — Phase 8.1
 
@@ -41,9 +80,9 @@ Configuration:
 - `blue-bus.security.jwt.secret` / `JWT_SECRET` (**required**, ≥ 32 bytes; never commit production secrets)
 - `blue-bus.security.jwt.access-token-ttl-seconds` / `JWT_ACCESS_TOKEN_TTL_SECONDS` (default `3600`)
 
-Public without a token: health, login, seat-availability, and temporary seat-hold create/get/cancel. All other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes are never returned.
+Public without a token: health, **register**, login, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes are never returned.
 
-Deferred: registration, refresh tokens, password reset, profile APIs, authenticated seat-hold ownership, operator-scoped authorization.
+Deferred: refresh tokens, password reset, email/phone verification, profile editing, authenticated seat-hold ownership, admin RBAC, operator-scoped authorization.
 
 ## Customer seat holds — Phase 7.6
 

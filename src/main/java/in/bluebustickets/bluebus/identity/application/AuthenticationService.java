@@ -1,7 +1,6 @@
 package in.bluebustickets.bluebus.identity.application;
 
 import java.util.List;
-import java.util.Locale;
 
 import in.bluebustickets.bluebus.foundation.security.JwtConfiguration.IssuedAccessToken;
 import in.bluebustickets.bluebus.foundation.security.JwtConfiguration.JwtTokenService;
@@ -48,7 +47,7 @@ public class AuthenticationService {
             throw invalidCredentials();
         }
 
-        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        String email = EmailNormalizer.normalize(request.email());
         User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
         if (user == null
                 || user.getPasswordHash() == null
