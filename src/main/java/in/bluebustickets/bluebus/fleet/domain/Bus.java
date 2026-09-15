@@ -37,7 +37,7 @@ public class Bus extends AuditableEntity {
 
     @NotBlank
     @Pattern(regexp = "^[A-Za-z0-9 -]{4,30}$", message = "must be a valid registration number")
-    @Column(name = "registration_number", nullable = false, unique = true, length = 30)
+    @Column(name = "registration_number", nullable = false, length = 30)
     private String registrationNumber;
 
     @Column(name = "display_name", length = 120)

@@ -79,6 +79,8 @@ The customer-facing state vocabulary remains `AVAILABLE`, `HELD`, `BOOKED`, and 
 
 The platform is not separate-database multi-tenant initially. Operator-owned data carries `operator_id`, and all operator-facing queries apply it. Bus, route, trip, and settlement records are operator-scoped. Locations, bus-type taxonomy, platform roles, and configuration are platform-owned. A bus, route, layout, and trip must have the same operator; enforce this with composite foreign keys where practical and application validation otherwise. One operator membership has one role in the MVP; add `operator_user_roles` later only if a membership needs multiple simultaneous roles.
 
+Bus lifecycle statuses are `ACTIVE`, `INACTIVE`, and `MAINTENANCE`. New trips require an `ACTIVE` bus. A trip freezes the bus's seat-layout id at create time; changing a bus's layout while any trip row exists is rejected (application `409` plus composite FK). Registration numbers are globally unique ignoring case.
+
 ## Missing domains intentionally noted for later decision
 
 - Fare rules, taxes, insurance/add-ons, dynamic pricing, and formal commission policies.

@@ -436,6 +436,60 @@ class FlywayPostgresIntegrationTest {
         assertThat(indexDef).contains("TICKET_ISSUED");
     }
 
+    @Test
+    void appliesBusesRegistrationCiUniqueMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '15'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("15");
+            assertThat(migration.get("description")).hasToString("buses registration ci unique");
+            assertThat(migration.get("script")).hasToString("V15__buses_registration_ci_unique.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(indexExists("ux_buses_registration_number_lower")).isTrue();
+        Integer oldConstraint = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_constraint
+                WHERE conname = 'uq_buses_registration_number'
+                """, Integer.class);
+        assertThat(oldConstraint).isZero();
+
+        String indexDef = jdbcTemplate.queryForObject("""
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ux_buses_registration_number_lower'
+                """, String.class);
+        assertThat(indexDef).containsIgnoringCase("UNIQUE");
+        assertThat(indexDef).containsIgnoringCase("lower");
+        assertThat(indexDef).contains("registration_number");
+
+        jdbcTemplate.execute("""
+                CREATE TEMP TABLE buses_reg_probe (
+                    registration_number VARCHAR(30) NOT NULL
+                )
+                """);
+        jdbcTemplate.update("INSERT INTO buses_reg_probe VALUES ('TS09AB1234'), ('ts09ab1234')");
+        Integer duplicateGroups = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM (
+                    SELECT 1
+                    FROM buses_reg_probe
+                    GROUP BY lower(registration_number)
+                    HAVING COUNT(*) > 1
+                ) d
+                """, Integer.class);
+        assertThat(duplicateGroups).isEqualTo(1);
+        org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () ->
+                jdbcTemplate.execute("""
+                        CREATE UNIQUE INDEX ux_buses_reg_probe_lower
+                            ON buses_reg_probe (lower(registration_number))
+                        """));
+    }
+
     private boolean tableExists(String tableName) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)

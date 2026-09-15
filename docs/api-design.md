@@ -109,7 +109,7 @@ Public without a token: health, **register**, login, **refresh**, **logout**, **
 
 **Phase 9.2B operator portal:** `/api/v1/operator/{operatorId}/**` is a separate tenant namespace. The path `operatorId` is the only tenant selector. `OperatorAuthorizationService` loads `operator_users` for `(path operatorId, JWT sub)` on every request; JWT `roles` and any client-supplied `userId`/`operatorId` are not proof of membership. Platform `ADMIN`/`SUPER_ADMIN` are **not** auto-admitted. See the operator-portal section below.
 
-Deferred: password reset, email/phone verification, profile editing, permission catalogs, operator trip/inventory writes, operator payment/refund/settlement APIs, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup), access-token denylist, Redis, audit log.
+Deferred: password reset, email/phone verification, profile editing, permission catalogs, operator trip/inventory/route/layout writes, operator payment/refund/settlement APIs, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup), access-token denylist, Redis, audit log.
 
 ## Customer bookings — Phase 9.1 foundation + unpaid expiry + V12 views/cancellation
 
@@ -409,7 +409,7 @@ Seat uniqueness within a layout follows the schema: unique seat number and uniqu
 
 ### Buses — `/api/v1/admin/buses` (Phase 6A.3)
 
-Physical fleet vehicles. A bus references an existing operator, bus type, and reusable seat layout. Seats are not copied onto the bus. Lifecycle uses existing `BusStatus` (`ACTIVE`, `INACTIVE`, `MAINTENANCE`). Admin `activate` / `deactivate` map to domain `activate()` / `deactivate()`.
+Physical fleet vehicles. A bus references an existing operator, bus type, and reusable seat layout. Seats are not copied onto the bus. Lifecycle uses existing `BusStatus` (`ACTIVE`, `INACTIVE`, `MAINTENANCE`). Admin `activate` / `deactivate` map to domain `activate()` / `deactivate()`. Registration numbers are globally unique **case-insensitively** (V15 `ux_buses_registration_number_lower`).
 
 - `POST /api/v1/admin/buses` — body: `operatorId`, `busTypeId`, `seatLayoutId`, `registrationNumber`, optional `displayName` (creates as `ACTIVE`; layout must belong to the same operator)
 - `GET /api/v1/admin/buses` — optional `operatorId`, `status`
@@ -478,6 +478,11 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 | `PATCH` | `/api/v1/operator/{operatorId}` | `OPERATOR_ADMIN` | `200` support email/phone only. Authorization and update share one transaction. Unknown body fields (including `id`, `operatorId`, `userId`, `status`, legal/display name, role) → `400`. |
 | `GET` | `/api/v1/operator/{operatorId}/buses` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` buses where `buses.operator_id = path operatorId` |
 | `GET` | `/api/v1/operator/{operatorId}/buses/{busId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` loaded by `(busId, operatorId)` |
+| `POST` | `/api/v1/operator/{operatorId}/buses` | `OPERATOR_ADMIN` | `201` create bus as `ACTIVE`. Body: `busTypeId`, `seatLayoutId`, `registrationNumber`, optional `displayName`. Path `operatorId` only. Bus type must be active; seat layout must be same-operator `PUBLISHED`. Registration globally unique case-insensitively (`409`). Cross-operator layout → `404`. |
+| `PATCH` | `/api/v1/operator/{operatorId}/buses/{busId}` | `OPERATOR_ADMIN` | `200` allow-list: `displayName`, `busTypeId`, `seatLayoutId` (presence-aware). Empty/unknown fields → `400`. Layout change blocked if **any** trip exists for the bus → `409`. Registration/`operatorId`/`status` rejected. |
+| `POST` | `/api/v1/operator/{operatorId}/buses/{busId}/activate` | `OPERATOR_ADMIN` | `200` → `ACTIVE` (idempotent) |
+| `POST` | `/api/v1/operator/{operatorId}/buses/{busId}/deactivate` | `OPERATOR_ADMIN` | `200` → `INACTIVE` (idempotent). Does not cancel/alter trips. |
+| `POST` | `/api/v1/operator/{operatorId}/buses/{busId}/maintenance` | `OPERATOR_ADMIN` | `200` → `MAINTENANCE` (idempotent). Does not cancel/alter trips. |
 | `GET` | `/api/v1/operator/{operatorId}/trips` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` trips where `trips.operator_id = path operatorId`. Optional `serviceDate`/`status` filters. |
 | `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` loaded by `(tripId, operatorId)` |
 | `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}/bookings` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` trip-scoped manifest |
@@ -488,6 +493,8 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 | `POST` | `/api/v1/operator/{operatorId}/members/{userId}/deactivate` | `OPERATOR_ADMIN` | `200` soft-deactivate (`ACTIVE`→`INACTIVE`). Already `INACTIVE` is idempotent `200`. |
 
 **Membership administration (Phase 9.5E):** Mutations run in one transaction. Sequence: early `requireMember(OPERATOR_ADMIN)` → `operators` row `FOR UPDATE` → **re-read/revalidate** the caller's ACTIVE `OPERATOR_ADMIN` membership and operator `ACTIVE` status from the database (refresh; not the pre-lock persistence snapshot) → target `operator_users` `PESSIMISTIC_WRITE` → count ACTIVE `OPERATOR_ADMIN` rows and apply the change. Concurrent demotion/deactivation of the caller between the early check and the lock cannot complete a privileged mutation on stale authorization (`403` if demoted to staff, `404` if membership inactive/missing). Any demote/deactivate that would leave zero ACTIVE `OPERATOR_ADMIN` memberships returns `409` (including self-demotion/self-deactivate of the last admin). Concurrent membership creates for the same pair serialize on the operator row; the composite PK remains authoritative (`409` on conflict). Platform `ADMIN`/`SUPER_ADMIN` are still not auto-admitted. Inactive/suspended **actor** platform users remain `401`. Target platform users may be inactive when assigned a membership row; they still cannot authorize into the operator namespace until the platform user is `ACTIVE` again. No membership outbox event in this phase.
+
+**Bus administration (Phase 9.5A):** Dedicated `OperatorBusAdminService` (does not call `BusAdminService`). Existing-bus mutations: early `requireMember(OPERATOR_ADMIN)` → load/lock `buses` by `(id, operatorId)` `FOR UPDATE` → revalidate ACTIVE `OPERATOR_ADMIN` + operator `ACTIVE` → mutate. Create uses app ignore-case registration check plus DB-authoritative unique index `ux_buses_registration_number_lower` on `lower(registration_number)` (V15; case-sensitive column unique dropped). Seat-layout reassignment requires same-operator `PUBLISHED` layout and **zero** trip rows for the bus (`409` otherwise); composite FK `fk_trips_bus_selected_layout` remains final integrity. Deactivate/maintenance do not cancel trips; new trips still require `bus.isActive()`. No bus outbox events.
 
 **Resource ownership:** buses and trips are loaded with both resource id and path `operatorId`. A resource that exists for another operator returns generic `404`. Membership rows are loaded by `(operatorId, userId)` under the path operator; a user who is only a member of another operator returns generic `404` (no existence leak).
 
@@ -500,21 +507,21 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 | Status | When |
 |---|---|
 | `401` | missing/invalid/expired JWT, or `SUSPENDED`/`INACTIVE` user |
-| `404` | unknown operator, no membership, inactive membership, cross-operator resource, booking not on the requested trip/operator, target platform user not found on create, IDOR |
-| `403` | ACTIVE member with insufficient role (for example STAFF on PATCH/members mutate), or ACTIVE member whose operator is not `ACTIVE` |
-| `400` | validation / unknown PATCH fields / malformed input / empty membership PATCH / invalid operator membership role |
-| `409` | duplicate membership create, or mutation that would remove the last ACTIVE `OPERATOR_ADMIN` |
+| `404` | unknown operator, no membership, inactive membership, cross-operator resource, booking not on the requested trip/operator, target platform user not found on create, cross-operator seat layout, missing bus/type, IDOR |
+| `403` | ACTIVE member with insufficient role (for example STAFF on PATCH/members/bus mutate), stale demoted caller after post-lock revalidation, or ACTIVE member whose operator is not `ACTIVE` |
+| `400` | validation / unknown PATCH fields / malformed input / empty membership or bus PATCH / invalid operator membership role |
+| `409` | duplicate membership create, last ACTIVE `OPERATOR_ADMIN` protection, bus registration conflict (case-insensitive), seat-layout change while any trip exists, inactive bus type / non-PUBLISHED layout assignment |
 
 Do not leak membership existence, another operator's existence, or another user's ownership. A customer without membership receives the same generic `404` as an unknown operator UUID.
 
 **Role matrix:**
 
-| Caller | `/api/v1/admin/**` | Own ACTIVE operator | Other operator | PATCH support contact | Members list | Members mutate |
-|---|---|---|---|---|---|---|
-| `ADMIN` / `SUPER_ADMIN` | allowed (9.2A) | not auto-authorized (`404` unless they also have an ACTIVE membership) | `404` | n/a | n/a | n/a |
-| `CUSTOMER` (no membership) | `403` | `404` | `404` | `404` | `404` | `404` |
-| `OPERATOR_ADMIN` | `403` | allowed | `404` | allowed | allowed | allowed |
-| `OPERATOR_STAFF` | `403` | reads allowed | `404` | `403` | allowed | `403` |
+| Caller | `/api/v1/admin/**` | Own ACTIVE operator | Other operator | PATCH support contact | Members list | Members mutate | Bus mutate |
+|---|---|---|---|---|---|---|---|
+| `ADMIN` / `SUPER_ADMIN` | allowed (9.2A) | not auto-authorized (`404` unless they also have an ACTIVE membership) | `404` | n/a | n/a | n/a | n/a |
+| `CUSTOMER` (no membership) | `403` | `404` | `404` | `404` | `404` | `404` | `404` |
+| `OPERATOR_ADMIN` | `403` | allowed | `404` | allowed | allowed | allowed | allowed |
+| `OPERATOR_STAFF` | `403` | reads allowed | `404` | `403` | allowed | `403` | `403` |
 
 A user may hold ACTIVE memberships in multiple operators; each path `operatorId` is authorized independently.
 
@@ -525,7 +532,7 @@ A user may hold ACTIVE memberships in multiple operators; each path `operatorId`
 | `/api/v1/auth` | register, login, refresh, logout, `GET /operator-memberships` | public/authenticated as applicable |
 | `/api/v1/users` | current profile, customer profile | authenticated owner/admin |
 | `/api/v1/admin/users`, `/roles`, `/permissions` | user/role administration | authorized admin |
-| `/api/v1/operator/{operatorId}` | operator profile, fleet/trip reads, trip booking manifest, membership administration | ACTIVE `operator_users` membership; path `operatorId` is the tenant |
+| `/api/v1/operator/{operatorId}` | operator profile, fleet/trip reads, bus writes, trip booking manifest, membership administration | ACTIVE `operator_users` membership; path `operatorId` is the tenant |
 | `/api/v1/bus-types`, `/buses`, `/seat-layouts` | fleet master data | scoped operator/admin |
 | `/api/v1/locations`, `/routes`, `/trips` | search network; manage routes/schedules | public read / scoped write |
 | `/api/v1/search` | origin, destination, service date, passenger count search | public |
