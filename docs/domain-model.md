@@ -24,10 +24,10 @@ Trip stop 1---* Trip point snapshot
 Trip 1---* TripSeatInventory *---1 Layout seat
 TripSeatInventory 1---* TripSeatAllocation *---0..1 SeatHold
 SeatHold 1---* TripSeatAllocation (HELD)
-Seat hold / Booking item (future) *---1 Booking (future)
-Booking 1---* Booking item *---0..1 Passenger
-Booking 1---* Passenger
-Booking 1---* Payment attempt; Payment attempt 1---* Refund
+SeatHold 1---0..1 Booking (consumed hold)
+Booking 1---* BookingItem *---0..1 BookingPassenger
+Booking 1---* BookingPassenger
+Booking 1---* Payment attempt (future); Payment attempt 1---* Refund (future)
 Operator 1---* Operator user *---1 User
 ```
 
@@ -35,7 +35,7 @@ Customer-facing journey availability for a requested OD segment is a **read-only
 
 Customer-facing UI vocabulary `AVAILABLE` / `HELD` / `BOOKED` / `BLOCKED` for a requested journey remains **derived** from physical inventory plus overlapping active allocations. It is not stored as a whole-trip flag on `TripSeatInventory`. Physical inventory status is only `AVAILABLE` or `BLOCKED`.
 
-V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Phase 7.4 adds an explicit hold expiry reaper: due `ACTIVE` holds (`expires_at <= now`) become `EXPIRED` and their `HELD` allocations become `EXPIRED` in one DB transaction per hold (`FOR UPDATE SKIP LOCKED`). Availability does **not** invent implicit expiry from timestamps — only the committed state change stops blocking. Bookings and payments remain deferred.
+V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Phase 7.4 adds an explicit hold expiry reaper: due `ACTIVE` holds (`expires_at <= now`) become `EXPIRED` and their `HELD` allocations become `EXPIRED` in one DB transaction per hold (`FOR UPDATE SKIP LOCKED`). Availability does **not** invent implicit expiry from timestamps — only the committed state change stops blocking. **V9 / Phase 9.1** implements bookings + passengers + hold-to-book: an authenticated customer converts an ACTIVE **owned** hold (`seat_holds.user_id` = booker) into a `PENDING_PAYMENT` booking; allocations become `BOOKED` and the hold becomes `CONSUMED` in one transaction. Anonymous holds remain creatable but are not bookable. Payment confirmation to `CONFIRMED`, refunds, and tickets remain deferred.
 
 `trips.base_fare` is a temporary draft/default. Future origin–destination prices belong on `trip_fares`.
 
@@ -57,7 +57,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 | Trip | DRAFT, SCHEDULED, ON_SALE, CLOSED, DEPARTED, COMPLETED, CANCELLED |
 | Trip inventory seat | AVAILABLE, BLOCKED (physical-seat status; availability is calculated from allocations) |
 | Seat allocation | HELD, BOOKED, RELEASED, CANCELLED, EXPIRED, BLOCKED |
-| Booking | PENDING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED, PAYMENT_FAILED, PARTIALLY_REFUNDED, REFUNDED |
+| Booking | INITIATED, PENDING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED, REFUND_PENDING, REFUNDED |
 | Payment | CREATED, INITIATED, PENDING, SUCCEEDED, FAILED, CANCELLED, REFUNDED, PARTIALLY_REFUNDED |
 | Refund | REQUESTED, INITIATED, SUCCEEDED, FAILED, REJECTED |
 | Review | PENDING_MODERATION, PUBLISHED, REJECTED, HIDDEN |

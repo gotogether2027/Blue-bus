@@ -105,8 +105,6 @@ class FlywayPostgresIntegrationTest {
         assertThat(tableExists("trip_points")).isTrue();
         assertThat(tableExists("trip_seat_inventory")).isTrue();
         assertThat(tableExists("trip_seats")).isFalse();
-        assertThat(tableExists("bookings")).isFalse();
-
         assertThat(columnExists("trip_seat_inventory", "booking_id")).isFalse();
         assertThat(columnExists("trip_seat_inventory", "locked_until")).isFalse();
         assertThat(columnExists("trip_seat_inventory", "fare")).isFalse();
@@ -131,7 +129,6 @@ class FlywayPostgresIntegrationTest {
         });
 
         assertThat(tableExists("trip_seat_allocations")).isTrue();
-        assertThat(tableExists("bookings")).isFalse();
 
         Integer btreeGist = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
@@ -170,7 +167,6 @@ class FlywayPostgresIntegrationTest {
         });
 
         assertThat(tableExists("seat_holds")).isTrue();
-        assertThat(tableExists("bookings")).isFalse();
 
         Integer holdFk = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
@@ -240,6 +236,42 @@ class FlywayPostgresIntegrationTest {
         assertThat(columnExists("refresh_tokens", "family_id")).isTrue();
         assertThat(columnExists("refresh_tokens", "replaced_by_id")).isTrue();
         assertThat(columnExists("refresh_tokens", "last_used_at")).isTrue();
+    }
+
+    @Test
+    void appliesBookingsMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '9'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("9");
+            assertThat(migration.get("description")).hasToString("bookings");
+            assertThat(migration.get("script")).hasToString("V9__bookings.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("bookings")).isTrue();
+        assertThat(tableExists("booking_items")).isTrue();
+        assertThat(tableExists("booking_passengers")).isTrue();
+
+        Integer userIdempotency = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND indexname = 'uq_bookings_user_idempotency'
+                """, Integer.class);
+        assertThat(userIdempotency).isEqualTo(1);
+
+        Integer holdUnique = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM pg_constraint
+                WHERE conname = 'uq_bookings_hold'
+                  AND contype = 'u'
+                """, Integer.class);
+        assertThat(holdUnique).isEqualTo(1);
     }
 
     private boolean tableExists(String tableName) {

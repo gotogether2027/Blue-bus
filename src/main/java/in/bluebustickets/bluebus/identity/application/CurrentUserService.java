@@ -33,7 +33,7 @@ public class CurrentUserService {
 
     @Transactional(readOnly = true)
     public CustomerIdentityResponse currentUser(Authentication authentication) {
-        UUID userId = requireUserId(authentication);
+        UUID userId = requireAuthenticatedUserId(authentication);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User was not found."));
         List<String> roles = userRoleRepository.findByUserIdWithRole(userId).stream()
@@ -50,7 +50,7 @@ public class CurrentUserService {
                 user.getStatus());
     }
 
-    private static UUID requireUserId(Authentication authentication) {
+    public UUID requireAuthenticatedUserId(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
             throw new ResourceNotFoundException("User was not found.");
         }

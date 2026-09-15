@@ -1,7 +1,5 @@
 /**
- * Inventory sale occupancy and booking module boundary.
- * Physical trip seat inventory is snapshotted in scheduling. Occupancy is
- * {@code TripSeatAllocation}; temporary multi-seat claims are {@code SeatHold} (scheduling).
- * Bookings and payments are not implemented yet.
+ * Booking module: purchase aggregate, passengers, and hold-to-book conversion.
+ * Seat holds and segment allocations remain owned by scheduling; payments remain deferred.
  */
 package in.bluebustickets.bluebus.booking;

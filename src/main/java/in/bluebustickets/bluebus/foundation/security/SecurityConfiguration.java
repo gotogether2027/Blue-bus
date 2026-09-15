@@ -54,7 +54,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
                         .requestMatchers("/api/v1/trips/*/seat-availability").permitAll()
-                        // Temporary public hold APIs until authenticated ownership ships.
+                        // Public hold APIs: optional JWT on create persists seat_holds.user_id for booking auth.
                         .requestMatchers(HttpMethod.POST, "/api/v1/trips/*/holds").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/holds/*").permitAll()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/holds/*").permitAll()

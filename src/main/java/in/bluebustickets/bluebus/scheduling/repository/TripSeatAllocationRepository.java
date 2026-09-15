@@ -6,7 +6,9 @@ import java.util.UUID;
 
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -21,6 +23,15 @@ public interface TripSeatAllocationRepository extends JpaRepository<TripSeatAllo
             Collection<TripSeatAllocationState> states);
 
     List<TripSeatAllocation> findByHoldIdOrderByCreatedAtAsc(UUID holdId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select a from TripSeatAllocation a
+            join fetch a.inventory
+            where a.holdId = :holdId
+            order by a.createdAt asc
+            """)
+    List<TripSeatAllocation> findByHoldIdForUpdate(@Param("holdId") UUID holdId);
 
     /**
      * Inventory IDs on the trip with an active occupancy overlapping {@code [origin, destination)}.

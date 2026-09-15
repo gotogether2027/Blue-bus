@@ -4,7 +4,7 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health`, customer registration + login + refresh/logout + `/auth/me`, admin master-data/trip APIs, public journey seat availability, and public temporary seat holds below. Booking/payment, email verification, profile editing, and authenticated hold ownership remain deferred.
+Implemented so far: `GET /api/v1/health`, customer registration + login + refresh/logout + `/auth/me`, admin master-data/trip APIs, public journey seat availability, public temporary seat holds (optional JWT ownership), and authenticated hold-to-booking (`/api/v1/bookings`). Payment provider integration, tickets, refunds, email verification, and profile editing remain deferred.
 
 ## Customer registration & identity — Phase 8.2
 
@@ -105,7 +105,49 @@ Configuration:
 
 Public without a token: health, **register**, login, **refresh**, **logout**, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes and refresh-token hashes are never returned.
 
-Deferred: password reset, email/phone verification, profile editing, authenticated seat-hold ownership, admin RBAC, operator-scoped authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup).
+Deferred: password reset, email/phone verification, profile editing, admin RBAC, operator-scoped authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup).
+
+## Customer bookings — Phase 9.1 foundation
+
+Authenticated hold-to-booking conversion. Does **not** process payments or issue tickets.
+
+| Method | Path | Auth | Success |
+|---|---|---|---|
+| `POST` | `/api/v1/bookings` | Bearer JWT | `201 Created` |
+| `GET` | `/api/v1/bookings/{bookingId}` | Bearer JWT (owner) | `200 OK` |
+| `GET` | `/api/v1/bookings` | Bearer JWT (owner list) | `200 OK` |
+
+Create request:
+
+```json
+{
+  "holdId": "...",
+  "originStopId": "...",
+  "destinationStopId": "...",
+  "idempotencyKey": "client-retry-key",
+  "passengers": [
+    { "seatInventoryId": "...", "fullName": "Ada Lovelace", "age": 36, "gender": "FEMALE" }
+  ]
+}
+```
+
+Required: `holdId`, matching OD stop IDs, non-blank `idempotencyKey`, one passenger per held seat (`seatInventoryId` unique). Optional passenger `age`/`gender`.
+
+**Transaction:** lock hold `FOR UPDATE` → validate owned + ACTIVE + unexpired → create `PENDING_PAYMENT` booking + passengers + items → mark allocations `HELD`→`BOOKED` → consume hold. All-or-nothing; GiST exclusion unchanged. Unique-constraint races abort that insert TX (rollback-only); the facade then reads the winner in a fresh transaction and returns the same booking — never continues the failed session.
+
+**Fare assumption:** `totalAmount = trips.base_fare × seatCount` (tax/fee/discount = 0) until `trip_fares` exists.
+
+**Allocation assumption:** seats become `BOOKED` at booking create so consumed holds are not left with expiring `HELD` rows. Booking status remains `PENDING_PAYMENT` until a future payment webhook sets `CONFIRMED`.
+
+**Idempotency:** unique partial index `(user_id, idempotency_key)`. Same key + same request fingerprint returns the existing booking (`201`). Same key + different fingerprint → `409`. Concurrent same-key/same-fingerprint resolves to one booking (hold `FOR UPDATE` serialization and/or unique constraint + fresh read). Unique `hold_id` prevents double-consume.
+
+**Hold ownership (booking):** `seat_holds.user_id` must equal the JWT booker. Anonymous holds (`user_id IS NULL`) → `409` (not bookable; UUID knowledge is not ownership). Another customer’s hold → `404`. Clients must create the hold with a Bearer JWT before `POST /bookings`.
+
+**Booking ownership:** JWT `sub` is the booking owner. Cross-customer get returns generic `404`. List returns only the caller’s bookings.
+
+**Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`.
+
+Deferred: payment init/webhooks, `CONFIRMED` transition, refunds, tickets, booking expiry reaper.
 
 ## Customer seat holds — Phase 7.6
 
@@ -152,7 +194,7 @@ Lifecycle: `ACTIVE` → `CONSUMED` (internal/future booking), `EXPIRED` (reaper 
 
 Concurrency: PostgreSQL V6 GiST exclusion on active overlapping allocations remains authoritative. Overlap conflicts map to `409`. Multi-seat create is one transaction — if any seat conflicts, the entire hold rolls back (no partial `HELD` rows, no orphan hold).
 
-Authentication (this phase): endpoints are temporarily public. `userId` is always `null` for anonymous holds; the hold UUID is a capability-style identifier. **Do not** accept client-supplied `userId`. Authenticated ownership/authorization must be added before production. V7 uniquely enforces `(user_id, idempotency_key)` only when `user_id` is non-null; anonymous idempotency is accepted/stored but **not** DB-enforced — do not treat replay as strongly guaranteed for anonymous callers.
+Authentication: create/get/cancel remain publicly reachable (no JWT required). When `Authorization: Bearer` is present on create, the server persists `seat_holds.user_id` from the JWT (`sub`) — clients must **not** send `userId`. Anonymous creates still store `user_id = null` and may be used for temporary seat locking, but **cannot** be converted to a booking. Get/cancel still use the hold UUID as a capability token (not ownership). V7 uniquely enforces `(user_id, idempotency_key)` only when `user_id` is non-null; anonymous idempotency is accepted/stored but **not** DB-enforced.
 
 Errors follow the existing `ApiError` envelope: `400` validation / bad segment / duplicate seats / blocked inventory / wrong-trip inventory; `404` unknown trip/stop/hold/inventory; `409` seat overlap or non-cancellable status.
 

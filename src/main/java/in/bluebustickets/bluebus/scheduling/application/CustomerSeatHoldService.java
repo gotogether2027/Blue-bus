@@ -21,7 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Customer seat-hold application facade.
- * Anonymous holds use {@code userId = null}; authenticated ownership is deferred.
+ * Anonymous holds keep {@code userId = null} and are not bookable.
+ * When created with a JWT, {@code userId} is persisted and booking is restricted to that owner.
  * <p>
  * Idempotency keys are accepted and stored, but V7 does not uniquely enforce
  * {@code (NULL user_id, idempotency_key)} — anonymous replay is not DB-guaranteed.
@@ -52,6 +53,11 @@ public class CustomerSeatHoldService {
 
     @Transactional
     public SeatHoldResponse create(UUID tripId, CreateSeatHoldRequest request) {
+        return create(tripId, request, null);
+    }
+
+    @Transactional
+    public SeatHoldResponse create(UUID tripId, CreateSeatHoldRequest request, UUID userId) {
         if (request == null) {
             throw new IllegalArgumentException("Hold request is required");
         }
@@ -69,14 +75,14 @@ public class CustomerSeatHoldService {
                 segment.destinationSequence(),
                 request.seatInventoryIds());
 
-        // Anonymous phase: userId is always null. Do not accept client-supplied identity.
+        // Ownership: JWT subject when present; otherwise anonymous (not bookable).
         SeatHoldResult result = seatHoldService.createHold(
                 tripId,
                 segment.originSequence(),
                 segment.destinationSequence(),
                 expiresAt,
                 request.seatInventoryIds(),
-                null,
+                userId,
                 request.idempotencyKey(),
                 fingerprint);
 
