@@ -1,0 +1,17 @@
+{
+  "name": "BLUE BUS backend",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "command": "cd /workspace && set -a && . ./.env && set +a && ./mvnw spring-boot:run"
+    }
+  ],
+  "ports": [
+    {
+      "name": "backend-http",
+      "port": 8080
+    }
+  ]
+}
