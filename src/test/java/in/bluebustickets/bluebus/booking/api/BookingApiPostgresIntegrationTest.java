@@ -13,8 +13,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import in.bluebustickets.bluebus.booking.application.BookingExpiryService;
+import in.bluebustickets.bluebus.booking.application.BookingLifecycleService;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
+import in.bluebustickets.bluebus.booking.repository.BookingCancellationRepository;
 import in.bluebustickets.bluebus.booking.repository.BookingRepository;
+import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
+import in.bluebustickets.bluebus.scheduling.application.JourneySeatAvailability;
+import in.bluebustickets.bluebus.scheduling.application.SeatAvailabilityService;
 import in.bluebustickets.bluebus.identity.domain.Role;
 import in.bluebustickets.bluebus.identity.domain.RoleCode;
 import in.bluebustickets.bluebus.identity.domain.User;
@@ -85,14 +91,19 @@ class BookingApiPostgresIntegrationTest {
     @Autowired private UserRoleRepository userRoleRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private BookingRepository bookingRepository;
+    @Autowired private BookingCancellationRepository cancellationRepository;
     @Autowired private SeatHoldRepository seatHoldRepository;
     @Autowired private TripSeatAllocationRepository allocationRepository;
+    @Autowired private BookingLifecycleService bookingLifecycleService;
+    @Autowired private BookingExpiryService bookingExpiryService;
+    @Autowired private SeatAvailabilityService seatAvailabilityService;
 
     private String customerAToken;
     private String customerBToken;
 
     @BeforeEach
     void seedCustomers() throws Exception {
+        cancellationRepository.deleteAll();
         bookingRepository.deleteAll();
         userRoleRepository.deleteAll();
         userRepository.deleteAll();
@@ -149,7 +160,13 @@ class BookingApiPostgresIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bookingId").value(bookingId.toString()))
-                .andExpect(jsonPath("$.status").value(BookingStatus.PENDING_PAYMENT.name()));
+                .andExpect(jsonPath("$.status").value(BookingStatus.PENDING_PAYMENT.name()))
+                .andExpect(jsonPath("$.trip.tripId").value(trip.tripId().toString()))
+                .andExpect(jsonPath("$.trip.origin.sequenceNumber").value(1))
+                .andExpect(jsonPath("$.trip.destination.sequenceNumber").value(3))
+                .andExpect(jsonPath("$.trip.origin.points[0].pointType").value("BOARDING"))
+                .andExpect(jsonPath("$.items[0].seatNumber").exists())
+                .andExpect(jsonPath("$.items[0].status").value("ACTIVE"));
     }
 
     @Test
@@ -270,6 +287,245 @@ class BookingApiPostgresIntegrationTest {
         JsonNode listed = objectMapper.readTree(listA.getResponse().getContentAsString());
         assertThat(listed).hasSize(1);
         assertThat(listed.get(0).get("bookingId").asText()).isEqualTo(bookingAId.toString());
+        assertThat(listed.get(0).get("trip").get("tripId").asText()).isEqualTo(trip.tripId().toString());
+        assertThat(listed.get(0).path("webhookPayload").isMissingNode()).isTrue();
+    }
+
+    @Test
+    @WithMockUser
+    void ownerCanCancelUnpaidBookingAndRepeatIsIdempotent() throws Exception {
+        TripFixture trip = createTrip("BOOK-CANCEL-01", "BOOK-CANCEL-RT-01");
+        UUID seat = trip.availableSeatIds().get(0);
+        JsonNode hold = createHold(trip, List.of(seat), customerAToken);
+        UUID bookingId = UUID.fromString(objectMapper.readTree(mockMvc.perform(post("/api/v1/bookings")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bookingBody(
+                                UUID.fromString(hold.get("holdId").asText()),
+                                trip.stopId(1),
+                                trip.stopId(3),
+                                "idem-cancel-1",
+                                List.of(passenger(seat, "Cancel User", 29)))))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString()).get("bookingId").asText());
+
+        assertThat(seatAvailabilityService.getSeatAvailability(trip.tripId(), 1, 3).stream()
+                .filter(result -> result.inventoryId().equals(seat))
+                .findFirst()
+                .orElseThrow()
+                .journeyAvailability()).isEqualTo(JourneySeatAvailability.UNAVAILABLE);
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"Changed plans"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bookingId").value(bookingId.toString()))
+                .andExpect(jsonPath("$.previousStatus").value("PENDING_PAYMENT"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.policyCode").value("UNPAID_CUSTOMER_CANCELLATION_V1"))
+                .andExpect(jsonPath("$.refundableAmount").value(0.00))
+                .andExpect(jsonPath("$.booking.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.booking.items[0].status").value("CANCELLED"));
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.booking.status").value("CANCELLED"));
+
+        assertThat(cancellationRepository.count()).isEqualTo(1);
+        assertThat(allocationRepository.findByHoldIdOrderByCreatedAtAsc(
+                        UUID.fromString(hold.get("holdId").asText())))
+                .allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+        assertThat(seatAvailabilityService.getSeatAvailability(trip.tripId(), 1, 3).stream()
+                .filter(result -> result.inventoryId().equals(seat))
+                .findFirst()
+                .orElseThrow()
+                .journeyAvailability()).isEqualTo(JourneySeatAvailability.AVAILABLE);
+        mockMvc.perform(get("/api/v1/bookings/{id}", bookingId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.passengers.length()").value(1));
+    }
+
+    @Test
+    @WithMockUser
+    void cancellationRejectsOtherCustomersAndUnsupportedStates() throws Exception {
+        TripFixture trip = createTrip("BOOK-CANCEL-02", "BOOK-CANCEL-RT-02");
+        UUID seatB = trip.availableSeatIds().get(1);
+        UUID seatC = trip.availableSeatIds().get(2);
+
+        UUID ownedByB = bookSeat(trip, seatB, customerBToken, "idem-cancel-other");
+        UUID confirmed = bookSeat(trip, seatC, customerAToken, "idem-cancel-confirmed");
+        bookingLifecycleService.confirmPendingPayment(confirmed);
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", ownedByB)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", confirmed)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+
+        TripFixture expiredTrip = createTrip("BOOK-CANCEL-03", "BOOK-CANCEL-RT-03");
+        UUID expired = bookSeat(
+                expiredTrip, expiredTrip.availableSeatIds().get(0), customerAToken, "idem-cancel-expired");
+        forcePaymentExpiresAt(expired, Instant.now().minusSeconds(30));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", expired)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+        assertThat(allocationRepository.findByHoldIdOrderByCreatedAtAsc(
+                        bookingRepository.findById(expired).orElseThrow().getHoldId()))
+                .allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+    }
+
+    @Test
+    @WithMockUser
+    void cancellationVersusExpiryRaceProducesOneValidFinalState() throws Exception {
+        TripFixture trip = createTrip("BOOK-CANCEL-RACE-01", "BOOK-CANCEL-RACE-RT-01");
+        UUID bookingId = bookSeat(trip, trip.availableSeatIds().get(0), customerAToken, "idem-cancel-expiry-race");
+        forcePaymentExpiresAt(bookingId, Instant.now().minusSeconds(20));
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger cancelStatus = new AtomicInteger();
+        AtomicReference<String> cancelError = new AtomicReference<>();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> cancelFuture = executor.submit(() -> {
+                ready.countDown();
+                start.await();
+                try {
+                    cancelStatus.set(mockMvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId)
+                                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content("{}"))
+                            .andReturn()
+                            .getResponse()
+                            .getStatus());
+                } catch (Exception exception) {
+                    cancelError.set(exception.getClass().getSimpleName());
+                }
+                return null;
+            });
+            Future<?> expireFuture = executor.submit(() -> {
+                ready.countDown();
+                start.await();
+                bookingExpiryService.expireDueBookings(Instant.now());
+                return null;
+            });
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            cancelFuture.get(20, TimeUnit.SECONDS);
+            expireFuture.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(cancelError.get()).isNull();
+        BookingStatus finalStatus = bookingRepository.findById(bookingId).orElseThrow().getStatus();
+        assertThat(finalStatus).isIn(BookingStatus.CANCELLED, BookingStatus.EXPIRED);
+        var allocations = allocationRepository.findByHoldIdOrderByCreatedAtAsc(
+                bookingRepository.findById(bookingId).orElseThrow().getHoldId());
+        if (finalStatus == BookingStatus.EXPIRED) {
+            assertThat(allocations).allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+            assertThat(cancelStatus.get()).isEqualTo(409);
+            assertThat(cancellationRepository.count()).isZero();
+        } else {
+            assertThat(allocations).allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+            assertThat(cancelStatus.get()).isEqualTo(200);
+            assertThat(cancellationRepository.count()).isEqualTo(1);
+        }
+        assertThat(seatAvailabilityService.getSeatAvailability(trip.tripId(), 1, 3).stream()
+                .filter(result -> result.inventoryId().equals(trip.availableSeatIds().get(0)))
+                .findFirst()
+                .orElseThrow()
+                .journeyAvailability()).isEqualTo(JourneySeatAvailability.AVAILABLE);
+    }
+
+    @Test
+    @WithMockUser
+    void cancellationVersusPaymentConfirmationRaceProducesOneValidFinalState() throws Exception {
+        TripFixture trip = createTrip("BOOK-CANCEL-RACE-02", "BOOK-CANCEL-RACE-RT-02");
+        UUID seat = trip.availableSeatIds().get(0);
+        UUID bookingId = bookSeat(trip, seat, customerAToken, "idem-cancel-confirm-race");
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger cancelStatus = new AtomicInteger();
+        AtomicReference<BookingStatus> confirmStatus = new AtomicReference<>();
+        AtomicReference<String> confirmError = new AtomicReference<>();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> cancelFuture = executor.submit(() -> {
+                ready.countDown();
+                start.await();
+                cancelStatus.set(mockMvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId)
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
+                        .andReturn()
+                        .getResponse()
+                        .getStatus());
+                return null;
+            });
+            Future<?> confirmFuture = executor.submit(() -> {
+                ready.countDown();
+                start.await();
+                try {
+                    confirmStatus.set(bookingLifecycleService.confirmPendingPayment(bookingId));
+                } catch (ApplicationConflictException exception) {
+                    confirmError.set(exception.getClass().getSimpleName());
+                }
+                return null;
+            });
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            cancelFuture.get(20, TimeUnit.SECONDS);
+            confirmFuture.get(20, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        BookingStatus finalStatus = bookingRepository.findById(bookingId).orElseThrow().getStatus();
+        assertThat(finalStatus).isIn(BookingStatus.CANCELLED, BookingStatus.CONFIRMED);
+        var allocations = allocationRepository.findByHoldIdOrderByCreatedAtAsc(
+                bookingRepository.findById(bookingId).orElseThrow().getHoldId());
+        if (finalStatus == BookingStatus.CONFIRMED) {
+            assertThat(allocations).allMatch(a -> a.getState() == TripSeatAllocationState.BOOKED);
+            assertThat(confirmStatus.get()).isEqualTo(BookingStatus.CONFIRMED);
+            assertThat(cancelStatus.get()).isEqualTo(409);
+            assertThat(cancellationRepository.count()).isZero();
+            assertThat(seatAvailabilityService.getSeatAvailability(trip.tripId(), 1, 3).stream()
+                    .filter(result -> result.inventoryId().equals(seat))
+                    .findFirst()
+                    .orElseThrow()
+                    .journeyAvailability()).isEqualTo(JourneySeatAvailability.UNAVAILABLE);
+        } else {
+            assertThat(allocations).allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+            assertThat(cancelStatus.get()).isEqualTo(200);
+            assertThat(confirmError.get()).isEqualTo(ApplicationConflictException.class.getSimpleName());
+            assertThat(cancellationRepository.count()).isEqualTo(1);
+            assertThat(seatAvailabilityService.getSeatAvailability(trip.tripId(), 1, 3).stream()
+                    .filter(result -> result.inventoryId().equals(seat))
+                    .findFirst()
+                    .orElseThrow()
+                    .journeyAvailability()).isEqualTo(JourneySeatAvailability.AVAILABLE);
+        }
     }
 
     @Test
@@ -483,6 +739,38 @@ class BookingApiPostgresIntegrationTest {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/v1/bookings").with(anonymous()))
                 .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/bookings/{id}", UUID.randomUUID()).with(anonymous()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", UUID.randomUUID())
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private UUID bookSeat(TripFixture trip, UUID seat, String bearerToken, String idempotencyKey) throws Exception {
+        JsonNode hold = createHold(trip, List.of(seat), bearerToken);
+        JsonNode booking = objectMapper.readTree(mockMvc.perform(post("/api/v1/bookings")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + bearerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bookingBody(
+                                UUID.fromString(hold.get("holdId").asText()),
+                                trip.stopId(1),
+                                trip.stopId(3),
+                                idempotencyKey,
+                                List.of(passenger(seat, "Passenger", 30)))))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+        return UUID.fromString(booking.get("bookingId").asText());
+    }
+
+    private void forcePaymentExpiresAt(UUID bookingId, Instant expiresAt) {
+        jdbcTemplate.update(
+                "UPDATE bookings SET payment_expires_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(expiresAt),
+                bookingId);
     }
 
     private void seedCustomer(String email, String phone, Role customerRole) {

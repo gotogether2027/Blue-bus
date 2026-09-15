@@ -20,7 +20,7 @@ The V4 whole-trip `trip_seats` sale-state model was replaced by V5. Do not reint
 
 Implement search, trip seat-map projection, segment-aware database-safe holds, bookings/passengers, expiry jobs, and customer booking views. Use trip-specific boarding/drop-point snapshots. Load-test simultaneous overlapping and non-overlapping seat selections before connecting real payments.
 
-**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, hold-to-book, unpaid-booking expiry, and V11 payment foundation: provider-neutral adapter contract, protected initiation/idempotency, verified-event inbox, payment/booking confirmation coordination, late-payment reconciliation disposition, refund schema foundation, and transactional outbox. **Still outstanding:** selecting/integrating a production provider, provider-specific webhook rules/secrets, refund execution, outbox publishing/RabbitMQ, and ticket issuance.
+**Implemented:** segment inventory/allocations, seat holds + reaper, journey availability, auth/refresh, hold-to-book, unpaid-booking expiry, V11 payment foundation, and V12 customer booking views, unpaid cancellation, and origin/destination/date search. **Still outstanding:** selecting/integrating a production provider, confirmed-booking cancellation/refund policy, provider-specific webhook rules/secrets, refund execution, outbox publishing/RabbitMQ, and ticket issuance.
 
 ## Phase 4 — payments and transactional communication
 

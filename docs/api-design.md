@@ -103,19 +103,20 @@ Configuration:
 - `blue-bus.security.refresh.ttl-seconds` / `REFRESH_TOKEN_TTL_SECONDS` (default `1209600` / 14 days)
 - `blue-bus.security.refresh.concurrent-reuse-grace-seconds` / `REFRESH_TOKEN_CONCURRENT_REUSE_GRACE_SECONDS` (default `5`; max `30`)
 
-Public without a token: health, **register**, login, **refresh**, **logout**, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes and refresh-token hashes are never returned.
+Public without a token: health, **register**, login, **refresh**, **logout**, **trip search**, seat-availability, and temporary seat-hold create/get/cancel. `GET /api/v1/auth/me` and all other APIs (including admin) require `Authorization: Bearer <accessToken>`. Invalid login (unknown user, wrong password, disabled/`SUSPENDED`/`INACTIVE`, missing hash) returns a generic `401` with message `Invalid credentials.` — no existence leak. Password hashes and refresh-token hashes are never returned.
 
 Deferred: password reset, email/phone verification, profile editing, admin RBAC, operator-scoped authorization, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup).
 
-## Customer bookings — Phase 9.1 foundation + unpaid expiry
+## Customer bookings — Phase 9.1 foundation + unpaid expiry + V12 views/cancellation
 
-Authenticated hold-to-booking conversion. Does **not** process payments or issue tickets. Unpaid `PENDING_PAYMENT` bookings expire automatically after the persisted payment deadline.
+Authenticated hold-to-booking conversion, owner views, and unpaid customer cancellation. Does **not** process production payments, invent a confirmed-booking refund policy, or issue tickets. Unpaid `PENDING_PAYMENT` bookings expire automatically after the persisted payment deadline.
 
 | Method | Path | Auth | Success |
 |---|---|---|---|
 | `POST` | `/api/v1/bookings` | Bearer JWT | `201 Created` |
-| `GET` | `/api/v1/bookings/{bookingId}` | Bearer JWT (owner) | `200 OK` |
 | `GET` | `/api/v1/bookings` | Bearer JWT (owner list) | `200 OK` |
+| `GET` | `/api/v1/bookings/{bookingId}` | Bearer JWT (owner) | `200 OK` |
+| `POST` | `/api/v1/bookings/{bookingId}/cancel` | Bearer JWT (owner) | `200 OK` |
 
 Create request:
 
@@ -147,9 +148,27 @@ Required: `holdId`, matching OD stop IDs, non-blank `idempotencyKey`, one passen
 
 **Hold ownership (booking):** `seat_holds.user_id` must equal the JWT booker. Anonymous holds (`user_id IS NULL`) → `409` (not bookable; UUID knowledge is not ownership). Another customer’s hold → `404`. Clients must create the hold with a Bearer JWT before `POST /bookings`.
 
-**Booking ownership:** JWT `sub` is the booking owner. Cross-customer get returns generic `404`. List returns only the caller’s bookings. An owner may retrieve an `EXPIRED` booking (`200`, `status=EXPIRED`).
+**Booking ownership:** JWT `sub` is the booking owner. Clients never supply a user ID. Cross-customer get/cancel returns generic `404`. List returns only the caller’s bookings. An owner may retrieve an `EXPIRED` or `CANCELLED` booking (`200` with historical passengers/items). Responses include trip origin/destination snapshots, boarding/drop points, amounts, payment deadline, booking status, and item status. They never include payment secrets, webhook payloads, or internal resolution reasons.
 
-**Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`.
+**Unpaid customer cancellation (V12):** `POST /api/v1/bookings/{bookingId}/cancel` is supported only for `PENDING_PAYMENT`. The transaction locks the booking `FOR UPDATE` first, then the matching allocations, marks booking/items `CANCELLED`, transitions `BOOKED` allocations to `CANCELLED`, writes an immutable `booking_cancellations` row (`UNPAID_CUSTOMER_CANCELLATION_V1`, refundable amount `0`), and writes `BOOKING_CANCELLED` to the outbox. Historical booking/item/allocation rows are kept. Repeat cancel of an already-cancelled booking with a cancellation record is idempotent (`200`). Confirmed cancellation/refund policy is not defined yet — `CONFIRMED` and other unsupported states return `409` rather than inventing a refund. Concurrent expiry uses `SKIP LOCKED`; confirmation/cancellation wait on the booking lock. Exactly one of cancel, expiry, or confirmation wins; cancellation never recreates inventory.
+
+**Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`; unsupported cancellation state (including `CONFIRMED`) → `409`.
+
+## Customer trip search — V12
+
+Public read-only search. Does not mutate inventory or calculate whole-trip occupancy.
+
+| Method | Path | Auth | Success |
+|---|---|---|---|
+| `GET` | `/api/v1/search/trips` | Public | `200 OK` |
+
+Query parameters (all required):
+
+- `originLocationId` — `locations.id`
+- `destinationLocationId` — `locations.id` (must differ from origin)
+- `serviceDate` — ISO date of `trips.service_date`
+
+Only `SCHEDULED` / `ON_SALE` trips are returned, and only when the origin trip-stop sequence is strictly less than the destination trip-stop sequence. The response includes operator/bus/route identity, base fare, trip-specific boarding points at origin, drop points at destination, and `availableSeatCount` from the existing segment-overlap availability projection (active `HELD`/`BOOKED`/`BLOCKED` allocations on `[origin,destination)`). Adjacent non-overlapping segments remain independently countable. Same origin and destination → `400`. Unknown location → `404`. Empty result is `200 []`.
 
 ## Customer payment foundation — V11
 

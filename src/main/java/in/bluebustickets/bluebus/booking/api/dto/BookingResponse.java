@@ -26,5 +26,6 @@ public record BookingResponse(
         Instant createdAt,
         Instant paymentExpiresAt,
         List<BookingItemResponse> items,
-        List<BookingPassengerResponse> passengers) {
+        List<BookingPassengerResponse> passengers,
+        BookingTripResponse trip) {
 }

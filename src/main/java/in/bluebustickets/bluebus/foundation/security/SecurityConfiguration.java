@@ -53,6 +53,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/refresh").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/search/trips").permitAll()
                         .requestMatchers("/api/v1/trips/*/seat-availability").permitAll()
                         // Public hold APIs: optional JWT on create persists seat_holds.user_id for booking auth.
                         .requestMatchers(HttpMethod.POST, "/api/v1/trips/*/holds").permitAll()

@@ -26,4 +26,11 @@ public interface TripStopRepository extends JpaRepository<TripStop, UUID> {
     List<TripStop> findByTripIdAndIdIn(
             @Param("tripId") UUID tripId,
             @Param("stopIds") Collection<UUID> stopIds);
+
+    @Query("""
+            select distinct ts from TripStop ts
+            join fetch ts.location
+            where ts.id in :ids
+            """)
+    List<TripStop> findWithLocationByIdIn(@Param("ids") Collection<UUID> ids);
 }

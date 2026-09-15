@@ -4,8 +4,11 @@ import java.util.List;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.api.dto.BookingResponse;
+import in.bluebustickets.bluebus.booking.api.dto.BookingCancellationResponse;
+import in.bluebustickets.bluebus.booking.api.dto.CancelBookingRequest;
 import in.bluebustickets.bluebus.booking.api.dto.CreateBookingRequest;
 import in.bluebustickets.bluebus.booking.application.BookingApplicationService;
+import in.bluebustickets.bluebus.booking.application.BookingCancellationService;
 import in.bluebustickets.bluebus.identity.application.CurrentUserService;
 import jakarta.validation.Valid;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,12 +31,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class BookingController {
 
     private final BookingApplicationService bookingApplicationService;
+    private final BookingCancellationService bookingCancellationService;
     private final CurrentUserService currentUserService;
 
     public BookingController(
             BookingApplicationService bookingApplicationService,
+            BookingCancellationService bookingCancellationService,
             CurrentUserService currentUserService) {
         this.bookingApplicationService = bookingApplicationService;
+        this.bookingCancellationService = bookingCancellationService;
         this.currentUserService = currentUserService;
     }
 
@@ -57,5 +63,14 @@ public class BookingController {
     public List<BookingResponse> list(Authentication authentication) {
         UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
         return bookingApplicationService.listOwnedBookings(userId);
+    }
+
+    @PostMapping("/{bookingId}/cancel")
+    public BookingCancellationResponse cancel(
+            Authentication authentication,
+            @PathVariable UUID bookingId,
+            @Valid @RequestBody(required = false) CancelBookingRequest request) {
+        UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
+        return bookingCancellationService.cancelOwned(userId, bookingId, request);
     }
 }

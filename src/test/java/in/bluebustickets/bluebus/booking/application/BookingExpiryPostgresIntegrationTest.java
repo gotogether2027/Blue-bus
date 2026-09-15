@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import in.bluebustickets.bluebus.booking.domain.Booking;
 import in.bluebustickets.bluebus.booking.domain.BookingItemStatus;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
+import in.bluebustickets.bluebus.booking.repository.BookingCancellationRepository;
 import in.bluebustickets.bluebus.booking.repository.BookingRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEventRepository;
@@ -108,6 +109,7 @@ class BookingExpiryPostgresIntegrationTest {
     @Autowired private UserRoleRepository userRoleRepository;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private BookingRepository bookingRepository;
+    @Autowired private BookingCancellationRepository cancellationRepository;
     @Autowired private TripSeatAllocationRepository allocationRepository;
     @Autowired private BookingExpiryService bookingExpiryService;
     @Autowired private BookingExpiryProperties expiryProperties;
@@ -128,6 +130,7 @@ class BookingExpiryPostgresIntegrationTest {
         paymentProviderEventRepository.deleteAll();
         paymentAttemptRepository.deleteAll();
         outboxEventRepository.deleteAll();
+        cancellationRepository.deleteAll();
         bookingRepository.deleteAll();
         userRoleRepository.deleteAll();
         userRepository.deleteAll();

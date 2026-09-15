@@ -77,6 +77,22 @@ public class SeatAvailabilityService {
                 .toList();
     }
 
+    /**
+     * Count projection for search candidates whose trip stops were already validated by the
+     * origin/destination search query. Uses the same active-overlap range semantics as the seat map.
+     */
+    @Transactional(readOnly = true)
+    public long countAvailableSeatsForKnownSegment(
+            UUID tripId,
+            int originSequence,
+            int destinationSequence) {
+        if (tripId == null || originSequence < 1 || destinationSequence <= originSequence) {
+            throw new IllegalArgumentException("Search destination must be greater than origin");
+        }
+        return tripSeatInventoryRepository.countAvailableForSegment(
+                tripId, originSequence, destinationSequence);
+    }
+
     private static SeatAvailabilityResult toResult(TripSeatInventory seat, boolean hasActiveOverlap) {
         JourneySeatAvailability journey = (seat.getPhysicalStatus() == TripSeatInventoryStatus.AVAILABLE
                 && !hasActiveOverlap)

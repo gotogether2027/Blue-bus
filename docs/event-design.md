@@ -2,7 +2,7 @@
 
 ## Event delivery approach
 
-V11 persists business events in `outbox_events` in the same transaction as payment/booking changes. Publishing is intentionally not implemented yet. When a broker is added, publish only after the owning transaction commits; consumers remain idempotent because at-least-once delivery can duplicate messages.
+V11 persists business events in `outbox_events` in the same transaction as payment/booking changes. V12 also writes `BOOKING_CANCELLED` in the unpaid-cancellation transaction. Publishing is intentionally not implemented yet. When a broker is added, publish only after the owning transaction commits; consumers remain idempotent because at-least-once delivery can duplicate messages.
 
 An event should include `event_id`, `event_type`, `occurred_at`, `aggregate_type`, `aggregate_id`, `schema_version`, correlation/causation IDs, and minimal non-sensitive payload. Do not send full passenger PII by default.
 

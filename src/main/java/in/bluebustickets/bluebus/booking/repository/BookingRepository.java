@@ -38,6 +38,17 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
             left join fetch b.passengers
             left join fetch b.items i
             left join fetch i.passenger
+            where b.id = :id and b.userId = :userId
+            """)
+    Optional<Booking> findDetailedByIdAndUserId(
+            @Param("id") UUID id,
+            @Param("userId") UUID userId);
+
+    @Query("""
+            select distinct b from Booking b
+            left join fetch b.passengers
+            left join fetch b.items i
+            left join fetch i.passenger
             where b.userId = :userId
             order by b.createdAt desc
             """)

@@ -71,7 +71,7 @@ Spring Boot modular monolith
 
 **What:** `trip_seat_inventory` represents the physical seat on a trip; a separate allocation/reservation row (booking phase) records each held or booked origin/destination stop-sequence range for that seat as `int4range(origin_sequence, destination_sequence, '[)')`. Example: Hyderabad(1) → Vijayawada(3) is `[1,3)`; Vijayawada(3) → Guntur(4) is `[3,4)`; those ranges do not overlap. Hyderabad→Vijayawada `[1,3)` and Suryapet→Guntur `[2,4)` do overlap and must be rejected.
 
-**Implementation status:** trip stops, trip points, route points, physical inventory, segment allocations, seat holds, bookings, and unpaid-booking expiry are in the schema. V11 adds provider-neutral payment attempts, a verified-provider-event inbox, refund persistence foundation, and a transactional outbox. No production provider, refund execution, or message broker is integrated.
+**Implementation status:** trip stops, trip points, route points, physical inventory, segment allocations, seat holds, bookings, unpaid-booking expiry, customer booking views, unpaid cancellation, and origin/destination search are in the schema. V11 adds provider-neutral payment attempts, a verified-provider-event inbox, refund persistence foundation, and a transactional outbox. No production provider, confirmed-booking refund policy, refund execution, or message broker is integrated.
 
 ### Outbox pattern for events
 
@@ -102,7 +102,7 @@ Likely later services: Identity, Fleet, Scheduling, Booking/Inventory, Payments,
 ### Missing decisions or fields to settle
 
 - Fare policy needs a formal owner and snapshot: base fare, GST/tax treatment, platform/operator commission, convenience fee, insurance/add-ons, and rounding.
-- Cancellation/refund policy needs eligibility windows, fee calculation, partial cancellation, operator/trip cancellation, and a policy snapshot stored with each decision.
+- Cancellation/refund policy for **confirmed** bookings still needs eligibility windows, fee calculation, partial cancellation, operator/trip cancellation, and a policy snapshot stored with each decision. Unpaid `PENDING_PAYMENT` customer cancellation is implemented (V12) and records `UNPAID_CUSTOMER_CANCELLATION_V1` with refundable amount `0`.
 - Define whether a booking can cover only one origin/destination pair (recommended MVP) and whether multi-seat passengers always share that segment.
 - Decide required passenger fields by regulation and operator policy; avoid collecting government ID, gender, and date of birth unless justified.
 - Plan service calendars, trip exceptions, bus substitution, crew/driver, boarding manifests, delays, vehicle compliance, KYC, support/disputes, invoices/GST, and chargebacks as later domains.

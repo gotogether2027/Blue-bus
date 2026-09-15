@@ -15,9 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-import in.bluebustickets.bluebus.booking.api.dto.BookingItemResponse;
 import in.bluebustickets.bluebus.booking.api.dto.BookingPassengerRequest;
-import in.bluebustickets.bluebus.booking.api.dto.BookingPassengerResponse;
 import in.bluebustickets.bluebus.booking.api.dto.BookingResponse;
 import in.bluebustickets.bluebus.booking.api.dto.CreateBookingRequest;
 import in.bluebustickets.bluebus.booking.domain.Booking;
@@ -61,14 +59,17 @@ public class BookingApplicationService {
 
     private final BookingRepository bookingRepository;
     private final BookingCreateWorker createWorker;
+    private final BookingViewMapper bookingViewMapper;
     private final Clock clock;
 
     public BookingApplicationService(
             BookingRepository bookingRepository,
             BookingCreateWorker createWorker,
+            BookingViewMapper bookingViewMapper,
             Clock clock) {
         this.bookingRepository = bookingRepository;
         this.createWorker = createWorker;
+        this.bookingViewMapper = bookingViewMapper;
         this.clock = clock;
     }
 
@@ -102,18 +103,14 @@ public class BookingApplicationService {
 
     @Transactional(readOnly = true)
     public BookingResponse getOwnedBooking(UUID userId, UUID bookingId) {
-        Booking booking = bookingRepository.findDetailedById(bookingId).orElse(null);
-        if (booking == null || !booking.getUserId().equals(userId)) {
-            throw new ResourceNotFoundException("Booking was not found.");
-        }
-        return toResponse(booking);
+        return bookingViewMapper.toResponse(bookingRepository.findDetailedByIdAndUserId(bookingId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking was not found.")));
     }
 
     @Transactional(readOnly = true)
     public List<BookingResponse> listOwnedBookings(UUID userId) {
-        return bookingRepository.findDetailedByUserIdOrderByCreatedAtDesc(userId).stream()
-                .map(BookingApplicationService::toResponse)
-                .toList();
+        return bookingViewMapper.toResponses(
+                bookingRepository.findDetailedByUserIdOrderByCreatedAtDesc(userId));
     }
 
     private BookingResponse findIdempotent(UUID userId, String idempotencyKey, String fingerprint) {
@@ -123,7 +120,7 @@ public class BookingApplicationService {
                         throw new ApplicationConflictException(
                                 "Idempotency key was reused with a different booking request.");
                     }
-                    return toResponse(requireDetailed(existing.getId()));
+                    return bookingViewMapper.toResponse(requireDetailed(existing.getId()));
                 })
                 .orElse(null);
     }
@@ -146,18 +143,21 @@ public class BookingApplicationService {
         private final TripSeatAllocationRepository tripSeatAllocationRepository;
         private final TripStopRepository tripStopRepository;
         private final BookingUnpaidProperties unpaidProperties;
+        private final BookingViewMapper bookingViewMapper;
 
         BookingCreateWorker(
                 BookingRepository bookingRepository,
                 SeatHoldRepository seatHoldRepository,
                 TripSeatAllocationRepository tripSeatAllocationRepository,
                 TripStopRepository tripStopRepository,
-                BookingUnpaidProperties unpaidProperties) {
+                BookingUnpaidProperties unpaidProperties,
+                BookingViewMapper bookingViewMapper) {
             this.bookingRepository = bookingRepository;
             this.seatHoldRepository = seatHoldRepository;
             this.tripSeatAllocationRepository = tripSeatAllocationRepository;
             this.tripStopRepository = tripStopRepository;
             this.unpaidProperties = unpaidProperties;
+            this.bookingViewMapper = bookingViewMapper;
         }
 
         @Transactional
@@ -175,7 +175,7 @@ public class BookingApplicationService {
                     throw new ApplicationConflictException(
                             "Idempotency key was reused with a different booking request.");
                 }
-                return toResponse(requireDetailed(existing.getId()));
+                return bookingViewMapper.toResponse(requireDetailed(existing.getId()));
             }
 
             SeatHold hold = seatHoldRepository.findByIdForUpdate(request.holdId())
@@ -196,7 +196,7 @@ public class BookingApplicationService {
                         && byHold.getUserId().equals(userId)
                         && Objects.equals(byHold.getIdempotencyKey(), idempotencyKey)
                         && Objects.equals(byHold.getRequestFingerprint(), fingerprint)) {
-                    return toResponse(requireDetailed(byHold.getId()));
+                    return bookingViewMapper.toResponse(requireDetailed(byHold.getId()));
                 }
                 throw new ApplicationConflictException("Seat hold has already been consumed.");
             }
@@ -330,7 +330,7 @@ public class BookingApplicationService {
             hold.consume();
             seatHoldRepository.saveAndFlush(hold);
 
-            return toResponse(booking);
+            return bookingViewMapper.toResponse(booking);
         }
 
         private Booking requireDetailed(UUID bookingId) {
@@ -400,46 +400,4 @@ public class BookingApplicationService {
         }
     }
 
-    private static BookingResponse toResponse(Booking booking) {
-        List<BookingItemResponse> items = booking.getItems().stream()
-                .map(item -> new BookingItemResponse(
-                        item.getId(),
-                        item.getInventoryId(),
-                        item.getPassenger() == null ? null : item.getPassenger().getId(),
-                        item.getSeatNumber(),
-                        item.getSeatType(),
-                        item.getOriginSequence(),
-                        item.getDestinationSequence(),
-                        item.getBaseAmount(),
-                        item.getTotalAmount(),
-                        item.getStatus()))
-                .toList();
-        List<BookingPassengerResponse> passengers = booking.getPassengers().stream()
-                .map(passenger -> new BookingPassengerResponse(
-                        passenger.getId(),
-                        passenger.getFullName(),
-                        passenger.getAge(),
-                        passenger.getGender()))
-                .toList();
-        return new BookingResponse(
-                booking.getId(),
-                booking.getBookingReference(),
-                booking.getTripId(),
-                booking.getHoldId(),
-                booking.getStatus(),
-                booking.getOriginSequence(),
-                booking.getDestinationSequence(),
-                booking.getOriginTripStopId(),
-                booking.getDestinationTripStopId(),
-                booking.getCurrency(),
-                booking.getBaseAmount(),
-                booking.getTaxAmount(),
-                booking.getFeeAmount(),
-                booking.getDiscountAmount(),
-                booking.getTotalAmount(),
-                booking.getCreatedAt(),
-                booking.getPaymentExpiresAt(),
-                items,
-                passengers);
-    }
 }

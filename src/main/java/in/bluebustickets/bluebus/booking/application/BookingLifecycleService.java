@@ -4,15 +4,10 @@ import java.util.List;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.domain.Booking;
-import in.bluebustickets.bluebus.booking.domain.BookingItem;
-import in.bluebustickets.bluebus.booking.domain.BookingItemStatus;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
 import in.bluebustickets.bluebus.booking.repository.BookingRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
-import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation;
-import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
-import in.bluebustickets.bluebus.scheduling.repository.TripSeatAllocationRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -21,11 +16,12 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Lock-safe unpaid booking confirm/cancel hooks for the later payment phase and concurrency tests.
+ * Lock-safe unpaid booking confirm/cancel hooks for payment races and concurrency tests.
  * Always locks the booking row {@code FOR UPDATE} (wait) before inspecting status, so a concurrent
  * expiry worker either wins completely or skips; never a partial release.
  * <p>
- * Not an HTTP API. Payment provider confirmation remains deferred.
+ * Customer HTTP cancellation uses {@link BookingCancellationService}. This cancel hook delegates
+ * to that same unpaid-cancellation transaction.
  */
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
@@ -35,13 +31,13 @@ public class BookingLifecycleService {
     private EntityManager entityManager;
 
     private final BookingRepository bookingRepository;
-    private final TripSeatAllocationRepository tripSeatAllocationRepository;
+    private final BookingCancellationService bookingCancellationService;
 
     public BookingLifecycleService(
             BookingRepository bookingRepository,
-            TripSeatAllocationRepository tripSeatAllocationRepository) {
+            BookingCancellationService bookingCancellationService) {
         this.bookingRepository = bookingRepository;
-        this.tripSeatAllocationRepository = tripSeatAllocationRepository;
+        this.bookingCancellationService = bookingCancellationService;
     }
 
     /**
@@ -69,48 +65,11 @@ public class BookingLifecycleService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public BookingStatus cancelUnpaidBooking(UUID bookingId) {
-        Booking booking = lockBookingForUpdate(bookingId);
-        if (booking.getStatus() == BookingStatus.CANCELLED) {
-            return BookingStatus.CANCELLED;
-        }
-        if (booking.getStatus() != BookingStatus.PENDING_PAYMENT) {
-            throw new ApplicationConflictException(
-                    "Booking cannot be cancelled from status " + booking.getStatus() + ".");
-        }
-
-        Booking detailed = bookingRepository.findDetailedById(booking.getId())
+        Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
-        List<UUID> itemIds = detailed.getItems().stream().map(BookingItem::getId).toList();
-        List<TripSeatAllocation> allocations = itemIds.isEmpty()
-                ? List.of()
-                : tripSeatAllocationRepository.findByBookingItemIdInForUpdate(itemIds);
-
-        if (allocations.size() != itemIds.size()) {
-            throw new IllegalStateException(
-                    "Refusing to cancel booking " + bookingId
-                            + " because allocation count does not match item count");
-        }
-        for (TripSeatAllocation allocation : allocations) {
-            if (allocation.getState() != TripSeatAllocationState.BOOKED) {
-                throw new IllegalStateException(
-                        "Refusing to cancel booking " + bookingId
-                                + " because allocation " + allocation.getId()
-                                + " has unexpected state " + allocation.getState());
-            }
-        }
-
-        detailed.markCancelled();
-        for (BookingItem item : detailed.getItems()) {
-            if (item.getStatus() == BookingItemStatus.ACTIVE) {
-                item.markCancelled();
-            }
-        }
-        for (TripSeatAllocation allocation : allocations) {
-            allocation.cancel();
-        }
-        entityManager.flush();
-        tripSeatAllocationRepository.saveAllAndFlush(allocations);
-        return detailed.getStatus();
+        return bookingCancellationService.cancelOwned(booking.getUserId(), bookingId, null)
+                .booking()
+                .status();
     }
 
     @SuppressWarnings("unchecked")

@@ -86,6 +86,10 @@ class SeatAvailabilityPostgresIntegrationTest {
         assertThat(byId.get(blocked).physicalStatus()).isEqualTo(TripSeatInventoryStatus.BLOCKED);
         assertThat(byId.get(blocked).journeyAvailability()).isEqualTo(JourneySeatAvailability.UNAVAILABLE);
         assertThat(results).extracting(SeatAvailabilityResult::seatNumber).isSorted();
+        assertThat(availabilityService.countAvailableSeatsForKnownSegment(trip.tripId(), 1, 3))
+                .isEqualTo(1);
+        assertThat(availabilityService.countAvailableSeatsForKnownSegment(trip.tripId(), 3, 4))
+                .isEqualTo(1);
     }
 
     @Test

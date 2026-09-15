@@ -27,6 +27,7 @@ SeatHold 1---* TripSeatAllocation (HELD)
 SeatHold 1---0..1 Booking (consumed hold)
 Booking 1---* BookingItem *---0..1 BookingPassenger
 Booking 1---* BookingPassenger
+Booking 1---0..1 BookingCancellation
 Booking 1---* PaymentAttempt; PaymentAttempt 1---* ProviderEvent; PaymentAttempt 1---* Refund
 Operator 1---* Operator user *---1 User
 ```
@@ -35,7 +36,7 @@ Customer-facing journey availability for a requested OD segment is a **read-only
 
 Customer-facing UI vocabulary `AVAILABLE` / `HELD` / `BOOKED` / `BLOCKED` for a requested journey remains **derived** from physical inventory plus overlapping active allocations. It is not stored as a whole-trip flag on `TripSeatInventory`. Physical inventory status is only `AVAILABLE` or `BLOCKED`.
 
-V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Phase 7.4 adds an explicit hold expiry reaper: due `ACTIVE` holds (`expires_at <= now`) become `EXPIRED` and their `HELD` allocations become `EXPIRED` in one DB transaction per hold (`FOR UPDATE SKIP LOCKED`). Availability does **not** invent implicit expiry from timestamps — only the committed state change stops blocking. **V9 / Phase 9.1** implements bookings + passengers + hold-to-book: an authenticated customer converts an ACTIVE **owned** hold (`seat_holds.user_id` = booker) into a `PENDING_PAYMENT` booking with persisted `payment_expires_at`; allocations become `BOOKED` and the hold becomes `CONSUMED` in one transaction. Anonymous holds remain creatable but are not bookable. **V10 / unpaid expiry** expires due `PENDING_PAYMENT` bookings (`payment_expires_at <= now`) to `EXPIRED`, marks items `EXPIRED`, and releases matching allocations `BOOKED` → `RELEASED` (historical rows retained). Availability unblocks only after that committed release — timestamps are not implicit. Payment confirmation to `CONFIRMED`, refunds, and tickets remain deferred.
+V4 `trip_seats` (whole-trip `HELD`/`BOOKED`, `locked_until`, `booking_id`) was replaced in V5. V6 implements the `TripSeatAllocation` foundation (segment ranges + active-state GiST exclusion). V7 implements `SeatHold` as the temporary multi-seat aggregate owning HELD allocations. Phase 7.4 adds an explicit hold expiry reaper: due `ACTIVE` holds (`expires_at <= now`) become `EXPIRED` and their `HELD` allocations become `EXPIRED` in one DB transaction per hold (`FOR UPDATE SKIP LOCKED`). Availability does **not** invent implicit expiry from timestamps — only the committed state change stops blocking. **V9 / Phase 9.1** implements bookings + passengers + hold-to-book: an authenticated customer converts an ACTIVE **owned** hold (`seat_holds.user_id` = booker) into a `PENDING_PAYMENT` booking with persisted `payment_expires_at`; allocations become `BOOKED` and the hold becomes `CONSUMED` in one transaction. Anonymous holds remain creatable but are not bookable. **V10 / unpaid expiry** expires due `PENDING_PAYMENT` bookings (`payment_expires_at <= now`) to `EXPIRED`, marks items `EXPIRED`, and releases matching allocations `BOOKED` → `RELEASED` (historical rows retained). Availability unblocks only after that committed release — timestamps are not implicit. **V12** adds customer booking views (JWT-subject ownership; cross-customer `404`), unpaid customer cancellation (`PENDING_PAYMENT` → `CANCELLED`, allocations `BOOKED` → `CANCELLED`, immutable `booking_cancellations`), and public OD search using trip-stop sequences plus the existing segment-overlap availability count. Confirmed cancellation/refund policy, production payments, and tickets remain deferred.
 
 `trips.base_fare` is a temporary draft/default. Future origin–destination prices belong on `trip_fares`.
 
@@ -48,7 +49,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 3. Checkout atomically creates HELD allocations for requested seats and the requested origin/destination sequence range. Active allocations for overlapping ranges cannot coexist for the same inventory seat.
 4. A pending booking is created from held seats; payment attempts reference that booking.
 5. Only a verified, idempotently processed payment success can change the booking to CONFIRMED. Allocations are already BOOKED at hold-to-book; unpaid expiry releases them (`BOOKED` → `RELEASED`) if payment never arrives. A late payment after unpaid expiry must not recreate an allocation automatically.
-6. Expiry, failed payment, cancellation, or refund changes allocations according to the cancellation/refund policy. No state may be inferred only from a browser session. Unpaid booking expiry uses the persisted `payment_expires_at` and PostgreSQL row locks (`FOR UPDATE SKIP LOCKED` per booking).
+6. Expiry, failed payment, cancellation, or refund changes allocations according to the cancellation/refund policy. No state may be inferred only from a browser session. Unpaid booking expiry uses the persisted `payment_expires_at` and PostgreSQL row locks (`FOR UPDATE SKIP LOCKED` per booking). Unpaid customer cancellation locks the booking first, then allocations, and is refused with a conflict when the booking is already `CONFIRMED` because confirmed refund policy is not yet defined.
 
 ## Recommended state machines
 
@@ -58,6 +59,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 | Trip inventory seat | AVAILABLE, BLOCKED (physical-seat status; availability is calculated from allocations) |
 | Seat allocation | HELD, BOOKED, RELEASED, CANCELLED, EXPIRED, BLOCKED |
 | Booking | INITIATED, PENDING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED, REFUND_PENDING, REFUNDED |
+| BookingCancellation (V12) | COMPLETED (unpaid customer cancellation only) |
 | PaymentAttempt (V11) | INITIATING, PENDING, SUCCEEDED, FAILED, CANCELLED, EXPIRED |
 | Payment disposition (V11) | UNAPPLIED, APPLIED_TO_BOOKING, REQUIRES_RESOLUTION |
 | Refund | REQUESTED, INITIATED, SUCCEEDED, FAILED, REJECTED |
@@ -77,7 +79,7 @@ The platform is not separate-database multi-tenant initially. Operator-owned dat
 
 - Fare rules, taxes, insurance/add-ons, dynamic pricing, and formal commission policies.
 - Service calendars, trip exceptions, driver/crew, vehicle compliance, live tracking, and manifests.
-- Cancellation policy snapshots, customer support cases, disputes/chargebacks, and GST invoices.
+- Cancellation policy snapshots for **confirmed** bookings, customer support cases, disputes/chargebacks, and GST invoices.
 - Media/documents and operator KYC.
 
 These are not required to start the MVP, but fare/cancellation-policy snapshots and financial adjustments should be designed before real money is accepted.

@@ -344,6 +344,41 @@ class FlywayPostgresIntegrationTest {
         assertThat(indexExists("ix_outbox_events_unpublished")).isTrue();
     }
 
+    @Test
+    void appliesCustomerBookingViewsAndCancellationMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '12'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("12");
+            assertThat(migration.get("description")).hasToString("customer booking views and cancellation");
+            assertThat(migration.get("script")).hasToString("V12__customer_booking_views_and_cancellation.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("booking_cancellations")).isTrue();
+        assertThat(indexExists("uq_booking_cancellations_booking")).isTrue();
+        assertThat(indexExists("ix_booking_cancellations_user_created")).isTrue();
+        assertThat(indexExists("ix_trip_stops_location_trip_sequence")).isTrue();
+
+        String previousStatusCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_booking_cancellations_previous_status'
+                """, String.class);
+        assertThat(previousStatusCheck).contains("PENDING_PAYMENT");
+
+        String refundCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_booking_cancellations_refundable_amount'
+                """, String.class);
+        assertThat(refundCheck).contains("0");
+    }
+
     private boolean tableExists(String tableName) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
