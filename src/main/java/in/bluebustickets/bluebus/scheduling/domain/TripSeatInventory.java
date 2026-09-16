@@ -129,4 +129,33 @@ public class TripSeatInventory extends AuditableEntity {
     public int getColumnNumber() { return columnNumber; }
     public TripSeatInventoryStatus getPhysicalStatus() { return physicalStatus; }
     public String getBlockReason() { return blockReason; }
+
+    /**
+     * Globally blocks this physical trip seat for new holds/allocations.
+     * Idempotent when already {@link TripSeatInventoryStatus#BLOCKED}: preserves the existing reason.
+     * Does not create, cancel, or release segment allocations.
+     */
+    public void block(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("Blocked inventory requires a block reason");
+        }
+        if (this.physicalStatus == TripSeatInventoryStatus.BLOCKED) {
+            return;
+        }
+        this.physicalStatus = TripSeatInventoryStatus.BLOCKED;
+        this.blockReason = reason.trim();
+    }
+
+    /**
+     * Restores physical availability for future segment allocations.
+     * Idempotent when already {@link TripSeatInventoryStatus#AVAILABLE}.
+     * Does not alter existing holds or bookings.
+     */
+    public void unblock() {
+        if (this.physicalStatus == TripSeatInventoryStatus.AVAILABLE) {
+            return;
+        }
+        this.physicalStatus = TripSeatInventoryStatus.AVAILABLE;
+        this.blockReason = null;
+    }
 }

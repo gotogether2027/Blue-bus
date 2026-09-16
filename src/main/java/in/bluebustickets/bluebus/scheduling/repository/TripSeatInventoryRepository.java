@@ -1,6 +1,7 @@
 package in.bluebustickets.bluebus.scheduling.repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatInventory;
@@ -13,6 +14,8 @@ public interface TripSeatInventoryRepository extends JpaRepository<TripSeatInven
     List<TripSeatInventory> findByTrip_IdOrderByDeckNumberAscRowNumberAscColumnNumberAsc(UUID tripId);
 
     List<TripSeatInventory> findByTrip_IdOrderBySeatNumberAsc(UUID tripId);
+
+    Optional<TripSeatInventory> findByIdAndTrip_Id(UUID id, UUID tripId);
 
     long countByTrip_Id(UUID tripId);
 
