@@ -12,4 +12,6 @@ public interface SeatRepository extends JpaRepository<Seat, UUID> {
     List<Seat> findBySeatLayoutIdOrderByDeckNumberAscRowNumberAscColumnNumberAsc(UUID seatLayoutId);
 
     List<Seat> findBySeatLayoutIdInOrderByDeckNumberAscRowNumberAscColumnNumberAsc(Collection<UUID> seatLayoutIds);
+
+    long countBySeatLayoutId(UUID seatLayoutId);
 }

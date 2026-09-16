@@ -59,17 +59,28 @@ public class SeatLayout extends AuditableEntity {
         this.columnCount = columnCount;
     }
 
+    public void updateDraftMetadata(String name, int deckCount, int rowCount, int columnCount) {
+        if (status != SeatLayoutStatus.DRAFT) {
+            throw new IllegalArgumentException("Only DRAFT seat layouts can be updated");
+        }
+        applyMetadata(name, deckCount, rowCount, columnCount);
+    }
+
     public void updateMetadata(String name, int deckCount, int rowCount, int columnCount) {
         if (status == SeatLayoutStatus.ARCHIVED) {
             throw new IllegalArgumentException("Archived seat layouts cannot be updated");
         }
+        applyMetadata(name, deckCount, rowCount, columnCount);
+    }
+
+    private void applyMetadata(String name, int deckCount, int rowCount, int columnCount) {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("Seat layout name is required");
         }
         if (deckCount < 1 || rowCount < 1 || columnCount < 1) {
             throw new IllegalArgumentException("Seat layout dimensions must be positive");
         }
-        this.name = name;
+        this.name = name.trim();
         this.deckCount = deckCount;
         this.rowCount = rowCount;
         this.columnCount = columnCount;
