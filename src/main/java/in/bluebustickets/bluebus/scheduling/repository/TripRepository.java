@@ -18,6 +18,20 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
     boolean existsByBus_IdAndServiceDateAndScheduledDepartureAt(
             UUID busId, LocalDate serviceDate, Instant scheduledDepartureAt);
 
+    @Query("""
+            select case when count(t) > 0 then true else false end
+            from Trip t
+            where t.bus.id = :busId
+              and t.status <> :cancelled
+              and t.scheduledDepartureAt < :arrival
+              and t.scheduledArrivalAt > :departure
+            """)
+    boolean existsOverlappingNonCancelledByBus(
+            @Param("busId") UUID busId,
+            @Param("departure") Instant departure,
+            @Param("arrival") Instant arrival,
+            @Param("cancelled") TripStatus cancelled);
+
     boolean existsByBus_Id(UUID busId);
 
     boolean existsByRoute_Id(UUID routeId);

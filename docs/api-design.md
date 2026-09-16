@@ -485,6 +485,10 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 | `POST` | `/api/v1/operator/{operatorId}/buses/{busId}/maintenance` | `OPERATOR_ADMIN` | `200` → `MAINTENANCE` (idempotent). Does not cancel/alter trips. |
 | `GET` | `/api/v1/operator/{operatorId}/trips` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` trips where `trips.operator_id = path operatorId`. Optional `serviceDate`/`status` filters. |
 | `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` loaded by `(tripId, operatorId)` |
+| `POST` | `/api/v1/operator/{operatorId}/trips` | `OPERATOR_ADMIN` | `201` create `DRAFT` trip + route/seat snapshots. Body: `busId`, `routeId`, schedule instants, `baseFare`, booking window, optional `timeZone`. Path `operatorId` only. Layout from bus current layout (not client-selected). Bus+route must be same-operator `ACTIVE`. Exact `(bus, serviceDate, departure)` unique (`409`). Same-bus interval overlap among non-`CANCELLED` trips (`409`). Route needs ≥2 stops. |
+| `PATCH` | `/api/v1/operator/{operatorId}/trips/{tripId}` | `OPERATOR_ADMIN` | `200` allow-list commercial terms: `baseFare`, `bookingOpensAt`, `bookingClosesAt` (presence-aware). Allowed while `DRAFT`/`SCHEDULED` only. Empty/unknown/immutable fields → `400`. |
+| `POST` | `/api/v1/operator/{operatorId}/trips/{tripId}/schedule` | `OPERATOR_ADMIN` | `200` `DRAFT`→`SCHEDULED` (idempotent if already `SCHEDULED`) |
+| `POST` | `/api/v1/operator/{operatorId}/trips/{tripId}/cancel` | `OPERATOR_ADMIN` | `200` → `CANCELLED` (idempotent). Status-only: does not cancel bookings, refunds, tickets, holds, inventory, or write outbox. Refused from `DEPARTED`/`COMPLETED`. |
 | `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}/bookings` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` trip-scoped manifest |
 | `GET` | `/api/v1/operator/{operatorId}/trips/{tripId}/bookings/{bookingId}` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` one booking |
 | `GET` | `/api/v1/operator/{operatorId}/members` | `OPERATOR_ADMIN`, `OPERATOR_STAFF` | `200` ordered membership list (`userId`, `email`, `firstName`, `lastName`, `role`, `status`). No password/refresh/secret fields. |
@@ -510,6 +514,8 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 
 **Route administration (Phase 9.5B):** Dedicated `OperatorRouteAdminService` (does not call `RouteAdminService`). Existing-route mutations: early `requireMember(OPERATOR_ADMIN)` → load/lock `routes` by `(id, operatorId)` `FOR UPDATE` → revalidate ACTIVE `OPERATOR_ADMIN` + operator `ACTIVE` → if structural, refuse when **any** trip references the route (`existsByRoute_Id`) → mutate. Create uses app ignore-case `(operatorId, code)` check plus DB unique index `ux_routes_operator_code_lower` on `(operator_id, lower(code))` (V16; case-sensitive `uq_routes_operator_code` dropped). Only violations of that index map to `"Route code already exists for this operator."` (`409`). Name-only PATCH and route/point activate/deactivate remain safe after trips; source/destination, stop mutations, and point detail mutations are structural (`409`). Master route edits never rewrite `trip_stops` / `trip_points`. No route DELETE, no status PATCH, no `ROUTE_*` outbox events.
 
+**Trip administration (Phase 9.5C):** Dedicated `OperatorTripAdminService` (does not call `TripAdminService`). Create: early `requireMember(OPERATOR_ADMIN)` → lock `buses` then `routes` by `(id, operatorId)` `FOR UPDATE` → revalidate ACTIVE admin + operator → require bus/route ACTIVE → create `DRAFT` with layout from `bus.getSeatLayout()` → exact uniqueness `(bus, serviceDate, departure)` plus same-bus interval overlap check among non-`CANCELLED` trips under the bus lock (`newDeparture < existingArrival AND newArrival > existingDeparture`; adjacent endpoints allowed) → snapshot stops/points/inventory. Existing-trip mutations: trip row `FOR UPDATE` by `(id, operatorId)` → revalidate → commercial PATCH / `schedule()` / `cancel()`. No `ON_SALE`/`CLOSED`/`DEPARTED`/`COMPLETED` transitions. Cancel is status-only (no booking/refund/ticket/outbox side effects). No trip events. No migration for overlap (application check under bus lock).
+
 **Resource ownership:** buses, trips, and routes are loaded with both resource id and path `operatorId`. A resource that exists for another operator returns generic `404`. Nested stop/point paths are scoped `operatorId → routeId → stopId → pointId` (point activate/deactivate use `operatorId → routeId → pointId`). Membership rows are loaded by `(operatorId, userId)` under the path operator; a user who is only a member of another operator returns generic `404` (no existence leak).
 
 **Booking dual-check:** `bookings.operator_id` has no FK to `operators`. After authorizing membership and loading the trip by `(tripId, operatorId)`, a booking is visible only when `booking.operator_id == path operatorId` **and** `booking.trip_id` is that trip (whose `operator_id` also equals the path). Disagreement → `404` and no payload. Passengers/items are never authorized apart from the parent booking.
@@ -522,20 +528,20 @@ Membership is one row in `operator_users` per `(operator_id, user_id)` with a si
 |---|---|
 | `401` | missing/invalid/expired JWT, or `SUSPENDED`/`INACTIVE` user |
 | `404` | unknown operator, no membership, inactive membership, cross-operator resource, booking not on the requested trip/operator, target platform user not found on create, cross-operator seat layout, missing bus/type/route/stop/point/location, IDOR |
-| `403` | ACTIVE member with insufficient role (for example STAFF on PATCH/members/bus/route mutate), stale demoted caller after post-lock revalidation, or ACTIVE member whose operator is not `ACTIVE` |
-| `400` | validation / unknown PATCH fields / malformed input / empty membership, bus, or route PATCH / invalid operator membership role / source == destination |
-| `409` | duplicate membership create, last ACTIVE `OPERATOR_ADMIN` protection, bus registration conflict (case-insensitive), seat-layout change while any trip exists, inactive bus type / non-PUBLISHED layout assignment, route code conflict (case-insensitive per operator), stop sequence conflict, structural route/stop/point mutation while any trip exists |
+| `403` | ACTIVE member with insufficient role (for example STAFF on PATCH/members/bus/route/trip mutate), stale demoted caller after post-lock revalidation, or ACTIVE member whose operator is not `ACTIVE` |
+| `400` | validation / unknown PATCH fields / malformed input / empty membership, bus, route, or trip PATCH / invalid operator membership role / source == destination / invalid trip schedule or commercial terms / invalid lifecycle transition |
+| `409` | duplicate membership create, last ACTIVE `OPERATOR_ADMIN` protection, bus registration conflict (case-insensitive), seat-layout change while any trip exists, inactive bus type / non-PUBLISHED layout assignment, route code conflict (case-insensitive per operator), stop sequence conflict, structural route/stop/point mutation while any trip exists, trip exact departure duplicate, same-bus overlapping trip |
 
 Do not leak membership existence, another operator's existence, or another user's ownership. A customer without membership receives the same generic `404` as an unknown operator UUID.
 
 **Role matrix:**
 
-| Caller | `/api/v1/admin/**` | Own ACTIVE operator | Other operator | PATCH support contact | Members list | Members mutate | Bus mutate | Route mutate |
-|---|---|---|---|---|---|---|---|---|
-| `ADMIN` / `SUPER_ADMIN` | allowed (9.2A) | not auto-authorized (`404` unless they also have an ACTIVE membership) | `404` | n/a | n/a | n/a | n/a | n/a |
-| `CUSTOMER` (no membership) | `403` | `404` | `404` | `404` | `404` | `404` | `404` | `404` |
-| `OPERATOR_ADMIN` | `403` | allowed | `404` | allowed | allowed | allowed | allowed | allowed |
-| `OPERATOR_STAFF` | `403` | reads allowed | `404` | `403` | allowed | `403` | `403` | `403` |
+| Caller | `/api/v1/admin/**` | Own ACTIVE operator | Other operator | PATCH support contact | Members list | Members mutate | Bus mutate | Route mutate | Trip mutate |
+|---|---|---|---|---|---|---|---|---|---|
+| `ADMIN` / `SUPER_ADMIN` | allowed (9.2A) | not auto-authorized (`404` unless they also have an ACTIVE membership) | `404` | n/a | n/a | n/a | n/a | n/a | n/a |
+| `CUSTOMER` (no membership) | `403` | `404` | `404` | `404` | `404` | `404` | `404` | `404` | `404` |
+| `OPERATOR_ADMIN` | `403` | allowed | `404` | allowed | allowed | allowed | allowed | allowed | allowed |
+| `OPERATOR_STAFF` | `403` | reads allowed | `404` | `403` | allowed | `403` | `403` | `403` | `403` |
 
 A user may hold ACTIVE memberships in multiple operators; each path `operatorId` is authorized independently.
 
@@ -546,7 +552,7 @@ A user may hold ACTIVE memberships in multiple operators; each path `operatorId`
 | `/api/v1/auth` | register, login, refresh, logout, `GET /operator-memberships` | public/authenticated as applicable |
 | `/api/v1/users` | current profile, customer profile | authenticated owner/admin |
 | `/api/v1/admin/users`, `/roles`, `/permissions` | user/role administration | authorized admin |
-| `/api/v1/operator/{operatorId}` | operator profile, fleet/trip/route reads, bus/route writes, trip booking manifest, membership administration | ACTIVE `operator_users` membership; path `operatorId` is the tenant |
+| `/api/v1/operator/{operatorId}` | operator profile, fleet/trip/route reads, bus/route/trip writes, trip booking manifest, membership administration | ACTIVE `operator_users` membership; path `operatorId` is the tenant |
 | `/api/v1/bus-types`, `/buses`, `/seat-layouts` | fleet master data | scoped operator/admin |
 | `/api/v1/locations`, `/routes`, `/trips` | search network; manage routes/schedules | public read / scoped write |
 | `/api/v1/search` | origin, destination, service date, passenger count search | public |

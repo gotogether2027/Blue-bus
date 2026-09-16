@@ -6,7 +6,7 @@
 - **Bus:** physical vehicle belonging to one operator.
 - **Seat layout:** reusable template describing physical seats; a layout version must not be silently changed after trips use it.
 - **Route:** reusable ordered network path (`ACTIVE`/`INACTIVE`). A route may have multiple boarding/drop points at its stops. Create starts `ACTIVE`. Deactivate/activate are idempotent and do not cancel trips or rewrite trip snapshots. After **any** trip references the route, structural master edits (source/destination, stops, point details) are refused; name-only and point activate/deactivate remain allowed.
-- **Trip:** one scheduled journey of one bus on one route, with an operating/service date.
+- **Trip:** one scheduled journey of one bus on one route, with an operating/service date. Operator administration (Phase 9.5C) creates trips as `DRAFT`, schedules to `SCHEDULED`, and cancels to `CANCELLED` (status-only; no booking/refund/ticket cascade). Commercial terms may change while `DRAFT`/`SCHEDULED`. Bus/route/layout/schedule are immutable after create. Snapshots (`trip_stops`, `trip_points`, `trip_seat_inventory`) are written at create and never rewritten by master edits. `ON_SALE`/`CLOSED`/`DEPARTED`/`COMPLETED` transitions are not implemented yet.
 - **Trip inventory:** the physical-seat snapshot for one trip. It is independent from the bus's permanent seat definition.
 - **Seat allocation:** a held or booked seat for one origin-to-destination sequence range. It prevents overlap, while allowing the same physical seat to be sold for a later non-overlapping segment.
 - **Hold:** short temporary claim over one or more seat allocations during checkout.
