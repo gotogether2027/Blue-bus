@@ -235,6 +235,10 @@ public class VerifiedPaymentEventProcessor {
         if (succeeded) {
             if (locked.getStatus() == RefundStatus.SUCCEEDED) {
                 event.complete("DUPLICATE_REFUND", now);
+                BookingStatus finalStatus = bookingPaymentPort.markRefunded(attempt.getBookingId());
+                return new PaymentProcessingResult(
+                        attempt.getId(), attempt.getStatus(), attempt.getDisposition(),
+                        finalStatus, false, event.getProcessingResult());
             } else {
                 String providerRefundId = locked.getProviderRefundId() != null
                         ? locked.getProviderRefundId()
@@ -243,11 +247,19 @@ public class VerifiedPaymentEventProcessor {
                     providerRefundId = event.getProviderEventId();
                 }
                 locked.markSucceeded(providerRefundId, event.getProviderStatus(), now);
+                BookingStatus finalStatus = bookingPaymentPort.markRefunded(attempt.getBookingId());
                 event.complete("REFUND_SUCCEEDED", now);
                 writeOutbox("REFUND_SUCCEEDED", attempt, event, now);
+                return new PaymentProcessingResult(
+                        attempt.getId(), attempt.getStatus(), attempt.getDisposition(),
+                        finalStatus, false, event.getProcessingResult());
             }
         } else if (locked.getStatus() == RefundStatus.SUCCEEDED) {
             event.ignore("REFUND_ALREADY_SUCCEEDED", now);
+            BookingStatus finalStatus = bookingPaymentPort.markRefunded(attempt.getBookingId());
+            return new PaymentProcessingResult(
+                    attempt.getId(), attempt.getStatus(), attempt.getDisposition(),
+                    finalStatus, false, event.getProcessingResult());
         } else {
             locked.markFailed(event.getProviderStatus(), event.getFailureCode(), now);
             event.complete("REFUND_FAILED", now);
@@ -267,7 +279,7 @@ public class VerifiedPaymentEventProcessor {
         }
         var open = refundRepository.findByPaymentAttemptIdAndStatusIn(
                 attempt.getId(),
-                List.of(RefundStatus.REQUESTED, RefundStatus.PROCESSING));
+                List.of(RefundStatus.REQUESTED, RefundStatus.PROCESSING, RefundStatus.FAILED));
         if (open.size() == 1) {
             return open.get(0);
         }

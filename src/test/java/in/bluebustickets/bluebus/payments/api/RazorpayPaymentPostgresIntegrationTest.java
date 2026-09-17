@@ -23,6 +23,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import in.bluebustickets.bluebus.booking.api.dto.CancelBookingRequest;
+import in.bluebustickets.bluebus.booking.application.BookingCancellationService;
 import in.bluebustickets.bluebus.booking.application.BookingExpiryService;
 import in.bluebustickets.bluebus.booking.application.BookingLifecycleService;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
@@ -37,14 +39,22 @@ import in.bluebustickets.bluebus.identity.domain.UserRole;
 import in.bluebustickets.bluebus.identity.repository.RoleRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
+import in.bluebustickets.bluebus.payments.application.RefundRetryProcessor;
+import in.bluebustickets.bluebus.payments.application.RefundRetryProperties;
+import in.bluebustickets.bluebus.payments.application.RefundRetryService;
 import in.bluebustickets.bluebus.payments.domain.PaymentDisposition;
 import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
+import in.bluebustickets.bluebus.payments.domain.Refund;
 import in.bluebustickets.bluebus.payments.domain.RefundStatus;
 import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
 import in.bluebustickets.bluebus.payments.repository.PaymentProviderEventRepository;
 import in.bluebustickets.bluebus.payments.repository.RefundRepository;
+import in.bluebustickets.bluebus.scheduling.application.JourneySeatAvailability;
+import in.bluebustickets.bluebus.scheduling.application.SeatAvailabilityService;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
 import in.bluebustickets.bluebus.scheduling.repository.TripSeatAllocationRepository;
+import in.bluebustickets.bluebus.ticket.domain.TicketStatus;
+import in.bluebustickets.bluebus.ticket.repository.TicketRepository;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,6 +71,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -129,8 +141,15 @@ class RazorpayPaymentPostgresIntegrationTest {
     @Autowired private PaymentProviderEventRepository paymentProviderEventRepository;
     @Autowired private RefundRepository refundRepository;
     @Autowired private OutboxEventRepository outboxEventRepository;
+    @Autowired private TicketRepository ticketRepository;
+    @Autowired private SeatAvailabilityService seatAvailabilityService;
     @Autowired private BookingExpiryService bookingExpiryService;
     @Autowired private BookingLifecycleService bookingLifecycleService;
+    @Autowired private BookingCancellationService bookingCancellationService;
+    @Autowired private RefundRetryService refundRetryService;
+    @Autowired private RefundRetryProcessor refundRetryProcessor;
+    @Autowired private RefundRetryProperties refundRetryProperties;
+    @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private TestAccessTokenFactory testAccessTokenFactory;
 
     private String customerToken;
@@ -139,6 +158,8 @@ class RazorpayPaymentPostgresIntegrationTest {
     @BeforeEach
     void seed() throws Exception {
         GATEWAY.reset();
+        refundRetryProperties.setAfterCommitEnabled(true);
+        ticketRepository.deleteAll();
         refundRepository.deleteAll();
         paymentProviderEventRepository.deleteAll();
         paymentAttemptRepository.deleteAll();
@@ -614,52 +635,453 @@ class RazorpayPaymentPostgresIntegrationTest {
     }
 
     @Test
-    void refundsAreIdempotentAndSurviveProviderTimeout() throws Exception {
+    void refundsRequireConfirmedCancellationAndRemainIdempotent() throws Exception {
         JsonNode attempt = initiate(createPendingBooking(), "refund-pay");
         sendWebhook(capturedBody(attempt, "evt_refund_pay", "pay_refund", epochNow()), "evt_refund_pay")
                 .andExpect(status().isOk());
         UUID attemptId = UUID.fromString(attempt.get("paymentAttemptId").asText());
+        UUID bookingId = UUID.fromString(attempt.get("bookingId").asText());
         BigDecimal captured = paymentAttemptRepository.findById(attemptId).orElseThrow().getCapturedAmount();
-
-        JsonNode first = read(mockMvc.perform(post("/api/v1/payments/{id}/refunds", attemptId)
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
-                        .header("Idempotency-Key", "refund-1")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"amount\":1.00,\"reason\":\"TEST_REFUND\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
-                .andReturn());
-        assertThat(GATEWAY.lastRefundAmountPaise()).isEqualTo(captured.movePointRight(2).longValueExact());
 
         mockMvc.perform(post("/api/v1/payments/{id}/refunds", attemptId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
-                        .header("Idempotency-Key", "refund-1"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.refundId").value(first.get("refundId").asText()));
+                        .header("Idempotency-Key", "orphan-refund")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":1.00,\"reason\":\"TEST_REFUND\"}"))
+                .andExpect(status().isConflict());
+
+        JsonNode cancel = read(mockMvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Changed plans\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.previousStatus").value("CONFIRMED"))
+                .andExpect(jsonPath("$.policyCode").value("CONFIRMED_FULL_REFUND_CUSTOMER_CANCELLATION_V1"))
+                .andExpect(jsonPath("$.refundableAmount").value(captured.doubleValue()))
+                .andReturn());
+        assertThat(GATEWAY.lastRefundAmountPaise()).isEqualTo(captured.movePointRight(2).longValueExact());
         assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
 
-        String refundBody = refundProcessedBody(attempt, first.get("providerRefundId").asText(), "pay_refund");
-        sendWebhook(refundBody, "evt_refund_dup").andExpect(status().isOk());
-        assertThat(refundRepository.findById(UUID.fromString(first.get("refundId").asText()))
-                .orElseThrow()
-                .getStatus()).isEqualTo(RefundStatus.SUCCEEDED);
+        String cancelKey = "booking-cancel-" + cancel.get("cancellationId").asText();
+        mockMvc.perform(post("/api/v1/payments/{id}/refunds", attemptId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .header("Idempotency-Key", cancelKey))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"));
+        assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
 
-        JsonNode timeoutAttempt = initiate(createPendingBooking(), "refund-timeout-pay");
+        String refundBody = refundProcessedBody(
+                attempt,
+                refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId).get(0).getProviderRefundId(),
+                "pay_refund");
+        sendWebhook(refundBody, "evt_refund_dup").andExpect(status().isOk());
+        assertThat(bookingRepository.findById(bookingId).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+
+        CreatedBooking timeoutBooking = createPendingBooking();
+        JsonNode timeoutAttempt = initiate(timeoutBooking, "refund-timeout-pay");
         sendWebhook(capturedBody(timeoutAttempt, "evt_to_pay", "pay_to", epochNow()), "evt_to_pay")
                 .andExpect(status().isOk());
         UUID timeoutAttemptId = UUID.fromString(timeoutAttempt.get("paymentAttemptId").asText());
         GATEWAY.delayRefunds = true;
-        mockMvc.perform(post("/api/v1/payments/{id}/refunds", timeoutAttemptId)
+        JsonNode timeoutCancel = read(mockMvc.perform(post("/api/v1/bookings/{id}/cancel", timeoutBooking.bookingId())
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
-                        .header("Idempotency-Key", "refund-timeout"))
-                .andExpect(status().isServiceUnavailable());
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.booking.status").value("REFUND_PENDING"))
+                .andReturn());
         GATEWAY.delayRefunds = false;
+        String timeoutKey = "booking-cancel-" + timeoutCancel.get("cancellationId").asText();
         mockMvc.perform(post("/api/v1/payments/{id}/refunds", timeoutAttemptId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
-                        .header("Idempotency-Key", "refund-timeout"))
+                        .header("Idempotency-Key", timeoutKey))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.providerRefundId").isNotEmpty());
         assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(2);
+    }
+
+    @Test
+    void confirmedCancellationReleasesInventoryCancelsTicketAndRejectsAfterDeparture() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        JsonNode attempt = initiate(booking, "cancel-happy");
+        sendWebhook(capturedBody(attempt, "evt_cancel_happy", "pay_cancel_happy", epochNow()), "evt_cancel_happy")
+                .andExpect(status().isOk());
+
+        JsonNode ticket = read(mockMvc.perform(post("/api/v1/bookings/{id}/tickets", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andReturn());
+        UUID seat = booking.seatIds().get(0);
+        assertThat(seatAvailabilityService.getSeatAvailability(booking.tripId(), 1, 3).stream()
+                .filter(result -> result.inventoryId().equals(seat))
+                .findFirst()
+                .orElseThrow()
+                .journeyAvailability()).isEqualTo(JourneySeatAvailability.UNAVAILABLE);
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createOtherCustomer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"Plans changed\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.booking.status").value("REFUND_PENDING"))
+                .andExpect(jsonPath("$.booking.items[0].status").value("CANCELLED"));
+
+        assertThat(allocationRepository.findByHoldIdOrderByCreatedAtAsc(booking.holdId()))
+                .allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+        assertThat(ticketRepository.findById(UUID.fromString(ticket.get("ticketId").asText()))
+                .orElseThrow()
+                .getStatus()).isEqualTo(TicketStatus.CANCELLED);
+        assertThat(seatAvailabilityService.getSeatAvailability(booking.tripId(), 1, 3).stream()
+                .filter(result -> result.inventoryId().equals(seat))
+                .findFirst()
+                .orElseThrow()
+                .journeyAvailability()).isEqualTo(JourneySeatAvailability.AVAILABLE);
+        assertThat(cancellationRepository.count()).isEqualTo(1);
+        assertThat(refundRepository.count()).isEqualTo(1);
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        assertThat(cancellationRepository.count()).isEqualTo(1);
+        assertThat(refundRepository.count()).isEqualTo(1);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isIn(BookingStatus.REFUND_PENDING, BookingStatus.REFUNDED);
+
+        // Existing cancelled ticket may be returned idempotently; it must not become ACTIVE again.
+        mockMvc.perform(post("/api/v1/bookings/{id}/tickets", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        CreatedBooking noTicket = createPendingBooking();
+        JsonNode noTicketAttempt = initiate(noTicket, "cancel-no-ticket");
+        sendWebhook(capturedBody(noTicketAttempt, "evt_no_ticket", "pay_no_ticket", epochNow()), "evt_no_ticket")
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", noTicket.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.booking.status").value("REFUND_PENDING"));
+        assertThat(ticketRepository.findByBookingId(noTicket.bookingId())).isEmpty();
+        mockMvc.perform(post("/api/v1/bookings/{id}/tickets", noTicket.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isConflict());
+
+        CreatedBooking departedBooking = createPendingBooking();
+        JsonNode departedAttempt = initiate(departedBooking, "cancel-departed");
+        sendWebhook(capturedBody(departedAttempt, "evt_departed", "pay_departed", epochNow()), "evt_departed")
+                .andExpect(status().isOk());
+        jdbcTemplate.update("UPDATE trips SET status = 'DEPARTED' WHERE id = ?", departedBooking.tripId());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", departedBooking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+
+        CreatedBooking completedBooking = createPendingBooking();
+        JsonNode completedAttempt = initiate(completedBooking, "cancel-completed");
+        sendWebhook(capturedBody(completedAttempt, "evt_completed", "pay_completed", epochNow()), "evt_completed")
+                .andExpect(status().isOk());
+        jdbcTemplate.update("UPDATE trips SET status = 'COMPLETED' WHERE id = ?", completedBooking.tripId());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", completedBooking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+
+        CreatedBooking pastDeparture = createPendingBooking();
+        JsonNode pastAttempt = initiate(pastDeparture, "cancel-past");
+        sendWebhook(capturedBody(pastAttempt, "evt_past", "pay_past", epochNow()), "evt_past")
+                .andExpect(status().isOk());
+        Instant past = Instant.now().minusSeconds(60);
+        jdbcTemplate.update(
+                """
+                        UPDATE trips
+                        SET scheduled_departure_at = ?,
+                            scheduled_arrival_at = ?,
+                            booking_opens_at = ?,
+                            booking_closes_at = ?,
+                            service_date = ?
+                        WHERE id = ?
+                        """,
+                java.sql.Timestamp.from(past),
+                java.sql.Timestamp.from(past.plusSeconds(3600)),
+                java.sql.Timestamp.from(past.minusSeconds(7 * 24 * 3600)),
+                java.sql.Timestamp.from(past.minusSeconds(60)),
+                java.sql.Date.valueOf(past.atZone(java.time.ZoneOffset.UTC).toLocalDate()),
+                pastDeparture.tripId());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", pastDeparture.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void concurrentConfirmedCancellationsProduceOneRefundAndOutOfOrderRefundEventsAreSafe() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        JsonNode attempt = initiate(booking, "cancel-race");
+        sendWebhook(capturedBody(attempt, "evt_cancel_race", "pay_cancel_race", epochNow()), "evt_cancel_race")
+                .andExpect(status().isOk());
+        UUID attemptId = UUID.fromString(attempt.get("paymentAttemptId").asText());
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger success = new AtomicInteger();
+        try {
+            Future<?> a = submit(executor, ready, start, () -> {
+                mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
+                        .andExpect(status().isOk());
+                success.incrementAndGet();
+            });
+            Future<?> b = submit(executor, ready, start, () -> {
+                mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{}"))
+                        .andExpect(status().isOk());
+                success.incrementAndGet();
+            });
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            a.get(30, TimeUnit.SECONDS);
+            b.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(success.get()).isEqualTo(2);
+        assertThat(cancellationRepository.count()).isEqualTo(1);
+        assertThat(refundRepository.count()).isEqualTo(1);
+        assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
+
+        String providerRefundId = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId)
+                .get(0)
+                .getProviderRefundId();
+        sendWebhook(refundProcessedBody(attempt, providerRefundId, "pay_cancel_race"), "evt_refund_ok")
+                .andExpect(status().isOk());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+
+        sendWebhook(refundProcessedBody(attempt, providerRefundId, "pay_cancel_race"), "evt_refund_dup2")
+                .andExpect(status().isOk());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+
+        String failedBody = """
+                {"event":"refund.failed","payload":{"refund":{"entity":{"id":"%s","payment_id":"%s","amount":%d,"currency":"INR","status":"failed"}}}}
+                """.formatted(providerRefundId, "pay_cancel_race", paise(attempt.get("amount").decimalValue())).trim();
+        sendWebhook(failedBody, "evt_refund_ooo_fail").andExpect(status().isOk());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId).get(0).getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(allocationRepository.findByHoldIdOrderByCreatedAtAsc(booking.holdId()))
+                .allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+
+        CreatedBooking failBooking = createPendingBooking();
+        JsonNode failAttempt = initiate(failBooking, "cancel-fail-refund");
+        sendWebhook(capturedBody(failAttempt, "evt_fail_refund", "pay_fail_refund", epochNow()), "evt_fail_refund")
+                .andExpect(status().isOk());
+        GATEWAY.failRefunds = true;
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", failBooking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.booking.status").value("REFUND_PENDING"));
+        GATEWAY.failRefunds = false;
+        assertThat(bookingRepository.findById(failBooking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUND_PENDING);
+        assertThat(allocationRepository.findByHoldIdOrderByCreatedAtAsc(failBooking.holdId()))
+                .allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(
+                        UUID.fromString(failAttempt.get("paymentAttemptId").asText()))
+                .get(0)
+                .getStatus()).isEqualTo(RefundStatus.FAILED);
+    }
+
+    @Test
+    void refundRetryWorkerIsDurableAndDoesNotDuplicateProviderRefunds() throws Exception {
+        refundRetryProperties.setAfterCommitEnabled(false);
+        UUID userId = userRepository.findByEmailIgnoreCase(CUSTOMER_EMAIL).orElseThrow().getId();
+
+        CreatedBooking unpaid = createPendingBooking();
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", unpaid.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(unpaid.bookingId())).isEmpty();
+
+        CreatedBooking rollbackBooking = createPendingBooking();
+        JsonNode rollbackAttempt = initiate(rollbackBooking, "retry-rollback");
+        sendWebhook(capturedBody(rollbackAttempt, "evt_retry_rollback", "pay_retry_rollback", epochNow()),
+                "evt_retry_rollback").andExpect(status().isOk());
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            bookingCancellationService.cancelOwned(
+                    userId, rollbackBooking.bookingId(), new CancelBookingRequest(null));
+            status.setRollbackOnly();
+        });
+        assertThat(bookingRepository.findById(rollbackBooking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(rollbackBooking.bookingId())).isEmpty();
+
+        CreatedBooking booking = createPendingBooking();
+        JsonNode attempt = initiate(booking, "retry-worker");
+        sendWebhook(capturedBody(attempt, "evt_retry_worker", "pay_retry_worker", epochNow()), "evt_retry_worker")
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        Refund requested = refundRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId()).get(0);
+        assertThat(requested.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(requested.getProviderRefundId()).isNull();
+        assertThat(requested.getAttemptCount()).isZero();
+        assertThat(requested.getIdempotencyKey()).isEqualTo(
+                "booking-cancel-" + cancellationRepository.findByBookingId(booking.bookingId()).orElseThrow().getId());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUND_PENDING);
+        assertThat(GATEWAY.refundHttpCalls()).isZero();
+
+        Instant now = Instant.now();
+        assertThat(refundRetryProcessor.tryClaimDueRefund(requested.getId(), now)).contains(requested.getId());
+        assertThat(refundRetryProcessor.tryClaimDueRefund(requested.getId(), now)).isEmpty();
+        Refund leased = refundRepository.findById(requested.getId()).orElseThrow();
+        assertThat(leased.getAttemptCount()).isEqualTo(1);
+        assertThat(leased.getNextRetryAt()).isAfter(now);
+
+        jdbcTemplate.update("UPDATE refunds SET next_retry_at = NULL WHERE id = ?", requested.getId());
+        RefundRetryService.RefundRetryResult processed = refundRetryService.processDueRefunds();
+        assertThat(processed.completed()).isGreaterThanOrEqualTo(1);
+        Refund succeeded = refundRepository.findById(requested.getId()).orElseThrow();
+        assertThat(succeeded.getStatus()).isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(GATEWAY.lastRefundIdempotencyKey()).isEqualTo(requested.getId().toString());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId())).hasSize(1);
+
+        refundRetryService.processDueRefunds();
+        assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+
+        CreatedBooking failed = createPendingBooking();
+        JsonNode failedAttempt = initiate(failed, "retry-failed");
+        sendWebhook(capturedBody(failedAttempt, "evt_retry_failed", "pay_retry_failed", epochNow()), "evt_retry_failed")
+                .andExpect(status().isOk());
+        GATEWAY.failRefunds = true;
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", failed.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        int callsBefore = GATEWAY.refundHttpCalls();
+        refundRetryService.processDueRefunds();
+        Refund failedRefund = refundRepository.findByBookingIdOrderByCreatedAtDesc(failed.bookingId()).get(0);
+        assertThat(failedRefund.getStatus()).isEqualTo(RefundStatus.FAILED);
+        assertThat(failedRefund.getNextRetryAt()).isAfter(Instant.now().minusSeconds(1));
+        assertThat(bookingRepository.findById(failed.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUND_PENDING);
+        refundRetryService.processDueRefunds();
+        assertThat(GATEWAY.refundHttpCalls()).isEqualTo(callsBefore + 1);
+        GATEWAY.failRefunds = false;
+        jdbcTemplate.update("UPDATE refunds SET next_retry_at = NULL WHERE id = ?", failedRefund.getId());
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findById(failedRefund.getId()).orElseThrow().getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(failed.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+
+        CreatedBooking race = createPendingBooking();
+        JsonNode raceAttempt = initiate(race, "retry-race");
+        sendWebhook(capturedBody(raceAttempt, "evt_retry_race", "pay_retry_race", epochNow()), "evt_retry_race")
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", race.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        jdbcTemplate.update(
+                "UPDATE refunds SET next_retry_at = NULL WHERE booking_id = ?", race.bookingId());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<?> a = submit(executor, ready, start, () -> refundRetryService.processDueRefunds());
+            Future<?> b = submit(executor, ready, start, () -> refundRetryService.processDueRefunds());
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            a.get(30, TimeUnit.SECONDS);
+            b.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(race.bookingId())).hasSize(1);
+        assertThat(bookingRepository.findById(race.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+
+        CreatedBooking webhook = createPendingBooking();
+        JsonNode webhookAttempt = initiate(webhook, "retry-webhook");
+        sendWebhook(capturedBody(webhookAttempt, "evt_retry_wh_pay", "pay_retry_wh", epochNow()),
+                "evt_retry_wh_pay").andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", webhook.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        Refund openWebhookRefund = refundRepository.findByBookingIdOrderByCreatedAtDesc(webhook.bookingId()).get(0);
+        assertThat(openWebhookRefund.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        String refundWebhook = refundProcessedBody(webhookAttempt, "rfnd_crash_recovery", "pay_retry_wh");
+        sendWebhook(refundWebhook, "evt_retry_wh_processed").andExpect(status().isOk());
+        assertThat(refundRepository.findById(openWebhookRefund.getId()).orElseThrow().getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(webhook.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+        sendWebhook(refundWebhook, "evt_retry_wh_processed_dup").andExpect(status().isOk());
+        assertThat(bookingRepository.findById(webhook.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(webhook.bookingId())).hasSize(1);
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(webhook.bookingId())).hasSize(1);
+
+        refundRetryProperties.setAfterCommitEnabled(true);
+        CreatedBooking fast = createPendingBooking();
+        JsonNode fastAttempt = initiate(fast, "retry-after-commit");
+        sendWebhook(capturedBody(fastAttempt, "evt_retry_ac", "pay_retry_ac", epochNow()), "evt_retry_ac")
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", fast.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(fast.bookingId())).hasSize(1);
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(fast.bookingId())).hasSize(1);
+        assertThat(bookingRepository.findById(fast.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
     }
 
     @Test
@@ -1031,9 +1453,11 @@ class RazorpayPaymentPostgresIntegrationTest {
         private final AtomicInteger totalHttpCalls = new AtomicInteger();
         private final AtomicLong lastOrderAmountPaise = new AtomicLong();
         private final AtomicLong lastRefundAmountPaise = new AtomicLong();
+        private final AtomicReference<String> lastRefundIdempotencyKey = new AtomicReference<>();
         private final AtomicReference<String> lastAuth = new AtomicReference<>();
         volatile boolean delayOrders;
         volatile boolean delayRefunds;
+        volatile boolean failRefunds;
         volatile boolean malformedOrders;
         volatile int orderStatus = 200;
 
@@ -1069,8 +1493,10 @@ class RazorpayPaymentPostgresIntegrationTest {
             totalHttpCalls.set(0);
             lastOrderAmountPaise.set(0);
             lastRefundAmountPaise.set(0);
+            lastRefundIdempotencyKey.set(null);
             delayOrders = false;
             delayRefunds = false;
+            failRefunds = false;
             malformedOrders = false;
             orderStatus = 200;
         }
@@ -1101,6 +1527,10 @@ class RazorpayPaymentPostgresIntegrationTest {
 
         long lastRefundAmountPaise() {
             return lastRefundAmountPaise.get();
+        }
+
+        String lastRefundIdempotencyKey() {
+            return lastRefundIdempotencyKey.get();
         }
 
         private void handle(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
@@ -1153,6 +1583,7 @@ class RazorpayPaymentPostgresIntegrationTest {
                 throws IOException, InterruptedException {
             refundHttpCalls.incrementAndGet();
             String idempotency = header(exchange, "X-Razorpay-Idempotency-Key");
+            lastRefundIdempotencyKey.set(idempotency);
             lastRefundAmountPaise.set(readAmount(new String(request, StandardCharsets.UTF_8)));
             if (delayRefunds) {
                 refunds.computeIfAbsent(idempotency, key -> "rfnd_" + Integer.toHexString(key.hashCode()));
@@ -1163,6 +1594,12 @@ class RazorpayPaymentPostgresIntegrationTest {
             String paymentId = path.contains("/payments/")
                     ? path.substring(path.indexOf("/payments/") + 10, path.indexOf("/refunds"))
                     : "pay_unknown";
+            if (failRefunds) {
+                write(exchange, 200, """
+                        {"id":"%s","entity":"refund","amount":%d,"payment_id":"%s","status":"failed"}
+                        """.formatted(refundId, lastRefundAmountPaise.get(), paymentId));
+                return;
+            }
             write(exchange, 200, """
                     {"id":"%s","entity":"refund","amount":%d,"payment_id":"%s","status":"processed"}
                     """.formatted(refundId, lastRefundAmountPaise.get(), paymentId));

@@ -290,7 +290,12 @@ public class TicketApplicationService {
                 return already.getId();
             }
 
-            Booking booking = bookingRepository.findDetailedById(bookingId)
+            Booking booking = bookingRepository.findByIdForUpdate(bookingId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
+            if (booking.getStatus() != BookingStatus.CONFIRMED) {
+                throw new ApplicationConflictException("Only confirmed bookings can issue a ticket.");
+            }
+            booking = bookingRepository.findDetailedById(bookingId)
                     .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
             if (booking.getStatus() != BookingStatus.CONFIRMED) {
                 throw new ApplicationConflictException("Only confirmed bookings can issue a ticket.");

@@ -65,6 +65,14 @@ blue-bus:
       key-secret: ${RAZORPAY_KEY_SECRET:}
       webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
       base-url: ${RAZORPAY_BASE_URL:https://api.razorpay.com}
+    refund-retry:
+      enabled: true
+      after-commit-enabled: true
+      poll-interval-ms: 5000
+      batch-size: 50
+      lease-ms: 45000
+      initial-backoff-ms: 5000
+      max-backoff-ms: 900000
 
 logging:
   level:

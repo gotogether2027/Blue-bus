@@ -32,3 +32,12 @@ blue-bus:
       enabled: false
       poll-interval-ms: 5000
       batch-size: 50
+  payments:
+    refund-retry:
+      enabled: false
+      after-commit-enabled: true
+      poll-interval-ms: 5000
+      batch-size: 50
+      lease-ms: 45000
+      initial-backoff-ms: 5000
+      max-backoff-ms: 900000

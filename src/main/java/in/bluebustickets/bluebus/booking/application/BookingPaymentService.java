@@ -59,6 +59,14 @@ public class BookingPaymentService implements BookingPaymentPort {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public BookingStatus currentStatus(UUID bookingId) {
+        return bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."))
+                .getStatus();
+    }
+
+    @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public BookingStatus confirmLockedPendingPayment(UUID bookingId) {
         Booking booking = lock(bookingId);
@@ -93,6 +101,20 @@ public class BookingPaymentService implements BookingPaymentPort {
                 null,
                 null));
         return detailed.getStatus();
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public BookingStatus markRefunded(UUID bookingId) {
+        Booking booking = lock(bookingId);
+        if (booking.getStatus() == BookingStatus.REFUNDED) {
+            return BookingStatus.REFUNDED;
+        }
+        if (booking.getStatus() != BookingStatus.REFUND_PENDING) {
+            return booking.getStatus();
+        }
+        booking.markRefunded();
+        return booking.getStatus();
     }
 
     private Booking lock(UUID bookingId) {

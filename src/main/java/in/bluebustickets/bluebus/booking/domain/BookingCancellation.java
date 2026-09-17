@@ -12,13 +12,15 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 
 /**
- * Immutable record of a completed unpaid customer cancellation.
+ * Immutable record of a completed customer cancellation decision.
  */
 @Entity
 @Table(name = "booking_cancellations")
 public class BookingCancellation extends AuditableEntity {
 
     public static final String UNPAID_POLICY_CODE = "UNPAID_CUSTOMER_CANCELLATION_V1";
+    public static final String CONFIRMED_FULL_REFUND_POLICY_CODE =
+            "CONFIRMED_FULL_REFUND_CUSTOMER_CANCELLATION_V1";
 
     @Column(name = "booking_id", nullable = false, updatable = false)
     private UUID bookingId;
@@ -53,11 +55,58 @@ public class BookingCancellation extends AuditableEntity {
     }
 
     public BookingCancellation(UUID bookingId, UUID requestedByUserId, String reason, String currency, Instant now) {
+        this(
+                bookingId,
+                requestedByUserId,
+                BookingStatus.PENDING_PAYMENT,
+                reason,
+                UNPAID_POLICY_CODE,
+                BigDecimal.ZERO.setScale(2),
+                currency,
+                now);
+    }
+
+    public static BookingCancellation confirmedFullRefund(
+            UUID bookingId,
+            UUID requestedByUserId,
+            String reason,
+            BigDecimal refundableAmount,
+            String currency,
+            Instant now) {
+        if (refundableAmount == null || refundableAmount.signum() <= 0) {
+            throw new IllegalArgumentException("Confirmed cancellation requires a positive refundable amount");
+        }
+        return new BookingCancellation(
+                bookingId,
+                requestedByUserId,
+                BookingStatus.CONFIRMED,
+                reason,
+                CONFIRMED_FULL_REFUND_POLICY_CODE,
+                refundableAmount,
+                currency,
+                now);
+    }
+
+    private BookingCancellation(
+            UUID bookingId,
+            UUID requestedByUserId,
+            BookingStatus previousStatus,
+            String reason,
+            String policyCode,
+            BigDecimal refundableAmount,
+            String currency,
+            Instant now) {
         if (bookingId == null || requestedByUserId == null || now == null) {
             throw new IllegalArgumentException("booking, requester, and cancellation time are required");
         }
+        if (previousStatus == null || policyCode == null || policyCode.isBlank()) {
+            throw new IllegalArgumentException("previous status and policy code are required");
+        }
         if (currency == null || currency.isBlank()) {
             throw new IllegalArgumentException("currency is required");
+        }
+        if (refundableAmount == null || refundableAmount.signum() < 0) {
+            throw new IllegalArgumentException("refundableAmount cannot be negative");
         }
         String normalizedReason = reason == null || reason.isBlank() ? null : reason.trim();
         if (normalizedReason != null && normalizedReason.length() > 500) {
@@ -65,11 +114,11 @@ public class BookingCancellation extends AuditableEntity {
         }
         this.bookingId = bookingId;
         this.requestedByUserId = requestedByUserId;
-        this.previousStatus = BookingStatus.PENDING_PAYMENT;
+        this.previousStatus = previousStatus;
         this.status = BookingCancellationStatus.COMPLETED;
         this.reason = normalizedReason;
-        this.policyCode = UNPAID_POLICY_CODE;
-        this.refundableAmount = BigDecimal.ZERO.setScale(2);
+        this.policyCode = policyCode;
+        this.refundableAmount = refundableAmount;
         this.currency = currency;
         this.cancelledAt = now;
     }

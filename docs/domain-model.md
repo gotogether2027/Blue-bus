@@ -51,7 +51,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 3. Checkout atomically creates HELD allocations for requested seats and the requested origin/destination sequence range. Active allocations for overlapping ranges cannot coexist for the same inventory seat.
 4. A pending booking is created from held seats; payment attempts reference that booking.
 5. Only a verified, idempotently processed payment success can change the booking to CONFIRMED. Allocations are already BOOKED at hold-to-book; unpaid expiry releases them (`BOOKED` → `RELEASED`) if payment never arrives. A late payment after unpaid expiry must not recreate an allocation automatically.
-6. Expiry, failed payment, cancellation, or refund changes allocations according to the cancellation/refund policy. No state may be inferred only from a browser session. Unpaid booking expiry uses the persisted `payment_expires_at` and PostgreSQL row locks (`FOR UPDATE SKIP LOCKED` per booking). Unpaid customer cancellation locks the booking first, then allocations, and is refused with a conflict when the booking is already `CONFIRMED` because confirmed refund policy is not yet defined.
+6. Expiry, failed payment, cancellation, or refund changes allocations according to the cancellation/refund policy. No state may be inferred only from a browser session. Unpaid booking expiry uses the persisted `payment_expires_at` and PostgreSQL row locks (`FOR UPDATE SKIP LOCKED` per booking). Unpaid customer cancellation locks the booking first, then allocations. Confirmed cancellation (Phase 9.6) locks booking → allocations → ticket (if any) → succeeded payment, releases seats (`BOOKED`→`CANCELLED`), cancels an `ACTIVE` ticket when present, moves the booking to `REFUND_PENDING`, and inserts `refunds.REQUESTED` in the same transaction. A scheduled worker (and optional after-commit fast path) then calls the provider; crash after commit is recovered from the `REQUESTED` row. `FAILED` refunds with no `provider_refund_id` remain retryable while the booking is `REFUND_PENDING`.
 7. A ticket may be issued only for a `CONFIRMED` booking. Issuance is idempotent (database unique on `booking_id`). The ticket stores a customer-facing snapshot and does not silently follow later booking/trip/fleet changes. **Phase 9.4B** issues tickets automatically from unpublished `BOOKING_CONFIRMED` outbox events; manual customer issue remains compatible. PDF/QR and notifications remain deferred.
 
 ## Recommended state machines
@@ -62,7 +62,7 @@ Many-to-many relationships are represented explicitly when attributes matter: `u
 | Trip inventory seat | AVAILABLE, BLOCKED (physical-seat status only; operator 9.5D block/unblock; journey availability still derived from allocations) |
 | Seat allocation | HELD, BOOKED, RELEASED, CANCELLED, EXPIRED, BLOCKED |
 | Booking | INITIATED, PENDING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED, REFUND_PENDING, REFUNDED |
-| BookingCancellation (V12) | COMPLETED (unpaid customer cancellation only) |
+| BookingCancellation (V12/V18) | COMPLETED (unpaid or confirmed full-refund customer cancellation) |
 | Ticket (V13) | ACTIVE, CANCELLED |
 | PaymentAttempt (V11) | INITIATING, PENDING, SUCCEEDED, FAILED, CANCELLED, EXPIRED |
 | Payment disposition (V11) | UNAPPLIED, APPLIED_TO_BOOKING, REQUIRES_RESOLUTION |

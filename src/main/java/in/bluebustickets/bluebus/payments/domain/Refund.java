@@ -61,6 +61,12 @@ public class Refund extends AuditableEntity {
     @Column(nullable = false)
     private int version = 1;
 
+    @Column(name = "attempt_count", nullable = false)
+    private int attemptCount = 0;
+
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
+
     protected Refund() {
     }
 
@@ -93,7 +99,9 @@ public class Refund extends AuditableEntity {
         if (status == RefundStatus.SUCCEEDED) {
             return;
         }
-        if (status != RefundStatus.REQUESTED && status != RefundStatus.PROCESSING) {
+        if (status != RefundStatus.REQUESTED
+                && status != RefundStatus.PROCESSING
+                && status != RefundStatus.FAILED) {
             return;
         }
         if (providerRefundId != null && !providerRefundId.isBlank()) {
@@ -111,7 +119,9 @@ public class Refund extends AuditableEntity {
             }
             return;
         }
-        if (status != RefundStatus.REQUESTED && status != RefundStatus.PROCESSING) {
+        if (status != RefundStatus.REQUESTED
+                && status != RefundStatus.PROCESSING
+                && status != RefundStatus.FAILED) {
             return;
         }
         this.providerRefundId = requireText(providerRefundId, "providerRefundId");
@@ -133,6 +143,27 @@ public class Refund extends AuditableEntity {
         this.failureCode = normalize(failureCode);
         this.processedAt = processedAt;
         this.status = RefundStatus.FAILED;
+        this.version++;
+    }
+
+    /**
+     * Worker claim/lease: increments {@code attemptCount} and defers the next due time.
+     * FAILED remains retryable while {@code providerRefundId} is null.
+     */
+    public void claimForRetry(Instant nextRetryAt) {
+        if (nextRetryAt == null) {
+            throw new IllegalArgumentException("nextRetryAt is required");
+        }
+        this.attemptCount++;
+        this.nextRetryAt = nextRetryAt;
+        this.version++;
+    }
+
+    public void scheduleRetry(Instant nextRetryAt) {
+        if (nextRetryAt == null) {
+            throw new IllegalArgumentException("nextRetryAt is required");
+        }
+        this.nextRetryAt = nextRetryAt;
         this.version++;
     }
 
@@ -162,4 +193,6 @@ public class Refund extends AuditableEntity {
     public Instant getRequestedAt() { return requestedAt; }
     public Instant getProcessedAt() { return processedAt; }
     public int getVersion() { return version; }
+    public int getAttemptCount() { return attemptCount; }
+    public Instant getNextRetryAt() { return nextRetryAt; }
 }

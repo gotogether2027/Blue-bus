@@ -6,11 +6,13 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import in.bluebustickets.bluebus.booking.application.BookingPaymentPort;
+import in.bluebustickets.bluebus.booking.domain.BookingStatus;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEvent;
@@ -37,6 +39,7 @@ public class RefundApplicationService {
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final RefundRepository refundRepository;
     private final PaymentProviderRegistry providerRegistry;
+    private final BookingPaymentPort bookingPaymentPort;
     private final RefundWorker worker;
     private final Clock clock;
     private final ConcurrentHashMap<UUID, Object> refundCallLocks = new ConcurrentHashMap<>();
@@ -45,11 +48,13 @@ public class RefundApplicationService {
             PaymentAttemptRepository paymentAttemptRepository,
             RefundRepository refundRepository,
             PaymentProviderRegistry providerRegistry,
+            BookingPaymentPort bookingPaymentPort,
             RefundWorker worker,
             Clock clock) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.refundRepository = refundRepository;
         this.providerRegistry = providerRegistry;
+        this.bookingPaymentPort = bookingPaymentPort;
         this.worker = worker;
         this.clock = clock;
     }
@@ -57,13 +62,49 @@ public class RefundApplicationService {
     public RefundResponse refund(UUID userId, UUID paymentAttemptId, String idempotencyKey, String reason) {
         String key = normalizeRequired(idempotencyKey, "Idempotency-Key");
         PaymentAttempt attempt = requireOwnedSucceeded(userId, paymentAttemptId);
-        String fingerprint = sha256Hex(
-                attempt.getId() + "|" + attempt.getCapturedAmount() + "|" + attempt.getCurrency());
-        String normalizedReason = normalizeReason(reason);
+        requireCancellationRefundFlow(attempt.getBookingId());
+        return executeRefund(attempt, key, normalizeReason(reason));
+    }
+
+    /**
+     * Internal entry used after confirmed booking cancellation commits.
+     * Skips the public orphan-refund gate because the booking is already {@code REFUND_PENDING}.
+     */
+    public RefundResponse refundForCancelledBooking(
+            UUID userId,
+            UUID paymentAttemptId,
+            String idempotencyKey,
+            String reason) {
+        String key = normalizeRequired(idempotencyKey, "Idempotency-Key");
+        PaymentAttempt attempt = requireOwnedSucceeded(userId, paymentAttemptId);
+        BookingStatus status = bookingStatus(attempt.getBookingId());
+        if (status != BookingStatus.REFUND_PENDING && status != BookingStatus.REFUNDED) {
+            throw new ApplicationConflictException(
+                    "Refund is only available after confirmed booking cancellation.");
+        }
+        return executeRefund(attempt, key, normalizeReason(reason));
+    }
+
+    private RefundResponse executeRefund(PaymentAttempt attempt, String key, String normalizedReason) {
+        String fingerprint = requestFingerprint(
+                attempt.getId(), attempt.getCapturedAmount(), attempt.getCurrency());
 
         Refund existing = refundRepository
                 .findByPaymentAttemptIdAndIdempotencyKey(attempt.getId(), key)
                 .orElse(null);
+        if (existing == null) {
+            // One logical refund per captured payment once cancellation has started.
+            existing = refundRepository.findByPaymentAttemptIdAndStatusIn(
+                            attempt.getId(),
+                            List.of(
+                                    RefundStatus.REQUESTED,
+                                    RefundStatus.PROCESSING,
+                                    RefundStatus.SUCCEEDED,
+                                    RefundStatus.FAILED))
+                    .stream()
+                    .findFirst()
+                    .orElse(null);
+        }
         if (existing != null) {
             return resumeOrReturn(existing, fingerprint, attempt);
         }
@@ -85,6 +126,45 @@ public class RefundApplicationService {
             return toResponse(reserved);
         }
         return completeProviderRefund(reserved, attempt);
+    }
+
+    /**
+     * Worker/system path: provider HTTP then existing {@code RefundWorker.complete}.
+     * Caller must not hold booking locks. Reuses {@code refund.id} as the Razorpay idempotency key.
+     */
+    public void executeProviderRefund(UUID refundId) {
+        Refund current = refundRepository.findById(refundId)
+                .orElseThrow(() -> new ResourceNotFoundException("Refund was not found."));
+        if (!needsProviderRefund(current)) {
+            return;
+        }
+        BookingStatus status = bookingStatus(current.getBookingId());
+        if (status != BookingStatus.REFUND_PENDING) {
+            return;
+        }
+        PaymentAttempt attempt = paymentAttemptRepository.findById(current.getPaymentAttemptId())
+                .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
+        completeProviderRefund(current, attempt);
+    }
+
+    public static String requestFingerprint(UUID paymentAttemptId, java.math.BigDecimal amount, String currency) {
+        return sha256Hex(paymentAttemptId + "|" + amount + "|" + currency);
+    }
+
+    public static String cancellationIdempotencyKey(UUID cancellationId) {
+        return "booking-cancel-" + cancellationId;
+    }
+
+    private void requireCancellationRefundFlow(UUID bookingId) {
+        BookingStatus status = bookingStatus(bookingId);
+        if (status != BookingStatus.REFUND_PENDING && status != BookingStatus.REFUNDED) {
+            throw new ApplicationConflictException(
+                    "Refund is only available after confirmed booking cancellation.");
+        }
+    }
+
+    private BookingStatus bookingStatus(UUID bookingId) {
+        return bookingPaymentPort.currentStatus(bookingId);
     }
 
     private RefundResponse resumeOrReturn(Refund existing, String fingerprint, PaymentAttempt attempt) {
@@ -136,7 +216,9 @@ public class RefundApplicationService {
     }
 
     private static boolean needsProviderRefund(Refund refund) {
-        return (refund.getStatus() == RefundStatus.REQUESTED || refund.getStatus() == RefundStatus.PROCESSING)
+        return (refund.getStatus() == RefundStatus.REQUESTED
+                || refund.getStatus() == RefundStatus.PROCESSING
+                || refund.getStatus() == RefundStatus.FAILED)
                 && (refund.getProviderRefundId() == null || refund.getProviderRefundId().isBlank());
     }
 
@@ -215,7 +297,12 @@ public class RefundApplicationService {
                 Instant now) {
             PaymentAttempt unlocked = paymentAttemptRepository.findById(paymentAttemptId)
                     .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
-            bookingPaymentPort.lockForPaymentOutcome(unlocked.getBookingId());
+            var booking = bookingPaymentPort.lockForPaymentOutcome(unlocked.getBookingId());
+            if (booking.status() != BookingStatus.REFUND_PENDING
+                    && booking.status() != BookingStatus.REFUNDED) {
+                throw new ApplicationConflictException(
+                        "Refund is only available after confirmed booking cancellation.");
+            }
             PaymentAttempt attempt = paymentAttemptRepository.findByIdForUpdate(paymentAttemptId)
                     .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
             if (attempt.getStatus() != PaymentStatus.SUCCEEDED || attempt.getCapturedAmount() == null) {
@@ -268,6 +355,7 @@ public class RefundApplicationService {
                 RefundStatus previous = refund.getStatus();
                 refund.markSucceeded(result.providerRefundId(), providerStatus, now);
                 if (previous != RefundStatus.SUCCEEDED) {
+                    bookingPaymentPort.markRefunded(refund.getBookingId());
                     outboxEventRepository.save(new OutboxEvent(
                             "REFUND_SUCCEEDED",
                             "PAYMENT_ATTEMPT",

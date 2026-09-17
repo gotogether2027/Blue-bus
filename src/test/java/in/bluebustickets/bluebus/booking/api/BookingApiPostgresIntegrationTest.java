@@ -376,6 +376,7 @@ class BookingApiPostgresIntegrationTest {
                         .content("{}"))
                 .andExpect(status().isNotFound());
 
+        // Lifecycle confirm without a SUCCEEDED payment is not refund-eligible.
         mockMvc.perform(post("/api/v1/bookings/{id}/cancel", confirmed)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
                         .contentType(MediaType.APPLICATION_JSON)

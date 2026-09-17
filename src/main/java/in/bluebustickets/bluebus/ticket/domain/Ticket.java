@@ -137,6 +137,19 @@ public class Ticket extends AuditableEntity {
         passengers.add(passenger);
     }
 
+    /**
+     * Idempotent ACTIVE → CANCELLED. Snapshot fields are never rewritten.
+     */
+    public void cancel() {
+        if (status == TicketStatus.CANCELLED) {
+            return;
+        }
+        if (status != TicketStatus.ACTIVE) {
+            throw new IllegalArgumentException("Ticket cannot be cancelled from status " + status);
+        }
+        this.status = TicketStatus.CANCELLED;
+    }
+
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " is required");

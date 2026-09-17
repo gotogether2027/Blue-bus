@@ -22,7 +22,21 @@ public interface RefundRepository extends JpaRepository<Refund, UUID> {
 
     List<Refund> findByPaymentAttemptIdOrderByCreatedAtDesc(UUID paymentAttemptId);
 
+    List<Refund> findByBookingIdOrderByCreatedAtDesc(UUID bookingId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Refund r where r.id = :id")
     Optional<Refund> findByIdForUpdate(@Param("id") UUID id);
+
+    @Query("""
+            select r.id from Refund r
+            where r.providerRefundId is null
+              and r.status in :statuses
+              and (r.nextRetryAt is null or r.nextRetryAt <= :now)
+            order by r.createdAt asc
+            """)
+    List<UUID> findDueRetryIds(
+            @Param("statuses") List<RefundStatus> statuses,
+            @Param("now") java.time.Instant now,
+            org.springframework.data.domain.Pageable pageable);
 }

@@ -170,10 +170,28 @@ public class Booking extends AuditableEntity {
         if (status == BookingStatus.CANCELLED) {
             return;
         }
-        if (status != BookingStatus.PENDING_PAYMENT && status != BookingStatus.CONFIRMED) {
+        if (status != BookingStatus.PENDING_PAYMENT) {
             throw new IllegalArgumentException("Booking cannot be cancelled from status " + status);
         }
         this.status = BookingStatus.CANCELLED;
+        this.version++;
+    }
+
+    public void markRefundPending() {
+        if (status == BookingStatus.REFUND_PENDING) {
+            return;
+        }
+        requireStatus(BookingStatus.CONFIRMED, "REFUND_PENDING");
+        this.status = BookingStatus.REFUND_PENDING;
+        this.version++;
+    }
+
+    public void markRefunded() {
+        if (status == BookingStatus.REFUNDED) {
+            return;
+        }
+        requireStatus(BookingStatus.REFUND_PENDING, "REFUNDED");
+        this.status = BookingStatus.REFUNDED;
         this.version++;
     }
 

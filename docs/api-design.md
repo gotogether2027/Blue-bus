@@ -111,9 +111,9 @@ Public without a token: health, **register**, login, **refresh**, **logout**, **
 
 Deferred: password reset, email/phone verification, profile editing, permission catalogs, operator payment/refund/settlement APIs, refresh-token cleanup/reaper (retain revoked/expired rows ≥ 30 days for reuse detection; indexes support future cleanup), access-token denylist, Redis, audit log.
 
-## Customer bookings — Phase 9.1 foundation + unpaid expiry + V12 views/cancellation
+## Customer bookings — Phase 9.1 foundation + unpaid expiry + V12 views/cancellation + Phase 9.6 confirmed cancellation
 
-Authenticated hold-to-booking conversion, owner views, and unpaid customer cancellation. Does **not** invent a confirmed-booking refund policy. Tickets are issued via the dedicated ticket APIs (Phase 9.4A), not inside booking create/confirm. Unpaid `PENDING_PAYMENT` bookings expire automatically after the persisted payment deadline.
+Authenticated hold-to-booking conversion, owner views, unpaid customer cancellation, and confirmed-booking cancellation with full refund orchestration. Tickets are issued via the dedicated ticket APIs (Phase 9.4A), not inside booking create/confirm. Unpaid `PENDING_PAYMENT` bookings expire automatically after the persisted payment deadline.
 
 | Method | Path | Auth | Success |
 |---|---|---|---|
@@ -154,9 +154,11 @@ Required: `holdId`, matching OD stop IDs, non-blank `idempotencyKey`, one passen
 
 **Booking ownership:** JWT `sub` is the booking owner. Clients never supply a user ID. Cross-customer get/cancel returns generic `404`. List returns only the caller’s bookings. An owner may retrieve an `EXPIRED` or `CANCELLED` booking (`200` with historical passengers/items). Responses include trip origin/destination snapshots, boarding/drop points, amounts, payment deadline, booking status, and item status. They never include payment secrets, webhook payloads, or internal resolution reasons.
 
-**Unpaid customer cancellation (V12):** `POST /api/v1/bookings/{bookingId}/cancel` is supported only for `PENDING_PAYMENT`. The transaction locks the booking `FOR UPDATE` first, then the matching allocations, marks booking/items `CANCELLED`, transitions `BOOKED` allocations to `CANCELLED`, writes an immutable `booking_cancellations` row (`UNPAID_CUSTOMER_CANCELLATION_V1`, refundable amount `0`), and writes `BOOKING_CANCELLED` to the outbox. Historical booking/item/allocation rows are kept. Repeat cancel of an already-cancelled booking with a cancellation record is idempotent (`200`). Confirmed cancellation/refund policy is not defined yet — `CONFIRMED` and other unsupported states return `409` rather than inventing a refund. Concurrent expiry uses `SKIP LOCKED`; confirmation/cancellation wait on the booking lock. Exactly one of cancel, expiry, or confirmation wins; cancellation never recreates inventory.
+**Unpaid customer cancellation (V12):** `POST /api/v1/bookings/{bookingId}/cancel` for `PENDING_PAYMENT` locks the booking `FOR UPDATE` first, then matching allocations, marks booking/items `CANCELLED`, transitions `BOOKED` allocations to `CANCELLED`, writes an immutable `booking_cancellations` row (`UNPAID_CUSTOMER_CANCELLATION_V1`, refundable amount `0`), and writes `BOOKING_CANCELLED` to the outbox. Repeat cancel with an existing cancellation record is idempotent (`200`).
 
-**Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`; unsupported cancellation state (including `CONFIRMED`) → `409`.
+**Confirmed customer cancellation (Phase 9.6):** the same endpoint cancels `CONFIRMED` bookings before scheduled departure when a `SUCCEEDED` captured payment exists. Eligibility rejects `current time >= scheduledDepartureAt`, trip `DEPARTED`, and trip `COMPLETED`. Transaction (no provider HTTP): lock booking → verify ownership/status/departure → lock `BOOKED` allocations → lock ticket if present → lock succeeded payment → booking `CONFIRMED`→`REFUND_PENDING`, items `ACTIVE`→`CANCELLED`, allocations `BOOKED`→`CANCELLED`, ticket `ACTIVE`→`CANCELLED` when present → immutable cancellation row (`CONFIRMED_FULL_REFUND_CUSTOMER_CANCELLATION_V1`, refundable amount = captured payment amount) → `refunds.REQUESTED` (local idempotency `booking-cancel-{cancellationId}`, `attempt_count=0`, `next_retry_at` null) → `BOOKING_CANCELLED` outbox. After commit, an optional fast path and the scheduled refund-retry worker (`blue-bus.payments.refund-retry.*`) call Razorpay using **`refunds.id`** as `X-Razorpay-Idempotency-Key`. Provider/network failure leaves the booking `REFUND_PENDING` with seats/ticket already cancelled; the `REQUESTED`/`FAILED` refund row remains due after bounded backoff (`5s × 2^n`, cap 15 minutes, claim lease ~45s). Repeat cancel and `POST /api/v1/payments/{paymentAttemptId}/refunds` reuse that row. Crash after cancellation commit is recovered by the worker without a customer retry. Verified refund success (provider API or `refund.processed` webhook) transitions `REFUND_PENDING`→`REFUNDED`. Missing ticket does not block cancellation. Concurrent cancels serialize on the booking row; unique `booking_cancellations.booking_id` and `refunds (payment_attempt_id, idempotency_key)` keep one logical cancellation/refund.
+
+**Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`; unsupported cancellation state / after departure / no captured payment → `409`.
 
 ## Customer trip search — V12
 
@@ -210,7 +212,7 @@ Webhook URL: `POST /api/v1/payments/webhooks/RAZORPAY`. Authentication is `X-Raz
 
 Checkout verification and webhooks both enter the existing verified-event processor. Frontend “payment success” is never sufficient by itself.
 
-Refunds use the captured amount from the database (client `amount` is ignored), Razorpay `X-Razorpay-Idempotency-Key` = our refund id, and the existing `refunds` row. Duplicate refund requests and duplicate refund webhooks do not create a second provider refund.
+Refunds use the captured amount from the database (client `amount` is ignored), Razorpay `X-Razorpay-Idempotency-Key` = our refund id, and the existing `refunds` row. Duplicate refund requests and duplicate refund webhooks do not create a second provider refund. **Phase 9.6:** direct `POST /api/v1/payments/{paymentAttemptId}/refunds` is rejected unless the booking is already `REFUND_PENDING` or `REFUNDED` (refund initiation belongs to confirmed booking cancellation). Orphan refunds that would leave booking `CONFIRMED` with `BOOKED` seats / `ACTIVE` ticket are not allowed.
 
 ### INITIATING recovery
 
@@ -220,7 +222,7 @@ The webhook endpoint supplies the untouched request bytes and headers to the pro
 
 Success processing locks `booking → payment_attempt → allocations`. On-time success for `PENDING_PAYMENT` atomically records `SUCCEEDED / APPLIED_TO_BOOKING` and confirms Booking. If expiry/cancellation won, the payment is `SUCCEEDED / REQUIRES_RESOLUTION`; Booking and released/cancelled allocations stay unchanged. Amount/currency/reference mismatch follows the same reconciliation path.
 
-Deferred: additional providers, confirmed-booking cancellation policy, RabbitMQ publishing, PDF/QR, notifications.
+Deferred: additional providers, RabbitMQ publishing, PDF/QR, notifications.
 
 **Phase 9.4B:** When a booking transitions `PENDING_PAYMENT → CONFIRMED`, the confirmation transaction writes `BOOKING_CONFIRMED` to `outbox_events`. A scheduled local processor (`blue-bus.outbox.processor.*`, default every 5s, batch 50, `FOR UPDATE SKIP LOCKED`) issues the ticket idempotently and writes `TICKET_ISSUED` in the same transaction before marking the confirmation event published. Manual ticket POST remains safe.
 

@@ -364,20 +364,89 @@ class FlywayPostgresIntegrationTest {
         assertThat(indexExists("uq_booking_cancellations_booking")).isTrue();
         assertThat(indexExists("ix_booking_cancellations_user_created")).isTrue();
         assertThat(indexExists("ix_trip_stops_location_trip_sequence")).isTrue();
+    }
 
-        String previousStatusCheck = jdbcTemplate.queryForObject("""
-                SELECT pg_get_constraintdef(oid)
-                FROM pg_constraint
+    @Test
+    void appliesConfirmedBookingCancellationPolicyMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '18'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("18");
+            assertThat(migration.get("description")).hasToString("confirmed booking cancellation policy");
+            assertThat(migration.get("script")).hasToString("V18__confirmed_booking_cancellation_policy.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        Integer oldPrevious = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pg_constraint
                 WHERE conname = 'ck_booking_cancellations_previous_status'
-                """, String.class);
-        assertThat(previousStatusCheck).contains("PENDING_PAYMENT");
+                """, Integer.class);
+        Integer oldPolicy = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pg_constraint
+                WHERE conname = 'ck_booking_cancellations_policy'
+                """, Integer.class);
+        Integer oldRefundable = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM pg_constraint
+                WHERE conname = 'ck_booking_cancellations_refundable_amount'
+                """, Integer.class);
+        assertThat(oldPrevious).isZero();
+        assertThat(oldPolicy).isZero();
+        assertThat(oldRefundable).isZero();
 
-        String refundCheck = jdbcTemplate.queryForObject("""
+        String snapshotCheck = jdbcTemplate.queryForObject("""
                 SELECT pg_get_constraintdef(oid)
                 FROM pg_constraint
-                WHERE conname = 'ck_booking_cancellations_refundable_amount'
+                WHERE conname = 'ck_booking_cancellations_policy_snapshot'
                 """, String.class);
-        assertThat(refundCheck).contains("0");
+        assertThat(snapshotCheck)
+                .contains("UNPAID_CUSTOMER_CANCELLATION_V1")
+                .contains("CONFIRMED_FULL_REFUND_CUSTOMER_CANCELLATION_V1")
+                .contains("PENDING_PAYMENT")
+                .contains("CONFIRMED");
+    }
+
+    @Test
+    void appliesRefundRetrySupportMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '19'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("19");
+            assertThat(migration.get("description")).hasToString("refund retry support");
+            assertThat(migration.get("script")).hasToString("V19__refund_retry_support.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(columnExists("refunds", "attempt_count")).isTrue();
+        assertThat(columnExists("refunds", "next_retry_at")).isTrue();
+        assertThat(indexExists("ix_refunds_due_retry")).isTrue();
+        assertThat(indexExists("uq_refunds_attempt_idempotency")).isTrue();
+        assertThat(indexExists("uq_refunds_provider_reference")).isTrue();
+
+        String attemptCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_refunds_attempt_count'
+                """, String.class);
+        assertThat(attemptCheck).contains("attempt_count");
+
+        String indexDef = jdbcTemplate.queryForObject("""
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ix_refunds_due_retry'
+                """, String.class);
+        assertThat(indexDef).contains("next_retry_at");
+        assertThat(indexDef).contains("REQUESTED");
+        assertThat(indexDef).contains("PROCESSING");
+        assertThat(indexDef).contains("FAILED");
+        assertThat(indexDef).contains("provider_refund_id");
     }
 
     @Test

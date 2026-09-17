@@ -16,7 +16,18 @@ public interface BookingPaymentPort {
 
     PaymentBookingSnapshot lockForPaymentOutcome(UUID bookingId);
 
+    /**
+     * Non-locking status read for refund eligibility checks outside a payment outcome transaction.
+     */
+    BookingStatus currentStatus(UUID bookingId);
+
     BookingStatus confirmLockedPendingPayment(UUID bookingId);
+
+    /**
+     * Transitions {@code REFUND_PENDING → REFUNDED} when a refund is authoritatively confirmed.
+     * Already-{@code REFUNDED} is a no-op. Other statuses are left unchanged (no downgrade).
+     */
+    BookingStatus markRefunded(UUID bookingId);
 
     record PaymentBookingSnapshot(
             UUID bookingId,
