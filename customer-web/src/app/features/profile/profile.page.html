@@ -1,0 +1,11 @@
+<section class="page">
+  <h1>Profile</h1>
+  @if (auth.currentUser(); as user) {
+    <article class="card stack">
+      <p><strong>{{ user.firstName }} {{ user.lastName }}</strong></p>
+      <p>{{ user.email }}</p>
+      <p class="muted">{{ user.status }}</p>
+      <button type="button" class="btn" (click)="logout()">Logout</button>
+    </article>
+  }
+</section>

@@ -1,0 +1,31 @@
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Andhra Pradesh · Telangana</p>
+    <h1>Book your next bus in minutes.</h1>
+    <p class="lede">Search live trips, compare fares, and keep every booking in one place.</p>
+  </div>
+  <form class="search-card" (ngSubmit)="search()">
+    <app-location-picker
+      label="From"
+      placeholder="Origin city"
+      [selected]="origin"
+      [excludeId]="destination?.id ?? null"
+      (selectedChange)="origin = $event"
+    />
+    <app-location-picker
+      label="To"
+      placeholder="Destination city"
+      [selected]="destination"
+      [excludeId]="origin?.id ?? null"
+      (selectedChange)="destination = $event"
+    />
+    <label class="field">
+      <span>Journey date</span>
+      <input type="date" name="serviceDate" [(ngModel)]="serviceDate" [min]="minDate" required />
+    </label>
+    @if (error) {
+      <p class="field-error">{{ error }}</p>
+    }
+    <button class="btn btn-primary btn-block" type="submit">Search Buses</button>
+  </form>
+</section>

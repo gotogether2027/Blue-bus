@@ -1,0 +1,140 @@
+<section class="page">
+  <a routerLink="/bookings" class="back">← My bookings</a>
+
+  @if (loading) {
+    <div class="skeleton card"></div>
+  } @else if (error || !booking) {
+    <app-empty-state title="Booking unavailable" [message]="error || 'Booking was not found.'" />
+  } @else {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">{{ booking.bookingReference }}</p>
+        <h1>
+          {{ locationLabel(booking.trip.origin) }}
+          →
+          {{ locationLabel(booking.trip.destination) }}
+        </h1>
+      </div>
+      <app-status-badge [label]="booking.status" [tone]="badgeTone(booking.status)" />
+    </header>
+
+    <section class="card stack">
+      <h2>Journey</h2>
+      <p>{{ booking.trip.operatorName }} · {{ booking.trip.routeName }}</p>
+      <p>
+        {{ formatInstant(booking.trip.scheduledDepartureAt, booking.trip.timeZone) }}
+        →
+        {{ formatInstant(booking.trip.scheduledArrivalAt, booking.trip.timeZone) }}
+      </p>
+    </section>
+
+    <section class="card stack">
+      <h2>Passengers &amp; seats</h2>
+      <ul class="plain-list">
+        @for (passenger of booking.passengers; track passenger.passengerId) {
+          <li>
+            {{ passenger.fullName }}
+            @if (passenger.age) { · {{ passenger.age }} }
+            @if (passenger.gender) { · {{ passenger.gender }} }
+          </li>
+        }
+      </ul>
+      <ul class="plain-list">
+        @for (item of booking.items; track item.bookingItemId) {
+          <li>Seat {{ item.seatNumber }} · {{ item.seatType }} · {{ item.status }}</li>
+        }
+      </ul>
+    </section>
+
+    <section class="card stack">
+      <h2>Amount</h2>
+      <p><strong>{{ formatMoney(booking.totalAmount, booking.currency) }}</strong></p>
+      <p class="muted">Base {{ formatMoney(booking.baseAmount, booking.currency) }}</p>
+    </section>
+
+    <section class="card stack">
+      <h2>Status</h2>
+      <p>Payment: {{ booking.paymentStatus || 'Not started' }}</p>
+      <p>Ticket: {{ booking.ticketNumber || booking.ticketStatus || 'Not issued' }}</p>
+      <p>
+        Refund:
+        @if (booking.latestRefundStatus) {
+          {{ booking.latestRefundStatus }}
+          @if (booking.latestRefundAmount !== null) {
+            · {{ formatMoney(booking.latestRefundAmount, booking.currency) }}
+          }
+        } @else {
+          None
+        }
+      </p>
+    </section>
+
+    <section class="card stack">
+      <h2>Actions</h2>
+      @if (actionError) {
+        <p class="field-error">{{ actionError }}</p>
+      }
+      @if (hasTicket(booking.ticketId, booking.ticketStatus)) {
+        <button type="button" class="btn" (click)="loadTicket()">View ticket</button>
+      }
+      @if (booking.paymentAttemptId || booking.paymentStatus) {
+        <button type="button" class="btn" (click)="loadPayments()">View payment history</button>
+      }
+      @if (booking.latestRefundStatus) {
+        <button type="button" class="btn" (click)="loadRefunds()">View refund history</button>
+      }
+      @if (canCancel(booking.status)) {
+        <label class="field">
+          <span>Cancellation reason (optional)</span>
+          <input [(ngModel)]="cancelReason" maxlength="500" />
+        </label>
+        <button type="button" class="btn btn-danger" [disabled]="cancelling" (click)="cancel()">
+          {{ cancelling ? 'Cancelling…' : 'Cancel booking' }}
+        </button>
+      }
+    </section>
+
+    @if (ticket) {
+      <section class="card stack">
+        <h2>Ticket {{ ticket.ticketNumber }}</h2>
+        <p>{{ ticket.journey.origin }} → {{ ticket.journey.destination }}</p>
+        <p>{{ ticket.status }} · {{ formatMoney(ticket.amount, ticket.currency) }}</p>
+      </section>
+    } @else if (ticketError) {
+      <p class="field-error">{{ ticketError }}</p>
+    }
+
+    @if (payments) {
+      <section class="card stack">
+        <h2>Payments</h2>
+        @if (payments.length === 0) {
+          <p class="muted">No payment attempts yet.</p>
+        } @else {
+          <ul class="plain-list">
+            @for (payment of payments; track payment.paymentAttemptId) {
+              <li>
+                {{ payment.status }} · {{ formatMoney(payment.requestedAmount, payment.currency) }}
+                · {{ payment.provider }}
+              </li>
+            }
+          </ul>
+        }
+      </section>
+    }
+
+    @if (refunds) {
+      <section class="card stack">
+        <h2>Refunds</h2>
+        @if (refunds.length === 0) {
+          <p class="muted">No refunds.</p>
+        } @else {
+          <ul class="plain-list">
+            @for (refund of refunds; track refund.refundId) {
+              <li>{{ refund.status }} · {{ formatMoney(refund.amount, refund.currency) }} · {{ refund.reason }}</li>
+            }
+          </ul>
+        }
+      </section>
+    }
+  }
+</section>

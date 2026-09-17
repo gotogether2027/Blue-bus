@@ -1,0 +1,20 @@
+<section class="auth-page">
+  <form class="card auth-card" (ngSubmit)="submit()">
+    <h1>Sign in</h1>
+    <label class="field">
+      <span>Email</span>
+      <input type="email" name="email" [(ngModel)]="email" required maxlength="320" autocomplete="email" />
+    </label>
+    <label class="field">
+      <span>Password</span>
+      <input type="password" name="password" [(ngModel)]="password" required autocomplete="current-password" />
+    </label>
+    @if (error) {
+      <p class="field-error">{{ error }}</p>
+    }
+    <button class="btn btn-primary btn-block" type="submit" [disabled]="pending">
+      {{ pending ? 'Signing in…' : 'Login' }}
+    </button>
+    <p class="muted">New here? <a routerLink="/register">Create an account</a></p>
+  </form>
+</section>

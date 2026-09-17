@@ -1,0 +1,55 @@
+<section class="page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Account</p>
+      <h1>My bookings</h1>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="stack">
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+    </div>
+  } @else if (error) {
+    <app-empty-state title="Could not load bookings" [message]="error" />
+  } @else if (bookings.length === 0) {
+    <app-empty-state title="No bookings yet" message="Search a trip to make your first booking.">
+      <a routerLink="/" class="btn btn-primary">Search buses</a>
+    </app-empty-state>
+  } @else {
+    <div class="stack">
+      @for (booking of bookings; track booking.bookingId) {
+        <a class="card booking-row" [routerLink]="['/bookings', booking.bookingId]">
+          <div>
+            <p class="muted">{{ booking.bookingReference }}</p>
+            <h2>
+              {{ locationLabel(booking.trip.origin) }}
+              →
+              {{ locationLabel(booking.trip.destination) }}
+            </h2>
+            <p class="muted">{{ formatDate(booking.trip.serviceDate) }}</p>
+          </div>
+          <div class="booking-meta">
+            <app-status-badge [label]="booking.status" [tone]="badgeTone(booking.status)" />
+            @if (booking.paymentStatus) {
+              <app-status-badge [label]="'Pay ' + booking.paymentStatus" [tone]="badgeTone(booking.paymentStatus)" />
+            } @else {
+              <span class="muted">Payment not started</span>
+            }
+            @if (booking.ticketNumber || booking.ticketStatus) {
+              <app-status-badge
+                [label]="booking.ticketNumber ? 'Ticket ' + booking.ticketNumber : 'Ticket ' + booking.ticketStatus"
+                [tone]="badgeTone(booking.ticketStatus)"
+              />
+            }
+            @if (booking.latestRefundStatus) {
+              <app-status-badge [label]="'Refund ' + booking.latestRefundStatus" [tone]="badgeTone(booking.latestRefundStatus)" />
+            }
+            <strong>{{ formatMoney(booking.totalAmount, booking.currency) }}</strong>
+          </div>
+        </a>
+      }
+    </div>
+  }
+</section>

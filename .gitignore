@@ -7,6 +7,11 @@
 application-local.yml
 application-local.yaml
 
+# Frontend
+node_modules/
+.angular/
+dist/
+
 # Build and IDE output
 target/
 .idea/

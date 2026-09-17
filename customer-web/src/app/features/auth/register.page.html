@@ -1,0 +1,28 @@
+<section class="auth-page">
+  <form class="card auth-card" (ngSubmit)="submit()">
+    <h1>Create account</h1>
+    <label class="field">
+      <span>First name</span>
+      <input name="firstName" [(ngModel)]="firstName" required maxlength="100" />
+    </label>
+    <label class="field">
+      <span>Last name</span>
+      <input name="lastName" [(ngModel)]="lastName" maxlength="100" />
+    </label>
+    <label class="field">
+      <span>Email</span>
+      <input type="email" name="email" [(ngModel)]="email" required maxlength="320" autocomplete="email" />
+    </label>
+    <label class="field">
+      <span>Password</span>
+      <input type="password" name="password" [(ngModel)]="password" required minlength="8" maxlength="72" autocomplete="new-password" />
+    </label>
+    @if (error) {
+      <p class="field-error">{{ error }}</p>
+    }
+    <button class="btn btn-primary btn-block" type="submit" [disabled]="pending">
+      {{ pending ? 'Creating…' : 'Register' }}
+    </button>
+    <p class="muted">Already registered? <a routerLink="/login">Sign in</a></p>
+  </form>
+</section>

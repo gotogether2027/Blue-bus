@@ -1,0 +1,29 @@
+<div class="shell">
+  @if (loading.active()) {
+    <div class="progress" aria-hidden="true"></div>
+  }
+  <header class="topbar">
+    <a routerLink="/" class="brand">BLUE BUS</a>
+    <button class="menu-toggle" type="button" (click)="menuOpen = !menuOpen" [attr.aria-expanded]="menuOpen">
+      Menu
+    </button>
+    <nav class="nav" [class.open]="menuOpen">
+      <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+      <a routerLink="/bookings" routerLinkActive="active">My Bookings</a>
+      <a routerLink="/profile" routerLinkActive="active">Profile</a>
+      @if (auth.isAuthenticated()) {
+        <span class="nav-user">{{ auth.currentUser()?.firstName }}</span>
+        <button type="button" class="link-button" (click)="logout()">Logout</button>
+      } @else {
+        <a routerLink="/login" routerLinkActive="active">Login</a>
+        <a routerLink="/register" class="btn btn-small">Register</a>
+      }
+    </nav>
+  </header>
+  <main class="main">
+    <router-outlet />
+  </main>
+  <footer class="footer">
+    <p>BLUE BUS · Andhra Pradesh &amp; Telangana</p>
+  </footer>
+</div>
