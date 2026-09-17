@@ -19,6 +19,7 @@ import in.bluebustickets.bluebus.foundation.outbox.OutboxEvent;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEventRepository;
 import in.bluebustickets.bluebus.payments.api.dto.RefundResponse;
 import in.bluebustickets.bluebus.payments.domain.PaymentAttempt;
+import in.bluebustickets.bluebus.payments.domain.PaymentDisposition;
 import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
 import in.bluebustickets.bluebus.payments.domain.Refund;
 import in.bluebustickets.bluebus.payments.domain.RefundStatus;
@@ -35,6 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
 public class RefundApplicationService {
+
+    public static final String COMPENSATION_REASON = "LATE_PAYMENT_COMPENSATION";
 
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final RefundRepository refundRepository;
@@ -131,6 +134,8 @@ public class RefundApplicationService {
     /**
      * Worker/system path: provider HTTP then existing {@code RefundWorker.complete}.
      * Caller must not hold booking locks. Reuses {@code refund.id} as the Razorpay idempotency key.
+     * Handles confirmed-cancellation refunds ({@code REFUND_PENDING}) and late-payment
+     * compensation refunds ({@code SUCCEEDED}/{@code REQUIRES_RESOLUTION}).
      */
     public void executeProviderRefund(UUID refundId) {
         Refund current = refundRepository.findById(refundId)
@@ -138,12 +143,12 @@ public class RefundApplicationService {
         if (!needsProviderRefund(current)) {
             return;
         }
-        BookingStatus status = bookingStatus(current.getBookingId());
-        if (status != BookingStatus.REFUND_PENDING) {
-            return;
-        }
         PaymentAttempt attempt = paymentAttemptRepository.findById(current.getPaymentAttemptId())
                 .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
+        BookingStatus status = bookingStatus(current.getBookingId());
+        if (!isWorkerEligible(current, status, attempt)) {
+            return;
+        }
         completeProviderRefund(current, attempt);
     }
 
@@ -153,6 +158,32 @@ public class RefundApplicationService {
 
     public static String cancellationIdempotencyKey(UUID cancellationId) {
         return "booking-cancel-" + cancellationId;
+    }
+
+    public static String compensationIdempotencyKey(UUID paymentAttemptId) {
+        return "late-payment-" + paymentAttemptId;
+    }
+
+    public static boolean isCompensationIdempotencyKey(String idempotencyKey) {
+        return idempotencyKey != null && idempotencyKey.startsWith("late-payment-");
+    }
+
+    /**
+     * Cancellation refunds stay on {@code REFUND_PENDING}. Compensation refunds are keyed
+     * {@code late-payment-{paymentAttemptId}} and never enter the trip-cancel booking path.
+     */
+    public static boolean isWorkerEligible(Refund refund, BookingStatus bookingStatus, PaymentAttempt attempt) {
+        if (bookingStatus == BookingStatus.REFUND_PENDING) {
+            return true;
+        }
+        return isCompensationRefund(refund, attempt);
+    }
+
+    public static boolean isCompensationRefund(Refund refund, PaymentAttempt attempt) {
+        return refund != null
+                && attempt != null
+                && attempt.getDisposition() == PaymentDisposition.REQUIRES_RESOLUTION
+                && isCompensationIdempotencyKey(refund.getIdempotencyKey());
     }
 
     private void requireCancellationRefundFlow(UUID bookingId) {

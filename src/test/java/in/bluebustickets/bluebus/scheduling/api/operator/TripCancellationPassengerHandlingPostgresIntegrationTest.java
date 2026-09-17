@@ -332,9 +332,12 @@ class TripCancellationPassengerHandlingPostgresIntegrationTest {
             assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId())
                     .get(0)
                     .getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
-            assertThat(refundRepository.count()).isZero();
+            assertThat(refundRepository.count()).isEqualTo(1);
+            Refund compensation = refundRepository.findAll().get(0);
+            assertThat(compensation.getIdempotencyKey()).startsWith("late-payment-");
         } else {
             assertThat(refundRepository.count()).isEqualTo(1);
+            assertThat(refundRepository.findAll().get(0).getIdempotencyKey()).startsWith("booking-cancel-");
         }
     }
 
@@ -404,7 +407,23 @@ class TripCancellationPassengerHandlingPostgresIntegrationTest {
         assertThat(paymentAttemptRepository.findById(UUID.fromString(attempt.get("paymentAttemptId").asText()))
                 .orElseThrow()
                 .getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
-        assertThat(refundRepository.count()).isZero();
+        UUID attemptId = UUID.fromString(attempt.get("paymentAttemptId").asText());
+        assertThat(refundRepository.count()).isEqualTo(1);
+        Refund compensation = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId).get(0);
+        assertThat(compensation.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(compensation.getIdempotencyKey()).isEqualTo("late-payment-" + attemptId);
+        assertThat(compensation.getAmount()).isEqualByComparingTo(
+                paymentAttemptRepository.findById(attemptId).orElseThrow().getCapturedAmount());
+        assertThat(outboxEventRepository.findAll().stream()
+                .noneMatch(event -> "BOOKING_CONFIRMED".equals(event.getEventType())
+                        && booking.bookingId().equals(event.getAggregateId()))).isTrue();
+        refundRetryProperties.setAfterCommitEnabled(false);
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findById(compensation.getId()).orElseThrow().getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CANCELLED);
+        assertThat(ticketRepository.findByBookingId(booking.bookingId())).isEmpty();
     }
 
     @Test

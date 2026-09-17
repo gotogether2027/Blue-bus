@@ -21,6 +21,7 @@ import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
 import in.bluebustickets.bluebus.payments.repository.PaymentProviderEventRepository;
 import in.bluebustickets.bluebus.payments.repository.RefundRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -171,7 +172,12 @@ public class VerifiedPaymentEventProcessor {
             if (!sameSuccessfulPayment(event, attempt)) {
                 event.requireReview("CONFLICTING_SUCCESS_REFERENCE", now);
             } else if (attempt.getDisposition() == PaymentDisposition.REQUIRES_RESOLUTION) {
-                event.requireReview(attempt.getResolutionReason(), now);
+                persistCompensationRefundIfEligible(attempt, attempt.getResolutionReason(), now);
+                if (isLatePaymentCompensationReason(attempt.getResolutionReason())) {
+                    event.complete("DUPLICATE_SUCCESS", now);
+                } else {
+                    event.requireReview(attempt.getResolutionReason(), now);
+                }
             } else {
                 event.complete("DUPLICATE_SUCCESS", now);
             }
@@ -208,7 +214,12 @@ public class VerifiedPaymentEventProcessor {
             event.complete("BOOKING_CONFIRMED", now);
         } else {
             writeOutbox("PAYMENT_REQUIRES_RESOLUTION", attempt, event, now);
-            event.requireReview(resolutionReason, now);
+            persistCompensationRefundIfEligible(attempt, resolutionReason, now);
+            if (isLatePaymentCompensationReason(resolutionReason)) {
+                event.complete("LATE_PAYMENT_COMPENSATION", now);
+            } else {
+                event.requireReview(resolutionReason, now);
+            }
         }
 
         return new PaymentProcessingResult(
@@ -342,6 +353,55 @@ public class VerifiedPaymentEventProcessor {
             return "PAYMENT_AFTER_DEADLINE";
         }
         return null;
+    }
+
+    /**
+     * Late captured money against a non-travel-valid booking is refunded in full from the
+     * persisted captured amount. The refund row is inserted in this payment transaction so a
+     * crash before provider HTTP is recovered by the existing V19 worker. No provider call here.
+     * <p>
+     * Concurrent process() of the same attempt serializes on {@code payment_attempts FOR UPDATE}
+     * (after the booking lock). Every refund insert for an attempt — this method,
+     * {@code BookingCancellationService.persistRequestedRefund}, and {@code RefundWorker.reserve} —
+     * takes that same payment row lock, so skip-if-any-refund cannot race. Unique
+     * {@code (payment_attempt_id, idempotency_key)} with key {@code late-payment-{id}} is the
+     * same-key fallback. No extra unique-on-attempt schema is required.
+     */
+    private void persistCompensationRefundIfEligible(
+            PaymentAttempt attempt, String resolutionReason, Instant now) {
+        if (!isLatePaymentCompensationReason(resolutionReason)
+                || attempt.getCapturedAmount() == null
+                || attempt.getCurrency() == null) {
+            return;
+        }
+        if (!refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attempt.getId()).isEmpty()) {
+            return;
+        }
+        String key = RefundApplicationService.compensationIdempotencyKey(attempt.getId());
+        String fingerprint = RefundApplicationService.requestFingerprint(
+                attempt.getId(), attempt.getCapturedAmount(), attempt.getCurrency());
+        Refund refund = new Refund(
+                attempt.getId(),
+                attempt.getBookingId(),
+                attempt.getProvider(),
+                key,
+                fingerprint,
+                attempt.getCapturedAmount(),
+                attempt.getCurrency(),
+                RefundApplicationService.COMPENSATION_REASON,
+                now);
+        try {
+            refundRepository.saveAndFlush(refund);
+        } catch (DataIntegrityViolationException ignored) {
+            // Concurrent duplicate success already inserted (payment_attempt_id, idempotency_key).
+        }
+    }
+
+    static boolean isLatePaymentCompensationReason(String reason) {
+        return "BOOKING_EXPIRED".equals(reason)
+                || "BOOKING_CANCELLED".equals(reason)
+                || "BOOKING_NOT_PAYABLE".equals(reason)
+                || "PAYMENT_AFTER_DEADLINE".equals(reason);
     }
 
     private void writeOutbox(

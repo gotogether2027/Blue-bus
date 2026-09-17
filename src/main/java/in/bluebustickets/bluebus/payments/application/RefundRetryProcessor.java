@@ -9,6 +9,7 @@ import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.application.BookingPaymentPort;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
+import in.bluebustickets.bluebus.payments.domain.PaymentAttempt;
 import in.bluebustickets.bluebus.payments.domain.Refund;
 import in.bluebustickets.bluebus.payments.domain.RefundStatus;
 import jakarta.persistence.EntityManager;
@@ -47,8 +48,7 @@ public class RefundRetryProcessor {
         if (!isRetryable(refund) || (refund.getNextRetryAt() != null && refund.getNextRetryAt().isAfter(now))) {
             return Optional.empty();
         }
-        BookingStatus bookingStatus = bookingPaymentPort.currentStatus(refund.getBookingId());
-        if (bookingStatus != BookingStatus.REFUND_PENDING) {
+        if (!workerEligible(refund)) {
             return Optional.empty();
         }
         Instant leaseUntil = now.plus(Duration.ofMillis(properties.getLeaseMs()));
@@ -63,8 +63,7 @@ public class RefundRetryProcessor {
         if (locked == null || !isRetryable(locked)) {
             return;
         }
-        BookingStatus bookingStatus = bookingPaymentPort.currentStatus(locked.getBookingId());
-        if (bookingStatus != BookingStatus.REFUND_PENDING) {
+        if (!workerEligible(locked)) {
             return;
         }
         long delayMs = properties.backoffDelayMs(locked.getAttemptCount());
@@ -79,6 +78,16 @@ public class RefundRetryProcessor {
         return refund.getStatus() == RefundStatus.REQUESTED
                 || refund.getStatus() == RefundStatus.PROCESSING
                 || refund.getStatus() == RefundStatus.FAILED;
+    }
+
+    /**
+     * Claim both confirmed-cancellation refunds and late-payment compensation refunds.
+     * Reads payment without extra locks; refund SKIP LOCKED is already held. Never calls the provider.
+     */
+    private boolean workerEligible(Refund refund) {
+        BookingStatus bookingStatus = bookingPaymentPort.currentStatus(refund.getBookingId());
+        PaymentAttempt attempt = entityManager.find(PaymentAttempt.class, refund.getPaymentAttemptId());
+        return RefundApplicationService.isWorkerEligible(refund, bookingStatus, attempt);
     }
 
     @SuppressWarnings("unchecked")

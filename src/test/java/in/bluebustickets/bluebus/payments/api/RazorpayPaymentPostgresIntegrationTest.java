@@ -39,6 +39,7 @@ import in.bluebustickets.bluebus.identity.domain.UserRole;
 import in.bluebustickets.bluebus.identity.repository.RoleRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
+import in.bluebustickets.bluebus.payments.application.RefundApplicationService;
 import in.bluebustickets.bluebus.payments.application.RefundRetryProcessor;
 import in.bluebustickets.bluebus.payments.application.RefundRetryProperties;
 import in.bluebustickets.bluebus.payments.application.RefundRetryService;
@@ -548,30 +549,301 @@ class RazorpayPaymentPostgresIntegrationTest {
 
     @Test
     void latePaymentDoesNotResurrectExpiredOrCancelledBookings() throws Exception {
+        refundRetryProperties.setAfterCommitEnabled(false);
         CreatedBooking expired = createPendingBooking();
         JsonNode expiredAttempt = initiate(expired, "late-expired");
+        UUID expiredAttemptId = UUID.fromString(expiredAttempt.get("paymentAttemptId").asText());
         forcePaymentExpiresAt(expired.bookingId(), Instant.now().minusSeconds(5));
         bookingExpiryService.expireDueBookings(Instant.now());
         sendWebhook(capturedBody(expiredAttempt, "evt_late_exp", "pay_late_exp", epochNow()), "evt_late_exp")
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.processingStatus").value("LATE_PAYMENT_COMPENSATION"));
         assertThat(bookingRepository.findById(expired.bookingId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.EXPIRED);
-        assertThat(paymentAttemptRepository.findById(
-                UUID.fromString(expiredAttempt.get("paymentAttemptId").asText())).orElseThrow().getDisposition())
-                .isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        var expiredPayment = paymentAttemptRepository.findById(expiredAttemptId).orElseThrow();
+        assertThat(expiredPayment.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(expiredPayment.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
         assertThat(allocationsFor(expired)).allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+        assertThat(outboxCount("BOOKING_CONFIRMED", expired.bookingId())).isZero();
+        assertThat(ticketRepository.findByBookingId(expired.bookingId())).isEmpty();
+        assertCompensationRefund(expiredAttemptId, expiredPayment.getCapturedAmount(), RefundStatus.REQUESTED);
+        assertThat(GATEWAY.refundHttpCalls()).isZero();
+
+        mockMvc.perform(get("/api/v1/payments/{id}", expiredAttemptId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.disposition").value("REQUIRES_RESOLUTION"));
+        mockMvc.perform(post("/api/v1/bookings/{id}/tickets", expired.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/v1/payments/{id}/refunds", expiredAttemptId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .header("Idempotency-Key", "customer-late-refund"))
+                .andExpect(status().isConflict());
 
         CreatedBooking cancelled = createPendingBooking();
         JsonNode cancelledAttempt = initiate(cancelled, "late-cancel");
+        UUID cancelledAttemptId = UUID.fromString(cancelledAttempt.get("paymentAttemptId").asText());
         bookingLifecycleService.cancelUnpaidBooking(cancelled.bookingId());
         sendWebhook(capturedBody(cancelledAttempt, "evt_late_can", "pay_late_can", epochNow()), "evt_late_can")
                 .andExpect(status().isOk());
         assertThat(bookingRepository.findById(cancelled.bookingId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.CANCELLED);
-        assertThat(paymentAttemptRepository.findById(
-                UUID.fromString(cancelledAttempt.get("paymentAttemptId").asText())).orElseThrow().getDisposition())
-                .isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        var cancelledPayment = paymentAttemptRepository.findById(cancelledAttemptId).orElseThrow();
+        assertThat(cancelledPayment.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
         assertThat(allocationsFor(cancelled)).allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+        assertThat(outboxCount("BOOKING_CONFIRMED", cancelled.bookingId())).isZero();
+        assertCompensationRefund(cancelledAttemptId, cancelledPayment.getCapturedAmount(), RefundStatus.REQUESTED);
+    }
+
+    @Test
+    void latePaymentCompensationRefundsCapturedAmountThroughExistingWorker() throws Exception {
+        refundRetryProperties.setAfterCommitEnabled(false);
+        CreatedBooking expired = createPendingBooking();
+        JsonNode attempt = initiate(expired, "late-comp-success");
+        UUID attemptId = UUID.fromString(attempt.get("paymentAttemptId").asText());
+        BigDecimal captured = attempt.get("amount").decimalValue();
+        forcePaymentExpiresAt(expired.bookingId(), Instant.now().minusSeconds(5));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        sendWebhook(capturedBody(attempt, "evt_late_comp", "pay_late_comp", epochNow()), "evt_late_comp")
+                .andExpect(status().isOk());
+
+        Refund requested = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId).get(0);
+        assertThat(requested.getAmount()).isEqualByComparingTo(captured);
+        assertThat(requested.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(GATEWAY.refundHttpCalls()).isZero();
+
+        RefundRetryService.RefundRetryResult processed = refundRetryService.processDueRefunds();
+        assertThat(processed.completed()).isGreaterThanOrEqualTo(1);
+        Refund succeeded = refundRepository.findById(requested.getId()).orElseThrow();
+        assertThat(succeeded.getStatus()).isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(succeeded.getAmount()).isEqualByComparingTo(captured);
+        assertThat(GATEWAY.lastRefundAmountPaise()).isEqualTo(captured.movePointRight(2).longValueExact());
+        assertThat(GATEWAY.lastRefundIdempotencyKey()).isEqualTo(requested.getId().toString());
+        assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
+        assertThat(bookingRepository.findById(expired.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(paymentAttemptRepository.findById(attemptId).orElseThrow().getDisposition())
+                .isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        mockMvc.perform(get("/api/v1/payments/{id}", attemptId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.disposition").value("REQUIRES_RESOLUTION"));
+        assertThat(allocationsFor(expired)).allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+        assertThat(ticketRepository.findByBookingId(expired.bookingId())).isEmpty();
+        assertThat(outboxCount("BOOKING_CONFIRMED", expired.bookingId())).isZero();
+        assertThat(cancellationRepository.count()).isZero();
+
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId)).hasSize(1);
+        assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
+
+        CreatedBooking failed = createPendingBooking();
+        JsonNode failedAttempt = initiate(failed, "late-comp-fail");
+        UUID failedAttemptId = UUID.fromString(failedAttempt.get("paymentAttemptId").asText());
+        forcePaymentExpiresAt(failed.bookingId(), Instant.now().minusSeconds(5));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        sendWebhook(capturedBody(failedAttempt, "evt_late_fail", "pay_late_fail", epochNow()), "evt_late_fail")
+                .andExpect(status().isOk());
+        GATEWAY.failRefunds = true;
+        int callsBefore = GATEWAY.refundHttpCalls();
+        refundRetryService.processDueRefunds();
+        Refund failedRefund = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(failedAttemptId).get(0);
+        assertThat(failedRefund.getStatus()).isEqualTo(RefundStatus.FAILED);
+        assertThat(failedRefund.getNextRetryAt()).isAfter(Instant.now().minusSeconds(1));
+        assertThat(bookingRepository.findById(failed.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        refundRetryService.processDueRefunds();
+        assertThat(GATEWAY.refundHttpCalls()).isEqualTo(callsBefore + 1);
+        GATEWAY.failRefunds = false;
+        jdbcTemplate.update("UPDATE refunds SET next_retry_at = NULL WHERE id = ?", failedRefund.getId());
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findById(failedRefund.getId()).orElseThrow().getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(failed.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(GATEWAY.lastRefundIdempotencyKey()).isEqualTo(failedRefund.getId().toString());
+    }
+
+    @Test
+    void latePaymentCompensationIsIdempotentUnderDuplicatesRetriesAndRestart() throws Exception {
+        refundRetryProperties.setAfterCommitEnabled(false);
+        CreatedBooking booking = createPendingBooking();
+        JsonNode attempt = initiate(booking, "late-idemp");
+        UUID attemptId = UUID.fromString(attempt.get("paymentAttemptId").asText());
+        forcePaymentExpiresAt(booking.bookingId(), Instant.now().minusSeconds(5));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        String body = capturedBody(attempt, "evt_late_idemp", "pay_late_idemp", epochNow());
+        sendWebhook(body, "evt_late_idemp").andExpect(status().isOk());
+        sendWebhook(body, "evt_late_idemp").andExpect(status().isOk()).andExpect(jsonPath("$.duplicate").value(true));
+        sendWebhook(capturedBody(attempt, "evt_late_idemp_2", "pay_late_idemp", epochNow()), "evt_late_idemp_2")
+                .andExpect(status().isOk());
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId)).hasSize(1);
+        Refund refund = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId).get(0);
+        assertThat(refund.getIdempotencyKey())
+                .isEqualTo(RefundApplicationService.compensationIdempotencyKey(attemptId));
+        assertThat(GATEWAY.refundHttpCalls()).isZero();
+
+        jdbcTemplate.update("UPDATE refunds SET next_retry_at = NULL WHERE id = ?", refund.getId());
+        runConcurrent(
+                () -> refundRetryService.processDueRefunds(),
+                () -> refundRetryService.processDueRefunds());
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId)).hasSize(1);
+        assertThat(refundRepository.findById(refund.getId()).orElseThrow().getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
+        String stableKey = GATEWAY.lastRefundIdempotencyKey();
+        assertThat(stableKey).isEqualTo(refund.getId().toString());
+
+        sendWebhook(refundProcessedBody(attempt, refund.getProviderRefundId(), "pay_late_idemp"), "evt_late_rfnd")
+                .andExpect(status().isOk());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attemptId)).hasSize(1);
+        refundRetryService.processDueRefunds();
+        assertThat(GATEWAY.lastRefundIdempotencyKey()).isEqualTo(stableKey);
+        assertThat(GATEWAY.uniqueRefundCount()).isEqualTo(1);
+
+        CreatedBooking restart = createPendingBooking();
+        JsonNode restartAttempt = initiate(restart, "late-restart");
+        UUID restartAttemptId = UUID.fromString(restartAttempt.get("paymentAttemptId").asText());
+        forcePaymentExpiresAt(restart.bookingId(), Instant.now().minusSeconds(5));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        sendWebhook(capturedBody(restartAttempt, "evt_late_restart", "pay_late_restart", epochNow()),
+                "evt_late_restart").andExpect(status().isOk());
+        Refund durable = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(restartAttemptId).get(0);
+        assertThat(durable.getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(durable.getProviderRefundId()).isNull();
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findById(durable.getId()).orElseThrow().getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(restart.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+    }
+
+    @Test
+    void latePaymentCompensationStaysIsolatedFromNormalConfirmAndCancellationRefunds() throws Exception {
+        refundRetryProperties.setAfterCommitEnabled(false);
+        CreatedBooking confirmed = createPendingBooking();
+        JsonNode confirmedAttempt = initiate(confirmed, "normal-confirm");
+        sendWebhook(capturedBody(confirmedAttempt, "evt_normal_ok", "pay_normal_ok", epochNow()), "evt_normal_ok")
+                .andExpect(status().isOk());
+        assertThat(bookingRepository.findById(confirmed.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+        assertThat(paymentAttemptRepository.findById(
+                UUID.fromString(confirmedAttempt.get("paymentAttemptId").asText())).orElseThrow().getDisposition())
+                .isEqualTo(PaymentDisposition.APPLIED_TO_BOOKING);
+        assertThat(refundRepository.findByBookingIdOrderByCreatedAtDesc(confirmed.bookingId())).isEmpty();
+        assertThat(outboxCount("BOOKING_CONFIRMED", confirmed.bookingId())).isEqualTo(1);
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", confirmed.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        Refund cancellation = refundRepository.findByBookingIdOrderByCreatedAtDesc(confirmed.bookingId()).get(0);
+        assertThat(cancellation.getIdempotencyKey()).startsWith("booking-cancel-");
+        assertThat(cancellation.getIdempotencyKey()).doesNotStartWith("late-payment-");
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findById(cancellation.getId()).orElseThrow().getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(confirmed.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.REFUNDED);
+
+        CreatedBooking mismatch = createPendingBooking();
+        JsonNode mismatchAttempt = initiate(mismatch, "amount-mismatch-comp");
+        String mismatchBody = """
+                {"id":"evt_mismatch_comp","event":"payment.captured","created_at":%d,"payload":{"payment":{"entity":{"id":"pay_mismatch_comp","order_id":"%s","amount":100,"currency":"INR","status":"captured","notes":{"merchant_reference":"%s"}}}}}
+                """.formatted(
+                epochNow(),
+                mismatchAttempt.get("providerOrderId").asText(),
+                mismatchAttempt.get("merchantReference").asText()).trim();
+        sendWebhook(mismatchBody, "evt_mismatch_comp").andExpect(status().isOk());
+        UUID mismatchId = UUID.fromString(mismatchAttempt.get("paymentAttemptId").asText());
+        assertThat(paymentAttemptRepository.findById(mismatchId).orElseThrow().getDisposition())
+                .isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        assertThat(bookingRepository.findById(mismatch.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(mismatchId)).isEmpty();
+
+        CreatedBooking checkoutExpired = createPendingBooking();
+        JsonNode checkoutAttempt = initiate(checkoutExpired, "late-checkout");
+        UUID checkoutAttemptId = UUID.fromString(checkoutAttempt.get("paymentAttemptId").asText());
+        String orderId = checkoutAttempt.get("providerOrderId").asText();
+        String paymentId = "pay_late_checkout";
+        forcePaymentExpiresAt(checkoutExpired.bookingId(), Instant.now().minusSeconds(5));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        mockMvc.perform(post("/api/v1/payments/{id}/checkout", checkoutAttemptId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(checkoutBody(paymentId, orderId, hmac(orderId + "|" + paymentId, KEY_SECRET))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.disposition").value("REQUIRES_RESOLUTION"));
+        assertThat(bookingRepository.findById(checkoutExpired.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertCompensationRefund(
+                checkoutAttemptId,
+                paymentAttemptRepository.findById(checkoutAttemptId).orElseThrow().getCapturedAmount(),
+                RefundStatus.REQUESTED);
+    }
+
+    @Test
+    void latePaymentCompensationConcurrencyKeepsOneRefundAndNeverConfirms() throws Exception {
+        refundRetryProperties.setAfterCommitEnabled(false);
+        CreatedBooking duplicate = createPendingBooking();
+        JsonNode dupAttempt = initiate(duplicate, "late-conc-dup");
+        UUID dupAttemptId = UUID.fromString(dupAttempt.get("paymentAttemptId").asText());
+        forcePaymentExpiresAt(duplicate.bookingId(), Instant.now().minusSeconds(5));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        String dupBody = capturedBody(dupAttempt, "evt_late_dup", "pay_late_dup", epochNow());
+        runConcurrent(
+                () -> sendWebhook(dupBody, "evt_late_dup").andReturn(),
+                () -> sendWebhook(dupBody, "evt_late_dup").andReturn());
+        assertThat(bookingRepository.findById(duplicate.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(dupAttemptId)).hasSize(1);
+        assertThat(outboxCount("BOOKING_CONFIRMED", duplicate.bookingId())).isZero();
+
+        CreatedBooking workerRace = createPendingBooking();
+        JsonNode workerAttempt = initiate(workerRace, "late-worker-race");
+        UUID workerAttemptId = UUID.fromString(workerAttempt.get("paymentAttemptId").asText());
+        forcePaymentExpiresAt(workerRace.bookingId(), Instant.now().minusSeconds(5));
+        bookingExpiryService.expireDueBookings(Instant.now());
+        String workerBody = capturedBody(workerAttempt, "evt_late_worker", "pay_late_worker", epochNow());
+        runConcurrent(
+                () -> sendWebhook(workerBody, "evt_late_worker").andReturn(),
+                () -> refundRetryService.processDueRefunds());
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(workerAttemptId)).hasSize(1);
+        jdbcTemplate.update(
+                "UPDATE refunds SET next_retry_at = NULL WHERE payment_attempt_id = ?", workerAttemptId);
+        refundRetryService.processDueRefunds();
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(workerAttemptId).get(0).getStatus())
+                .isEqualTo(RefundStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(workerRace.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(GATEWAY.uniqueRefundCount()).isGreaterThanOrEqualTo(1);
+
+        CreatedBooking expiryRace = createPendingBooking();
+        JsonNode expiryAttempt = initiate(expiryRace, "late-exp-comp");
+        forcePaymentExpiresAt(expiryRace.bookingId(), Instant.now().minusSeconds(2));
+        runConcurrent(
+                () -> sendWebhook(capturedBody(expiryAttempt, "evt_late_exp_c", "pay_late_exp_c", epochNow()),
+                        "evt_late_exp_c").andReturn(),
+                () -> bookingExpiryService.expireDueBookings(Instant.now()));
+        BookingStatus expiryFinal = bookingRepository.findById(expiryRace.bookingId()).orElseThrow().getStatus();
+        assertThat(expiryFinal).isIn(BookingStatus.CONFIRMED, BookingStatus.EXPIRED);
+        var expiryPayment = paymentAttemptRepository.findById(
+                UUID.fromString(expiryAttempt.get("paymentAttemptId").asText())).orElseThrow();
+        if (expiryFinal == BookingStatus.CONFIRMED) {
+            assertThat(expiryPayment.getDisposition()).isEqualTo(PaymentDisposition.APPLIED_TO_BOOKING);
+            assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(expiryPayment.getId())).isEmpty();
+        } else if (expiryPayment.getStatus() == PaymentStatus.SUCCEEDED) {
+            assertThat(expiryPayment.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+            assertCompensationRefund(expiryPayment.getId(), expiryPayment.getCapturedAmount(), RefundStatus.REQUESTED);
+        }
     }
 
     @Test
@@ -1216,6 +1488,18 @@ class RazorpayPaymentPostgresIntegrationTest {
     private List<in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation> allocationsFor(
             CreatedBooking created) {
         return allocationRepository.findByHoldIdOrderByCreatedAtAsc(created.holdId());
+    }
+
+    private void assertCompensationRefund(UUID paymentAttemptId, BigDecimal captured, RefundStatus status) {
+        var refunds = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(paymentAttemptId);
+        assertThat(refunds).hasSize(1);
+        Refund refund = refunds.get(0);
+        assertThat(refund.getAmount()).isEqualByComparingTo(captured);
+        assertThat(refund.getCurrency()).isEqualTo("INR");
+        assertThat(refund.getIdempotencyKey())
+                .isEqualTo(RefundApplicationService.compensationIdempotencyKey(paymentAttemptId));
+        assertThat(refund.getReason()).isEqualTo(RefundApplicationService.COMPENSATION_REASON);
+        assertThat(refund.getStatus()).isEqualTo(status);
     }
 
     private void forcePaymentExpiresAt(UUID bookingId, Instant expiresAt) {

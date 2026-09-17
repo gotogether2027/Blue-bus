@@ -31,8 +31,10 @@ import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
 import in.bluebustickets.bluebus.payments.api.dto.PaymentInitiationResponse;
 import in.bluebustickets.bluebus.payments.application.PaymentInitiationService;
+import in.bluebustickets.bluebus.payments.application.RefundApplicationService;
 import in.bluebustickets.bluebus.payments.domain.PaymentDisposition;
 import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
+import in.bluebustickets.bluebus.payments.domain.RefundStatus;
 import in.bluebustickets.bluebus.payments.provider.PaymentProvider;
 import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
 import in.bluebustickets.bluebus.payments.repository.PaymentProviderEventRepository;
@@ -631,6 +633,8 @@ class BookingExpiryPostgresIntegrationTest {
         assertThat(amountStored.getResolutionReason()).isEqualTo("AMOUNT_MISMATCH");
         assertThat(bookingRepository.findById(amountBooking.bookingId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(amountAttempt.paymentAttemptId()))
+                .isEmpty();
 
         CreatedBooking currencyBooking = createPaidPendingBooking("PAY-11", "PAY-RT-11", 0);
         PaymentInitiationResponse currencyAttempt = initiate(currencyBooking, "currency-mismatch");
@@ -641,6 +645,8 @@ class BookingExpiryPostgresIntegrationTest {
         assertThat(currencyStored.getResolutionReason()).isEqualTo("CURRENCY_MISMATCH");
         assertThat(bookingRepository.findById(currencyBooking.bookingId()).orElseThrow().getStatus())
                 .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(currencyAttempt.paymentAttemptId()))
+                .isEmpty();
     }
 
     @Test
@@ -669,6 +675,88 @@ class BookingExpiryPostgresIntegrationTest {
         assertThat(allocationsFor(created))
                 .hasSize(1)
                 .allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM trip_seat_allocations WHERE booking_item_id = "
+                        + "(SELECT booking_item_id FROM trip_seat_allocations WHERE hold_id = ?) ",
+                Integer.class,
+                created.holdId())).isEqualTo(1);
+        var refunds = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attempt.paymentAttemptId());
+        assertThat(refunds).hasSize(1);
+        assertThat(refunds.get(0).getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(refunds.get(0).getAmount()).isEqualByComparingTo(stored.getCapturedAmount());
+        assertThat(refunds.get(0).getIdempotencyKey())
+                .isEqualTo(RefundApplicationService.compensationIdempotencyKey(attempt.paymentAttemptId()));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM outbox_events WHERE event_type = 'BOOKING_CONFIRMED' AND aggregate_id = ?",
+                Integer.class,
+                created.bookingId())).isZero();
+    }
+
+    @Test
+    void paymentAfterDeadlineDoesNotConfirmAndExpiryStillReleasesSeats() throws Exception {
+        CreatedBooking created = createPaidPendingBooking("PAY-12B", "PAY-RT-12B", 0);
+        PaymentInitiationResponse attempt = initiate(created, "after-deadline");
+        Instant deadline = Instant.now().minusSeconds(10);
+        forcePaymentExpiresAt(created.bookingId(), deadline);
+
+        sendWebhook(
+                attempt,
+                "deadline-success-event",
+                "PAYMENT_SUCCEEDED",
+                "900.00",
+                "INR",
+                Instant.now())
+                .andExpect(status().isOk());
+
+        var stored = paymentAttemptRepository.findById(attempt.paymentAttemptId()).orElseThrow();
+        assertThat(stored.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(stored.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        assertThat(stored.getResolutionReason()).isEqualTo("PAYMENT_AFTER_DEADLINE");
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(allocationsFor(created))
+                .hasSize(1)
+                .allMatch(a -> a.getState() == TripSeatAllocationState.BOOKED);
+        assertThat(findAvailability(created.tripId(), created.seatIds().get(0)))
+                .isEqualTo(JourneySeatAvailability.UNAVAILABLE);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM outbox_events WHERE event_type = 'BOOKING_CONFIRMED' AND aggregate_id = ?",
+                Integer.class,
+                created.bookingId())).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM tickets WHERE booking_id = ?",
+                Integer.class,
+                created.bookingId())).isZero();
+        var refunds = refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attempt.paymentAttemptId());
+        assertThat(refunds).hasSize(1);
+        assertThat(refunds.get(0).getStatus()).isEqualTo(RefundStatus.REQUESTED);
+        assertThat(refunds.get(0).getAmount()).isEqualByComparingTo(stored.getCapturedAmount());
+        assertThat(refunds.get(0).getIdempotencyKey())
+                .isEqualTo(RefundApplicationService.compensationIdempotencyKey(attempt.paymentAttemptId()));
+
+        sendWebhook(
+                attempt,
+                "deadline-success-event",
+                "PAYMENT_SUCCEEDED",
+                "900.00",
+                "INR",
+                Instant.now())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.duplicate").value(true));
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attempt.paymentAttemptId()))
+                .hasSize(1);
+
+        BookingExpiryResult expired = bookingExpiryService.expireDueBookings(Instant.now());
+        assertThat(expired.bookingsExpired()).isEqualTo(1);
+        assertThat(bookingRepository.findById(created.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(allocationsFor(created)).allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+        assertThat(findAvailability(created.tripId(), created.seatIds().get(0)))
+                .isEqualTo(JourneySeatAvailability.AVAILABLE);
+        assertThat(paymentAttemptRepository.findById(attempt.paymentAttemptId()).orElseThrow().getDisposition())
+                .isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
+        assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(attempt.paymentAttemptId()))
+                .hasSize(1);
         assertThat(jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM trip_seat_allocations WHERE booking_item_id = "
                         + "(SELECT booking_item_id FROM trip_seat_allocations WHERE hold_id = ?) ",
@@ -735,6 +823,10 @@ class BookingExpiryPostgresIntegrationTest {
             assertThat(expiryPayment.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
             assertThat(allocationsFor(expiryRace))
                     .allMatch(a -> a.getState() == TripSeatAllocationState.RELEASED);
+            if (expiryPayment.getStatus() == PaymentStatus.SUCCEEDED) {
+                assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(expiryPayment.getId()))
+                        .hasSize(1);
+            }
         }
 
         CreatedBooking cancelRace = createPaidPendingBooking("PAY-15", "PAY-RT-15", 0);
@@ -756,6 +848,10 @@ class BookingExpiryPostgresIntegrationTest {
             assertThat(cancelPayment.getDisposition()).isEqualTo(PaymentDisposition.REQUIRES_RESOLUTION);
             assertThat(allocationsFor(cancelRace))
                     .allMatch(a -> a.getState() == TripSeatAllocationState.CANCELLED);
+            if (cancelPayment.getStatus() == PaymentStatus.SUCCEEDED) {
+                assertThat(refundRepository.findByPaymentAttemptIdOrderByCreatedAtDesc(cancelPayment.getId()))
+                        .hasSize(1);
+            }
         }
     }
 
