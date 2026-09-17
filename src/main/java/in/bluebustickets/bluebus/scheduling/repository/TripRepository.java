@@ -20,6 +20,9 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
     boolean existsByBus_IdAndServiceDateAndScheduledDepartureAt(
             UUID busId, LocalDate serviceDate, Instant scheduledDepartureAt);
 
+    Optional<Trip> findByBus_IdAndServiceDateAndScheduledDepartureAt(
+            UUID busId, LocalDate serviceDate, Instant scheduledDepartureAt);
+
     @Query("""
             select case when count(t) > 0 then true else false end
             from Trip t

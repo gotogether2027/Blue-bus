@@ -1,6 +1,7 @@
 package in.bluebustickets.bluebus.operator.repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.operator.domain.Operator;
@@ -8,6 +9,8 @@ import in.bluebustickets.bluebus.operator.domain.OperatorStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface OperatorRepository extends JpaRepository<Operator, UUID> {
+
+    Optional<Operator> findByLegalNameIgnoreCase(String legalName);
 
     List<Operator> findAllByOrderByDisplayNameAsc();
 

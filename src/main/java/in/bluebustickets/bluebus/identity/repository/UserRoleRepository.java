@@ -17,4 +17,6 @@ public interface UserRoleRepository extends JpaRepository<UserRole, UserRoleId> 
             where ur.user.id = :userId
             """)
     List<UserRole> findByUserIdWithRole(@Param("userId") UUID userId);
+
+    boolean existsByUser_IdAndRole_Id(UUID userId, UUID roleId);
 }

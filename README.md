@@ -83,4 +83,75 @@ To run tests:
 
 Tests explicitly use the `test` Spring profile. Fast foundation tests disable database auto-configuration through their test annotations; `FlywayPostgresIntegrationTest` starts PostgreSQL through Testcontainers and runs Flyway normally. It needs Docker, but does not need a developer-installed PostgreSQL instance. Production/local startup still requires PostgreSQL and runs Flyway. Redis and RabbitMQ are intentionally not configured yet.
 
-The health endpoint is a liveness probe only: it confirms the application process can serve HTTP. It is not currently a PostgreSQL readiness check. Browser CORS is an explicit `blue-bus.cors.allowed-origins` allow-list (empty by default; never `*`).
+The health endpoint is a liveness probe only: it confirms the application process can serve HTTP. It is not currently a PostgreSQL readiness check. Browser CORS is an explicit `blue-bus.cors.allowed-origins` allow-list (empty by default; never `*`). Local Angular development uses the `/api` proxy in `customer-web` and does not require CORS.
+
+## Local E2E demo data
+
+An opt-in Spring Boot bootstrap can seed a small local catalog for browser end-to-end checks of Search → Seats → Hold → Passengers → Booking. It is **disabled by default** and must never be enabled in production.
+
+Enable it only in a local shell (do not commit a password):
+
+```powershell
+$env:DEMO_DATA_ENABLED = "true"
+$env:DEMO_CUSTOMER_PASSWORD = "<choose-a-local-password>"
+# Optional. Default is demo.customer@example.test
+$env:DEMO_CUSTOMER_EMAIL = "demo.customer@example.test"
+```
+
+Equivalent Spring properties:
+
+- `blue-bus.demo-data.enabled=true` (or `DEMO_DATA_ENABLED=true`)
+- `blue-bus.demo-data.customer-password` from `DEMO_CUSTOMER_PASSWORD` (required when enabled; 8–72 characters, at least one letter and one digit)
+- `blue-bus.demo-data.customer-email` from `DEMO_CUSTOMER_EMAIL`
+
+Startup fails if demo data is enabled without a valid password. The password is never logged.
+
+### Start the backend
+
+With PostgreSQL running and `JWT_SECRET` plus database variables loaded as in `.env.example`:
+
+```powershell
+.\mvnw.cmd spring-boot:run
+```
+
+```bash
+./mvnw spring-boot:run
+```
+
+### Start customer-web
+
+From `customer-web/`, after the backend is up:
+
+```bash
+npm install
+npm start
+```
+
+Open http://localhost:4200. The Angular dev server proxies `/api` to `http://localhost:8080`.
+
+### Demo customer login
+
+1. Open http://localhost:4200/login
+2. Email: `demo.customer@example.test` unless you overrode `DEMO_CUSTOMER_EMAIL`
+3. Password: the same local value you set in `DEMO_CUSTOMER_PASSWORD`
+
+The account is `ACTIVE` with the `CUSTOMER` role only. No platform admin is created.
+
+### Search Hyderabad → Vijayawada
+
+1. On the home page, choose **Hyderabad** as origin and **Vijayawada** as destination. The demo locality label is `BLUE BUS local demo`.
+2. Set the journey date to **2099-01-15** (the seeded trip stays inside the existing saleability window).
+3. Search.
+
+Expected result: one saleable trip (Demo Express / `DEMO-HYD-VJA`) with **4 available seats**. You can hold a seat, enter passengers, and create a `PENDING_PAYMENT` booking.
+
+### Payments
+
+Razorpay Checkout is **not** stubbed. Without valid Razorpay test credentials (`PAYMENT_PROVIDER=RAZORPAY` plus key id/secret/webhook secret):
+
+- Search, seat map, hold, passengers, and booking create still work
+- Payment initiation stops at the configured-provider boundary (`UNCONFIGURED` → HTTP 503)
+- Browser Razorpay Checkout is not testable
+- No fake payment success is created
+
+The bootstrap never writes payment attempts, never marks payments successful, and never deletes unrelated users, bookings, trips, tickets, or refunds. Re-running the application does not duplicate the demo catalog.

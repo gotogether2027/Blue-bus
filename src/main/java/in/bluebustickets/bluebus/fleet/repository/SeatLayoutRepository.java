@@ -12,6 +12,8 @@ public interface SeatLayoutRepository extends JpaRepository<SeatLayout, UUID> {
 
     boolean existsByOperator_IdAndNameIgnoreCaseAndVersion(UUID operatorId, String name, int version);
 
+    Optional<SeatLayout> findByOperator_IdAndNameIgnoreCaseAndVersion(UUID operatorId, String name, int version);
+
     Optional<SeatLayout> findByIdAndOperator_Id(UUID id, UUID operatorId);
 
     List<SeatLayout> findAllByOrderByNameAscVersionAsc();

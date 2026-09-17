@@ -1,6 +1,7 @@
 package in.bluebustickets.bluebus.scheduling.repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.scheduling.domain.Location;
@@ -9,6 +10,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface LocationRepository extends JpaRepository<Location, UUID> {
+
+    Optional<Location> findByCityIgnoreCaseAndStateIgnoreCaseAndLocalityIgnoreCase(
+            String city, String state, String locality);
 
     List<Location> findByActiveOrderByStateAscCityAsc(boolean active);
 

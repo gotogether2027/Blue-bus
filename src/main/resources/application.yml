@@ -84,6 +84,12 @@ blue-bus:
   cors:
     # Fail-closed: empty list grants no browser origins. Never use "*".
     allowed-origins: []
+  demo-data:
+    # Local E2E catalog only. Default false; never enable in production.
+    enabled: ${DEMO_DATA_ENABLED:false}
+    customer-email: ${DEMO_CUSTOMER_EMAIL:demo.customer@example.test}
+    # Required when enabled. Supply via environment — do not commit a password.
+    customer-password: ${DEMO_CUSTOMER_PASSWORD:}
 
 logging:
   level:

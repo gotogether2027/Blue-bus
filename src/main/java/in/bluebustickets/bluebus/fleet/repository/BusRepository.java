@@ -12,6 +12,8 @@ public interface BusRepository extends JpaRepository<Bus, UUID> {
 
     boolean existsByRegistrationNumberIgnoreCase(String registrationNumber);
 
+    Optional<Bus> findByRegistrationNumberIgnoreCase(String registrationNumber);
+
     List<Bus> findAllByOrderByRegistrationNumberAsc();
 
     List<Bus> findByOperator_IdOrderByRegistrationNumberAsc(UUID operatorId);

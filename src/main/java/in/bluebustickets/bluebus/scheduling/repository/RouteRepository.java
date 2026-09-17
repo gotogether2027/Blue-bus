@@ -12,6 +12,8 @@ public interface RouteRepository extends JpaRepository<Route, UUID> {
 
     boolean existsByOperator_IdAndCodeIgnoreCase(UUID operatorId, String code);
 
+    Optional<Route> findByOperator_IdAndCodeIgnoreCase(UUID operatorId, String code);
+
     List<Route> findAllByOrderByCodeAsc();
 
     List<Route> findByOperator_IdOrderByCodeAsc(UUID operatorId);

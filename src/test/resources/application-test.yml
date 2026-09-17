@@ -52,3 +52,6 @@ blue-bus:
   cors:
     allowed-origins:
       - http://localhost:4200
+  demo-data:
+    # Tests must opt in explicitly. Never seed the shared catalog by default.
+    enabled: false
