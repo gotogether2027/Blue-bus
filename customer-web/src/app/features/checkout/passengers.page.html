@@ -1,0 +1,31 @@
+<section class="page">
+  <h1>Passenger details</h1>
+  @if (session) {
+    <p class="muted">{{ remainingLabel }}</p>
+    <p class="muted">{{ session.seats.length }} held seat(s)</p>
+    <form class="stack" (ngSubmit)="continue()">
+      @for (passenger of passengers; track passenger.seatInventoryId; let i = $index) {
+        <article class="card stack">
+          <h2>Seat {{ seatNumber(passenger.seatInventoryId) }}</h2>
+          <label class="field">
+            <span>Full name</span>
+            <input name="fullName{{ i }}" [(ngModel)]="passenger.fullName" required maxlength="120" />
+          </label>
+          <label class="field">
+            <span>Age (optional)</span>
+            <input type="number" name="age{{ i }}" [(ngModel)]="passenger.age" min="0" max="120" />
+          </label>
+          <label class="field">
+            <span>Gender (optional)</span>
+            <input name="gender{{ i }}" [(ngModel)]="passenger.gender" maxlength="30" />
+          </label>
+        </article>
+      }
+      @if (error) {
+        <p class="field-error">{{ error }}</p>
+      }
+      <button class="btn btn-primary" type="submit">Review booking</button>
+      <button class="btn btn-danger" type="button" (click)="cancelHold()">Cancel seat hold</button>
+    </form>
+  }
+</section>

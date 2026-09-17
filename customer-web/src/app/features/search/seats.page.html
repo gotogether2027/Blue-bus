@@ -1,0 +1,66 @@
+<section class="page">
+  <a
+    routerLink="/search"
+    class="back"
+    [queryParams]="{
+      originLocationId: originLocationId,
+      destinationLocationId: destinationLocationId,
+      serviceDate: serviceDate
+    }"
+  >← Search results</a>
+
+  @if (holdNotice) {
+    <p class="field-error">{{ holdNotice }}</p>
+  }
+
+  @if (snapshot) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">{{ snapshot.operatorName }}</p>
+        <h1>{{ snapshot.busDisplayName || snapshot.busRegistrationNumber }}</h1>
+        <p class="muted">
+          {{ snapshot.originLabel }} → {{ snapshot.destinationLabel }}
+          · {{ formatInstant(snapshot.scheduledDepartureAt, snapshot.timeZone) }}
+          → {{ formatInstant(snapshot.scheduledArrivalAt, snapshot.timeZone) }}
+        </p>
+      </div>
+      <p class="fare">{{ formatMoney(snapshot.baseFare, snapshot.currency) }}</p>
+    </header>
+  } @else {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Seat selection</p>
+        <h1>Choose seats</h1>
+      </div>
+    </header>
+  }
+
+  @if (loading) {
+    <div class="skeleton card"></div>
+  } @else if (error && !availability) {
+    <app-empty-state title="Seats unavailable" [message]="error">
+      <a routerLink="/" class="btn">Back to search</a>
+    </app-empty-state>
+  } @else if (availability) {
+    <div class="seat-legend muted">
+      <span class="legend available">Available</span>
+      <span class="legend selected">Selected</span>
+      <span class="legend taken">Taken</span>
+      <span class="legend blocked">Blocked</span>
+    </div>
+    <app-seat-map [decks]="decks" [selectedIds]="selectedIds" (select)="toggle($event)" />
+    <aside class="card stack">
+      <p><strong>{{ selectedSeats.length }}</strong> seat(s) selected</p>
+      <p>{{ selectedSeatNumbers }}</p>
+      @if (snapshot) {
+        <p class="muted">Search fare {{ formatMoney(snapshot.baseFare, snapshot.currency) }} (from trip search, not a booking total)</p>
+      }
+      @if (error) {
+        <p class="field-error">{{ error }}</p>
+      }
+      <button class="btn btn-primary" type="button" [disabled]="holding || selectedSeats.length === 0" (click)="continue()">
+        {{ holding ? 'Holding seats…' : (auth.isAuthenticated() ? 'Hold seats & continue' : 'Login to hold seats') }}
+      </button>
+    </aside>
+  }
+</section>

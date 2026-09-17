@@ -61,17 +61,7 @@
           <div class="trip-side">
             <p class="fare">{{ formatMoney(trip.baseFare, trip.currency) }}</p>
             <p class="muted">{{ trip.availableSeatCount }} seats left</p>
-            <a
-              class="btn btn-primary"
-              [routerLink]="['/trips', trip.tripId, 'seats']"
-              [queryParams]="{
-                originLocationId: originLocationId,
-                destinationLocationId: destinationLocationId,
-                serviceDate: serviceDate,
-                originStopId: trip.origin.tripStopId,
-                destinationStopId: trip.destination.tripStopId
-              }"
-            >Select seats</a>
+            <button class="btn btn-primary" type="button" (click)="openSeats(trip)">Select seats</button>
           </div>
         </article>
       }

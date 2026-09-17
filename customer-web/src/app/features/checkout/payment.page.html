@@ -1,0 +1,24 @@
+<section class="page">
+  <h1>Payment</h1>
+  @if (loading) {
+    <div class="skeleton card"></div>
+  } @else if (error && !initiation) {
+    <p class="field-error">{{ error }}</p>
+  } @else if (booking && initiation) {
+    <article class="card stack">
+      <p class="muted">{{ booking.bookingReference }}</p>
+      <p class="fare">{{ formatMoney(initiation.amount, initiation.currency) }}</p>
+      <app-status-badge [label]="initiation.status" [tone]="badgeTone(initiation.status)" />
+      @if (payment) {
+        <p>Latest payment status: {{ payment.status }}</p>
+      }
+      <p class="muted">BLUE BUS confirms payment from server status, not the checkout window alone.</p>
+      @if (error) {
+        <p class="field-error">{{ error }}</p>
+      }
+      <button class="btn btn-primary" type="button" [disabled]="paying || !initiation.providerOrderId || !initiation.checkoutReference" (click)="pay()">
+        {{ paying ? 'Opening checkout…' : 'Pay with Razorpay' }}
+      </button>
+    </article>
+  }
+</section>

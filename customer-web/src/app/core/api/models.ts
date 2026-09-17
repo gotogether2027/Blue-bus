@@ -101,6 +101,86 @@ export interface TripSearchResult {
   destination: TripSearchStop;
 }
 
+export type TripSeatInventoryStatus = 'AVAILABLE' | 'BLOCKED';
+
+export type JourneySeatAvailability = 'AVAILABLE' | 'UNAVAILABLE';
+
+export interface TripSeatAvailabilitySeat {
+  inventoryId: string;
+  seatNumber: string;
+  seatType: string;
+  deck: number;
+  row: number;
+  column: number;
+  physicalStatus: TripSeatInventoryStatus;
+  availability: JourneySeatAvailability;
+}
+
+export interface TripSeatAvailability {
+  tripId: string;
+  originStopId: string;
+  destinationStopId: string;
+  originSequence: number;
+  destinationSequence: number;
+  seats: TripSeatAvailabilitySeat[];
+}
+
+export interface CreateSeatHoldRequest {
+  originStopId: string;
+  destinationStopId: string;
+  seatInventoryIds: string[];
+  idempotencyKey?: string | null;
+}
+
+export type SeatHoldStatus = 'ACTIVE' | 'CONSUMED' | 'EXPIRED' | 'CANCELLED';
+
+export interface SeatHold {
+  holdId: string;
+  tripId: string;
+  originStopId: string;
+  destinationStopId: string;
+  originSequence: number;
+  destinationSequence: number;
+  status: SeatHoldStatus;
+  expiresAt: string;
+  seatInventoryIds: string[];
+}
+
+export interface BookingPassengerInput {
+  seatInventoryId: string;
+  fullName: string;
+  age?: number | null;
+  gender?: string | null;
+}
+
+export interface CreateBookingRequest {
+  holdId: string;
+  originStopId: string;
+  destinationStopId: string;
+  idempotencyKey: string;
+  passengers: BookingPassengerInput[];
+}
+
+export interface PaymentInitiation {
+  paymentAttemptId: string;
+  bookingId: string;
+  provider: string;
+  merchantReference: string;
+  providerOrderId: string | null;
+  checkoutReference: string | null;
+  amount: number;
+  currency: string;
+  status: PaymentStatus;
+  disposition: PaymentDisposition;
+  paymentExpiresAt: string | null;
+}
+
+export interface RazorpayCheckoutVerificationRequest {
+  razorpayPaymentId: string;
+  razorpayOrderId: string;
+  razorpaySignature: string;
+}
+
 export type BookingStatus =
   | 'INITIATED'
   | 'PENDING_PAYMENT'

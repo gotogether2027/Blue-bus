@@ -1,0 +1,69 @@
+<section class="page">
+  @if (loading) {
+    <div class="skeleton card"></div>
+  } @else if (error || !booking) {
+    <app-empty-state title="Booking unavailable" [message]="error || 'Booking was not found.'" />
+  } @else {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Booking {{ booking.status === 'CONFIRMED' ? 'confirmed' : 'status' }}</p>
+        <h1>{{ booking.bookingReference }}</h1>
+        <p>
+          {{ locationLabel(booking.trip.origin) }}
+          →
+          {{ locationLabel(booking.trip.destination) }}
+        </p>
+      </div>
+      <app-status-badge [label]="booking.status" [tone]="badgeTone(booking.status)" />
+    </header>
+
+    <article class="card stack">
+      <h2>Journey</h2>
+      <p>{{ booking.trip.operatorName }} · {{ booking.trip.routeName }}</p>
+      <p>
+        {{ formatInstant(booking.trip.scheduledDepartureAt, booking.trip.timeZone) }}
+        →
+        {{ formatInstant(booking.trip.scheduledArrivalAt, booking.trip.timeZone) }}
+      </p>
+    </article>
+
+    <article class="card stack">
+      <h2>Seats &amp; passengers</h2>
+      <ul class="plain-list">
+        @for (item of booking.items; track item.bookingItemId) {
+          <li>Seat {{ item.seatNumber }} · {{ item.seatType }}</li>
+        }
+      </ul>
+      <ul class="plain-list">
+        @for (passenger of booking.passengers; track passenger.passengerId) {
+          <li>{{ passenger.fullName }}</li>
+        }
+      </ul>
+    </article>
+
+    <article class="card stack">
+      <h2>Payment</h2>
+      <p>{{ formatMoney(booking.totalAmount, booking.currency) }}</p>
+      <p>Status: {{ booking.paymentStatus || 'Not started' }}</p>
+    </article>
+
+    <article class="card stack">
+      <h2>Ticket</h2>
+      @if (ticket) {
+        <p><strong>{{ ticket.ticketNumber }}</strong> · {{ ticket.status }}</p>
+        <p>{{ ticket.journey.origin }} → {{ ticket.journey.destination }}</p>
+        <ul class="plain-list">
+          @for (passenger of ticket.passengers; track $index) {
+            <li>{{ passenger.name }} · Seat {{ passenger.seat }}</li>
+          }
+        </ul>
+      } @else if (ticketPending) {
+        <p>Ticket is being prepared. This page will check again shortly.</p>
+      } @else {
+        <p class="muted">No ticket has been issued yet.</p>
+      }
+    </article>
+
+    <a class="btn" [routerLink]="['/bookings', booking.bookingId]">View booking details</a>
+  }
+</section>

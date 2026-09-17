@@ -1,9 +1,10 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { TripSearchService } from '../../core/api/trip-search.service';
 import { TripSearchResult } from '../../core/api/models';
 import { readApiError } from '../../core/api/api-error';
+import { CheckoutSessionService } from '../../core/checkout/checkout-session.service';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { durationLabel, formatInstant, formatMoney, locationLabel } from '../../shared/format';
 
@@ -16,7 +17,9 @@ type ResultSort = 'departure' | 'fare' | 'seats';
 })
 export class SearchPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly trips = inject(TripSearchService);
+  private readonly checkout = inject(CheckoutSessionService);
 
   loading = true;
   error = '';
@@ -49,6 +52,19 @@ export class SearchPageComponent implements OnInit {
       this.destinationLocationId = params.get('destinationLocationId') ?? '';
       this.serviceDate = params.get('serviceDate') ?? '';
       this.load();
+    });
+  }
+
+  openSeats(trip: TripSearchResult): void {
+    this.checkout.saveTripSnapshot(trip);
+    void this.router.navigate(['/trips', trip.tripId, 'seats'], {
+      queryParams: {
+        originLocationId: this.originLocationId,
+        destinationLocationId: this.destinationLocationId,
+        serviceDate: this.serviceDate,
+        originStopId: trip.origin.tripStopId,
+        destinationStopId: trip.destination.tripStopId
+      }
     });
   }
 

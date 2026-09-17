@@ -1,0 +1,45 @@
+<section class="page">
+  <h1>Review</h1>
+  @if (session) {
+    <p class="muted">{{ remainingLabel }}</p>
+    <article class="card stack">
+      <h2>Journey</h2>
+      @if (session.tripSnapshot; as trip) {
+        <p>{{ trip.operatorName }} · {{ trip.busDisplayName || trip.busRegistrationNumber }}</p>
+        <p>{{ trip.originLabel }} → {{ trip.destinationLabel }}</p>
+        <p>{{ formatInstant(trip.scheduledDepartureAt, trip.timeZone) }} → {{ formatInstant(trip.scheduledArrivalAt, trip.timeZone) }}</p>
+        <p class="muted">Travel date {{ trip.serviceDate }}</p>
+        <p class="muted">Search fare {{ formatMoney(trip.baseFare, trip.currency) }} — booking total is set when the booking is created</p>
+      } @else {
+        <p>Trip {{ session.tripId }}</p>
+      }
+    </article>
+    <article class="card stack">
+      <h2>Seats</h2>
+      <ul class="plain-list">
+        @for (seat of session.seats; track seat.inventoryId) {
+          <li>{{ seat.seatNumber }} · {{ seat.seatType }}</li>
+        }
+      </ul>
+    </article>
+    <article class="card stack">
+      <h2>Passengers</h2>
+      <ul class="plain-list">
+        @for (passenger of session.passengers; track passenger.seatInventoryId) {
+          <li>
+            {{ passenger.fullName }}
+            @if (passenger.age !== null) { · {{ passenger.age }} }
+            @if (passenger.gender) { · {{ passenger.gender }} }
+          </li>
+        }
+      </ul>
+    </article>
+    @if (error) {
+      <p class="field-error">{{ error }}</p>
+    }
+    <button class="btn btn-primary" type="button" [disabled]="submitting" (click)="confirm()">
+      {{ submitting ? 'Creating booking…' : 'Create booking & pay' }}
+    </button>
+    <button class="btn" type="button" (click)="back()">Edit passengers</button>
+  }
+</section>
