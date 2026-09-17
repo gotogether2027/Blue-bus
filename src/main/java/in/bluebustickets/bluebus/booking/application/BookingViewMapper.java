@@ -19,6 +19,12 @@ import in.bluebustickets.bluebus.booking.api.operator.dto.OperatorBookingItemRes
 import in.bluebustickets.bluebus.booking.api.operator.dto.OperatorBookingPassengerResponse;
 import in.bluebustickets.bluebus.booking.api.operator.dto.OperatorBookingResponse;
 import in.bluebustickets.bluebus.booking.domain.Booking;
+import in.bluebustickets.bluebus.payments.domain.PaymentAttempt;
+import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
+import in.bluebustickets.bluebus.payments.domain.Refund;
+import in.bluebustickets.bluebus.payments.domain.RefundStatus;
+import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
+import in.bluebustickets.bluebus.payments.repository.RefundRepository;
 import in.bluebustickets.bluebus.scheduling.domain.PointType;
 import in.bluebustickets.bluebus.scheduling.domain.Trip;
 import in.bluebustickets.bluebus.scheduling.domain.TripPoint;
@@ -26,6 +32,9 @@ import in.bluebustickets.bluebus.scheduling.domain.TripStop;
 import in.bluebustickets.bluebus.scheduling.repository.TripPointRepository;
 import in.bluebustickets.bluebus.scheduling.repository.TripRepository;
 import in.bluebustickets.bluebus.scheduling.repository.TripStopRepository;
+import in.bluebustickets.bluebus.ticket.domain.Ticket;
+import in.bluebustickets.bluebus.ticket.domain.TicketStatus;
+import in.bluebustickets.bluebus.ticket.repository.TicketRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -36,14 +45,23 @@ public class BookingViewMapper {
     private final TripRepository tripRepository;
     private final TripStopRepository tripStopRepository;
     private final TripPointRepository tripPointRepository;
+    private final PaymentAttemptRepository paymentAttemptRepository;
+    private final TicketRepository ticketRepository;
+    private final RefundRepository refundRepository;
 
     public BookingViewMapper(
             TripRepository tripRepository,
             TripStopRepository tripStopRepository,
-            TripPointRepository tripPointRepository) {
+            TripPointRepository tripPointRepository,
+            PaymentAttemptRepository paymentAttemptRepository,
+            TicketRepository ticketRepository,
+            RefundRepository refundRepository) {
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
         this.tripPointRepository = tripPointRepository;
+        this.paymentAttemptRepository = paymentAttemptRepository;
+        this.ticketRepository = ticketRepository;
+        this.refundRepository = refundRepository;
     }
 
     public BookingResponse toResponse(Booking booking) {
@@ -81,8 +99,15 @@ public class BookingViewMapper {
                                 HashMap::new,
                                 Collectors.toList()));
 
+        Map<UUID, JourneySummary> summaries = loadJourneySummaries(bookings);
+
         return bookings.stream()
-                .map(booking -> map(booking, trips, stops, pointsByStop))
+                .map(booking -> map(
+                        booking,
+                        trips,
+                        stops,
+                        pointsByStop,
+                        summaries.getOrDefault(booking.getId(), JourneySummary.empty())))
                 .toList();
     }
 
@@ -118,11 +143,51 @@ public class BookingViewMapper {
                 .toList();
     }
 
+    /**
+     * Customer booking summary: newest payment attempt by {@code createdAt} then {@code id},
+     * unique ticket for the booking, and newest refund by {@code createdAt} then {@code id}.
+     */
+    private Map<UUID, JourneySummary> loadJourneySummaries(Collection<Booking> bookings) {
+        var bookingIds = bookings.stream().map(Booking::getId).collect(Collectors.toSet());
+        Map<UUID, JourneySummary.Builder> builders = new HashMap<>();
+        for (UUID bookingId : bookingIds) {
+            builders.put(bookingId, new JourneySummary.Builder());
+        }
+
+        for (PaymentAttempt attempt : paymentAttemptRepository.findByBookingIdInOrderByCreatedAtDescIdDesc(bookingIds)) {
+            JourneySummary.Builder builder = builders.get(attempt.getBookingId());
+            if (builder != null && builder.paymentAttemptId == null) {
+                builder.paymentAttemptId = attempt.getId();
+                builder.paymentStatus = attempt.getStatus();
+            }
+        }
+        for (Ticket ticket : ticketRepository.findByBookingIdIn(bookingIds)) {
+            JourneySummary.Builder builder = builders.get(ticket.getBookingId());
+            if (builder != null) {
+                builder.ticketId = ticket.getId();
+                builder.ticketNumber = ticket.getTicketNumber();
+                builder.ticketStatus = ticket.getStatus();
+            }
+        }
+        for (Refund refund : refundRepository.findByBookingIdInOrderByCreatedAtDescIdDesc(bookingIds)) {
+            JourneySummary.Builder builder = builders.get(refund.getBookingId());
+            if (builder != null && builder.latestRefundStatus == null) {
+                builder.latestRefundStatus = refund.getStatus();
+                builder.latestRefundAmount = refund.getAmount();
+            }
+        }
+
+        Map<UUID, JourneySummary> summaries = new HashMap<>();
+        builders.forEach((id, builder) -> summaries.put(id, builder.build()));
+        return summaries;
+    }
+
     private static BookingResponse map(
             Booking booking,
             Map<UUID, Trip> trips,
             Map<UUID, TripStop> stops,
-            Map<UUID, List<TripPoint>> pointsByStop) {
+            Map<UUID, List<TripPoint>> pointsByStop,
+            JourneySummary summary) {
         List<BookingItemResponse> items = booking.getItems().stream()
                 .map(item -> new BookingItemResponse(
                         item.getId(),
@@ -191,7 +256,14 @@ public class BookingViewMapper {
                                         || point.getPointType() == PointType.BOTH),
                         mapStop(destination, pointsByStop, point ->
                                 point.getPointType() == PointType.DROPPING
-                                        || point.getPointType() == PointType.BOTH)));
+                                        || point.getPointType() == PointType.BOTH)),
+                summary.paymentAttemptId(),
+                summary.paymentStatus(),
+                summary.ticketId(),
+                summary.ticketNumber(),
+                summary.ticketStatus(),
+                summary.latestRefundStatus(),
+                summary.latestRefundAmount());
     }
 
     private static OperatorBookingResponse mapOperator(
@@ -199,7 +271,7 @@ public class BookingViewMapper {
             Map<UUID, Trip> trips,
             Map<UUID, TripStop> stops,
             Map<UUID, List<TripPoint>> pointsByStop) {
-        BookingResponse customerView = map(booking, trips, stops, pointsByStop);
+        BookingResponse customerView = map(booking, trips, stops, pointsByStop, JourneySummary.empty());
         List<OperatorBookingItemResponse> items = booking.getItems().stream()
                 .map(item -> new OperatorBookingItemResponse(
                         item.getId(),
@@ -254,5 +326,40 @@ public class BookingViewMapper {
                 stop.getScheduledArrivalAt(),
                 stop.getScheduledDepartureAt(),
                 points);
+    }
+
+    private record JourneySummary(
+            UUID paymentAttemptId,
+            PaymentStatus paymentStatus,
+            UUID ticketId,
+            String ticketNumber,
+            TicketStatus ticketStatus,
+            RefundStatus latestRefundStatus,
+            java.math.BigDecimal latestRefundAmount) {
+
+        static JourneySummary empty() {
+            return new JourneySummary(null, null, null, null, null, null, null);
+        }
+
+        static final class Builder {
+            UUID paymentAttemptId;
+            PaymentStatus paymentStatus;
+            UUID ticketId;
+            String ticketNumber;
+            TicketStatus ticketStatus;
+            RefundStatus latestRefundStatus;
+            java.math.BigDecimal latestRefundAmount;
+
+            JourneySummary build() {
+                return new JourneySummary(
+                        paymentAttemptId,
+                        paymentStatus,
+                        ticketId,
+                        ticketNumber,
+                        ticketStatus,
+                        latestRefundStatus,
+                        latestRefundAmount);
+            }
+        }
     }
 }

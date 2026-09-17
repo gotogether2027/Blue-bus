@@ -81,6 +81,9 @@ blue-bus:
       stale-threshold-ms: 30000
       initial-backoff-ms: 5000
       max-backoff-ms: 900000
+  cors:
+    # Fail-closed: empty list grants no browser origins. Never use "*".
+    allowed-origins: []
 
 logging:
   level:

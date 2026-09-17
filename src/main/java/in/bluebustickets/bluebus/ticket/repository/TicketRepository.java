@@ -1,5 +1,7 @@
 package in.bluebustickets.bluebus.ticket.repository;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -13,6 +15,8 @@ import org.springframework.data.repository.query.Param;
 public interface TicketRepository extends JpaRepository<Ticket, UUID> {
 
     Optional<Ticket> findByBookingId(UUID bookingId);
+
+    List<Ticket> findByBookingIdIn(Collection<UUID> bookingIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select t from Ticket t where t.bookingId = :bookingId")

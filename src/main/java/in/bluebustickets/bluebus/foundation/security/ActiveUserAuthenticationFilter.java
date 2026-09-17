@@ -37,6 +37,7 @@ public class ActiveUserAuthenticationFilter extends OncePerRequestFilter {
             new AntPathRequestMatcher("/api/v1/auth/refresh", HttpMethod.POST.name()),
             new AntPathRequestMatcher("/api/v1/auth/logout", HttpMethod.POST.name()),
             new AntPathRequestMatcher("/api/v1/search/trips", HttpMethod.GET.name()),
+            new AntPathRequestMatcher("/api/v1/locations", HttpMethod.GET.name()),
             new AntPathRequestMatcher("/api/v1/trips/*/seat-availability"),
             new AntPathRequestMatcher("/api/v1/trips/*/holds", HttpMethod.POST.name()),
             new AntPathRequestMatcher("/api/v1/holds/*", HttpMethod.GET.name()),

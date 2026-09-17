@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import in.bluebustickets.bluebus.booking.application.BookingApplicationService;
 import in.bluebustickets.bluebus.booking.domain.Booking;
 import in.bluebustickets.bluebus.booking.domain.BookingItem;
 import in.bluebustickets.bluebus.booking.domain.BookingPassenger;
@@ -41,6 +42,7 @@ public class TicketApplicationService {
     private static final int MAX_TICKET_NUMBER_ATTEMPTS = 8;
 
     private final BookingRepository bookingRepository;
+    private final BookingApplicationService bookingApplicationService;
     private final TicketRepository ticketRepository;
     private final TripRepository tripRepository;
     private final TripStopRepository tripStopRepository;
@@ -50,6 +52,7 @@ public class TicketApplicationService {
 
     public TicketApplicationService(
             BookingRepository bookingRepository,
+            BookingApplicationService bookingApplicationService,
             TicketRepository ticketRepository,
             TripRepository tripRepository,
             TripStopRepository tripStopRepository,
@@ -57,6 +60,7 @@ public class TicketApplicationService {
             TicketIssuanceWorker issuanceWorker,
             Clock clock) {
         this.bookingRepository = bookingRepository;
+        this.bookingApplicationService = bookingApplicationService;
         this.ticketRepository = ticketRepository;
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
@@ -132,6 +136,16 @@ public class TicketApplicationService {
     public TicketResponse getOwned(UUID userId, UUID ticketId) {
         Ticket ticket = ticketRepository.findDetailedByIdAndUserId(ticketId, userId).orElse(null);
         if (ticket == null) {
+            throw new ResourceNotFoundException("Ticket was not found.");
+        }
+        return toResponse(ticket);
+    }
+
+    @Transactional(readOnly = true)
+    public TicketResponse getOwnedByBooking(UUID userId, UUID bookingId) {
+        bookingApplicationService.requireOwnedBooking(userId, bookingId);
+        Ticket ticket = ticketRepository.findDetailedByBookingId(bookingId).orElse(null);
+        if (ticket == null || !ticket.getUserId().equals(userId)) {
             throw new ResourceNotFoundException("Ticket was not found.");
         }
         return toResponse(ticket);

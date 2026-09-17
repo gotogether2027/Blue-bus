@@ -6,6 +6,9 @@ import java.util.List;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
+import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
+import in.bluebustickets.bluebus.payments.domain.RefundStatus;
+import in.bluebustickets.bluebus.ticket.domain.TicketStatus;
 
 public record BookingResponse(
         UUID bookingId,
@@ -27,5 +30,12 @@ public record BookingResponse(
         Instant paymentExpiresAt,
         List<BookingItemResponse> items,
         List<BookingPassengerResponse> passengers,
-        BookingTripResponse trip) {
+        BookingTripResponse trip,
+        UUID paymentAttemptId,
+        PaymentStatus paymentStatus,
+        UUID ticketId,
+        String ticketNumber,
+        TicketStatus ticketStatus,
+        RefundStatus latestRefundStatus,
+        BigDecimal latestRefundAmount) {
 }

@@ -83,4 +83,4 @@ To run tests:
 
 Tests explicitly use the `test` Spring profile. Fast foundation tests disable database auto-configuration through their test annotations; `FlywayPostgresIntegrationTest` starts PostgreSQL through Testcontainers and runs Flyway normally. It needs Docker, but does not need a developer-installed PostgreSQL instance. Production/local startup still requires PostgreSQL and runs Flyway. Redis and RabbitMQ are intentionally not configured yet.
 
-The health endpoint is a liveness probe only: it confirms the application process can serve HTTP. It is not currently a PostgreSQL readiness check. CORS is intentionally deferred until the Angular frontend has a known, strict origin allow-list.
+The health endpoint is a liveness probe only: it confirms the application process can serve HTTP. It is not currently a PostgreSQL readiness check. Browser CORS is an explicit `blue-bus.cors.allowed-origins` allow-list (empty by default; never `*`).

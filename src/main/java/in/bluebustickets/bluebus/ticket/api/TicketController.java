@@ -39,6 +39,14 @@ public class TicketController {
         return ticketApplicationService.issueForBooking(userId, bookingId);
     }
 
+    @GetMapping("/bookings/{bookingId}/ticket")
+    public TicketResponse getByBooking(
+            Authentication authentication,
+            @PathVariable UUID bookingId) {
+        UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
+        return ticketApplicationService.getOwnedByBooking(userId, bookingId);
+    }
+
     @GetMapping("/tickets/{ticketId}")
     public TicketResponse get(
             Authentication authentication,

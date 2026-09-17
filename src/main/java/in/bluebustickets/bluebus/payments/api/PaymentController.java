@@ -1,5 +1,6 @@
 package in.bluebustickets.bluebus.payments.api;
 
+import java.util.List;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.identity.application.CurrentUserService;
@@ -55,6 +56,14 @@ public class PaymentController {
         return paymentInitiationService.initiate(userId, bookingId, idempotencyKey);
     }
 
+    @GetMapping("/bookings/{bookingId}/payments")
+    public List<PaymentResponse> listByBooking(
+            Authentication authentication,
+            @PathVariable UUID bookingId) {
+        UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
+        return paymentInitiationService.listOwnedByBooking(userId, bookingId);
+    }
+
     @GetMapping("/payments/{paymentAttemptId}")
     public PaymentResponse get(
             Authentication authentication,
@@ -87,5 +96,13 @@ public class PaymentController {
         UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
         String reason = request == null ? null : request.reason();
         return refundApplicationService.refund(userId, paymentAttemptId, idempotencyKey, reason);
+    }
+
+    @GetMapping("/bookings/{bookingId}/refunds")
+    public List<RefundResponse> listRefundsByBooking(
+            Authentication authentication,
+            @PathVariable UUID bookingId) {
+        UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
+        return refundApplicationService.listOwnedByBooking(userId, bookingId);
     }
 }

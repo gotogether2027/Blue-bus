@@ -49,3 +49,6 @@ blue-bus:
       stale-threshold-ms: 30000
       initial-backoff-ms: 5000
       max-backoff-ms: 900000
+  cors:
+    allowed-origins:
+      - http://localhost:4200

@@ -1,5 +1,6 @@
 package in.bluebustickets.bluebus.payments.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,6 +24,8 @@ public interface RefundRepository extends JpaRepository<Refund, UUID> {
     List<Refund> findByPaymentAttemptIdOrderByCreatedAtDesc(UUID paymentAttemptId);
 
     List<Refund> findByBookingIdOrderByCreatedAtDesc(UUID bookingId);
+
+    List<Refund> findByBookingIdInOrderByCreatedAtDescIdDesc(Collection<UUID> bookingIds);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select r from Refund r where r.id = :id")

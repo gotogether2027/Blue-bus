@@ -77,7 +77,7 @@ Spring Boot modular monolith
 
 **What:** a **Booking** is the commercial transaction (`PENDING_PAYMENT` → `CONFIRMED` / `EXPIRED` / `CANCELLED`). A **Ticket** is a separate customer-facing travel document issued only from a `CONFIRMED` booking. Ticket rows snapshot journey/passenger/seat/fare/operator display data at issuance so later operational edits do not silently rewrite the customer document.
 
-**Phase 9.4A:** `TicketApplicationService.issueForBooking` is idempotent (`UNIQUE(tickets.booking_id)`). Customer `POST /api/v1/bookings/{bookingId}/tickets` and `GET /api/v1/tickets/{ticketId}` use JWT subject ownership (cross-customer `404`). **Phase 9.4B:** booking confirmation persists `BOOKING_CONFIRMED` in the same TX; a scheduled local outbox processor (`FOR UPDATE SKIP LOCKED`) issues the ticket and writes `TICKET_ISSUED` atomically, then marks the confirmation event published. RabbitMQ, PDF/QR, and notifications remain deferred.
+**Phase 9.4A:** `TicketApplicationService.issueForBooking` is idempotent (`UNIQUE(tickets.booking_id)`). Customer `POST /api/v1/bookings/{bookingId}/tickets`, `GET /api/v1/bookings/{bookingId}/ticket`, and `GET /api/v1/tickets/{ticketId}` use JWT subject ownership (cross-customer `404`). The booking-scoped GET is read-only and does not issue a ticket. **Phase 9.4B:** booking confirmation persists `BOOKING_CONFIRMED` in the same TX; a scheduled local outbox processor (`FOR UPDATE SKIP LOCKED`) issues the ticket and writes `TICKET_ISSUED` atomically, then marks the confirmation event published. RabbitMQ, PDF/QR, and notifications remain deferred.
 
 ### Outbox pattern for events
 
@@ -93,7 +93,9 @@ JWT establishes identity (`POST /api/v1/auth/login` issues a Bearer access token
 
 **Phase 9.2B** keeps platform and operator authorization conceptually separate. `AuthorizationService` remains responsible for ACTIVE users and platform admin/super-admin. `OperatorAuthorizationService` authorizes `/api/v1/operator/{operatorId}/**` from `operator_users` using the cryptographically validated JWT `sub` plus the path `operatorId`. JWT operator/role claims, body/query `userId`, and body/query `operatorId` are never treated as proof of tenancy. A writable body `operatorId` that is not on the PATCH allow-list is rejected (`400`); the server never switches tenant from a body field. Platform admins are not auto-authorized on the operator namespace.
 
-Operator resource reads are tenant-scoped in the repository (`operator_id = path operatorId`, or `(resourceId, operatorId)`). Operator booking reads additionally require both `bookings.operator_id` and `trips.operator_id` to equal the path operator (the booking column has no FK). Cross-tenant or missing membership looks like generic `404`; an ACTIVE member with the wrong role, or whose operator is not `ACTIVE`, receives `403`. Admin access is privilege-checked in application services rather than a blanket JWT-role bypass. Customer booking access requires `booking.user_id == authenticatedUserId`.
+Operator resource reads are tenant-scoped in the repository (`operator_id = path operatorId`, or `(resourceId, operatorId)`). Operator booking reads additionally require both `bookings.operator_id` and `trips.operator_id` to equal the path operator (the booking column has no FK). Cross-tenant or missing membership looks like generic `404`; an ACTIVE member with the wrong role, or whose operator is not `ACTIVE`, receives `403`. Admin access is privilege-checked in application services rather than a blanket JWT-role bypass. Customer booking access requires `booking.user_id == authenticatedUserId`. Nested customer payment/ticket/refund reads use that same ownership check; cross-customer IDs return generic `404`.
+
+Browser CORS is configured with `blue-bus.cors.allowed-origins` (empty by default, never `*`). It does not introduce cookie authentication and does not change JWT Bearer, CSRF, or matcher rules.
 
 ## Future extraction seams
 

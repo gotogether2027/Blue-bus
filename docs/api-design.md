@@ -4,7 +4,7 @@
 
 Use `/api/v1`, JSON, UTC ISO-8601 timestamps, UUID identifiers, cursor/page pagination, standard error envelopes, and an idempotency key for create/payment-sensitive requests. APIs expose DTOs, never persistence entities. The backend derives authorization scope from the JWT and rejects unauthorized IDs even if Angular guards permit navigation.
 
-Implemented so far: `GET /api/v1/health`, customer registration + login + refresh/logout + `/auth/me`, admin master-data/trip APIs, public journey seat availability, public temporary seat holds (optional JWT ownership), authenticated hold-to-booking (`/api/v1/bookings`), Razorpay payment APIs, and **Phase 9.4A tickets** (`POST /api/v1/bookings/{bookingId}/tickets`, `GET /api/v1/tickets/{ticketId}`). Email verification, profile editing, PDF/QR, and notifications remain deferred.
+Implemented so far: `GET /api/v1/health`, customer registration + login + refresh/logout + `/auth/me`, admin master-data/trip APIs, **public ACTIVE location discovery** (`GET /api/v1/locations`), public journey seat availability, public temporary seat holds (optional JWT ownership), authenticated hold-to-booking (`/api/v1/bookings`) with payment/ticket/refund summary fields, nested owner reads (`/bookings/{id}/payments`, `/ticket`, `/refunds`), Razorpay payment APIs, and **Phase 9.4A tickets** (`POST /api/v1/bookings/{bookingId}/tickets`, `GET /api/v1/bookings/{bookingId}/ticket`, `GET /api/v1/tickets/{ticketId}`). Browser CORS is an explicit `blue-bus.cors.allowed-origins` allow-list (empty by default). Email verification, profile editing, PDF/QR, and notifications remain deferred.
 
 ## Customer registration & identity — Phase 8.2
 
@@ -120,6 +120,9 @@ Authenticated hold-to-booking conversion, owner views, unpaid customer cancellat
 | `POST` | `/api/v1/bookings` | Bearer JWT | `201 Created` |
 | `GET` | `/api/v1/bookings` | Bearer JWT (owner list) | `200 OK` |
 | `GET` | `/api/v1/bookings/{bookingId}` | Bearer JWT (owner) | `200 OK` |
+| `GET` | `/api/v1/bookings/{bookingId}/payments` | Bearer JWT (owner) | `200 OK` (array, newest first) |
+| `GET` | `/api/v1/bookings/{bookingId}/ticket` | Bearer JWT (owner) | `200 OK` |
+| `GET` | `/api/v1/bookings/{bookingId}/refunds` | Bearer JWT (owner) | `200 OK` (array, newest first; empty is valid) |
 | `POST` | `/api/v1/bookings/{bookingId}/cancel` | Bearer JWT (owner) | `200 OK` |
 
 Create request:
@@ -152,13 +155,27 @@ Required: `holdId`, matching OD stop IDs, non-blank `idempotencyKey`, one passen
 
 **Hold ownership (booking):** `seat_holds.user_id` must equal the JWT booker. Anonymous holds (`user_id IS NULL`) → `409` (not bookable; UUID knowledge is not ownership). Another customer’s hold → `404`. Clients must create the hold with a Bearer JWT before `POST /bookings`.
 
-**Booking ownership:** JWT `sub` is the booking owner. Clients never supply a user ID. Cross-customer get/cancel returns generic `404`. List returns only the caller’s bookings. An owner may retrieve an `EXPIRED` or `CANCELLED` booking (`200` with historical passengers/items). Responses include trip origin/destination snapshots, boarding/drop points, amounts, payment deadline, booking status, and item status. They never include payment secrets, webhook payloads, or internal resolution reasons.
+**Booking ownership:** JWT `sub` is the booking owner. Clients never supply a user ID. Cross-customer get/cancel/nested payment/ticket/refund reads return generic `404`. List returns only the caller’s bookings. An owner may retrieve an `EXPIRED` or `CANCELLED` booking (`200` with historical passengers/items). Responses include trip origin/destination snapshots, boarding/drop points, amounts, payment deadline, booking status, and item status. Nested payment/ticket/refund GETs reuse the same `existsByIdAndUserId` ownership gate as booking detail. They never include payment secrets, webhook payloads, or internal resolution reasons.
+
+**Booking list/detail summaries:** `GET /bookings` and `GET /bookings/{id}` add optional customer fields without changing existing ones: `paymentAttemptId` / `paymentStatus` from the newest payment attempt (`created_at DESC`, then `id DESC`); `ticketId` / `ticketNumber` / `ticketStatus` from the unique ticket for that booking (null when none); `latestRefundStatus` / `latestRefundAmount` from the newest refund (`created_at DESC`, then `id DESC`). Summaries are batched from persisted rows (not N+1 per booking). `GET /bookings/{id}/ticket` returns the existing immutable ticket snapshot or `404` if none is issued; it does not create a ticket or write outbox events. `GET /bookings/{id}/payments` and `/refunds` reuse `PaymentResponse` / `RefundResponse`.
 
 **Unpaid customer cancellation (V12):** `POST /api/v1/bookings/{bookingId}/cancel` for `PENDING_PAYMENT` locks the booking `FOR UPDATE` first, then matching allocations, marks booking/items `CANCELLED`, transitions `BOOKED` allocations to `CANCELLED`, writes an immutable `booking_cancellations` row (`UNPAID_CUSTOMER_CANCELLATION_V1`, refundable amount `0`), and writes `BOOKING_CANCELLED` to the outbox. Repeat cancel with an existing cancellation record is idempotent (`200`).
 
 **Confirmed customer cancellation (Phase 9.6):** the same endpoint cancels `CONFIRMED` bookings before scheduled departure when a `SUCCEEDED` captured payment exists. Eligibility rejects `current time >= scheduledDepartureAt`, trip `DEPARTED`, and trip `COMPLETED`. Transaction (no provider HTTP): lock booking → verify ownership/status/departure → lock `BOOKED` allocations → lock ticket if present → lock succeeded payment → booking `CONFIRMED`→`REFUND_PENDING`, items `ACTIVE`→`CANCELLED`, allocations `BOOKED`→`CANCELLED`, ticket `ACTIVE`→`CANCELLED` when present → immutable cancellation row (`CONFIRMED_FULL_REFUND_CUSTOMER_CANCELLATION_V1`, refundable amount = captured payment amount) → `refunds.REQUESTED` (local idempotency `booking-cancel-{cancellationId}`, `attempt_count=0`, `next_retry_at` null) → `BOOKING_CANCELLED` outbox. After commit, an optional fast path and the scheduled refund-retry worker (`blue-bus.payments.refund-retry.*`) call Razorpay using **`refunds.id`** as `X-Razorpay-Idempotency-Key`. Provider/network failure leaves the booking `REFUND_PENDING` with seats/ticket already cancelled; the `REQUESTED`/`FAILED` refund row remains due after bounded backoff (`5s × 2^n`, cap 15 minutes, claim lease ~45s). Repeat cancel and `POST /api/v1/payments/{paymentAttemptId}/refunds` reuse that row. Crash after cancellation commit is recovered by the worker without a customer retry. Verified refund success (provider API or `refund.processed` webhook) transitions `REFUND_PENDING`→`REFUNDED`. Missing ticket does not block cancellation. Concurrent cancels serialize on the booking row; unique `booking_cancellations.booking_id` and `refunds (payment_attempt_id, idempotency_key)` keep one logical cancellation/refund.
 
 **Errors:** invalid/expired/cancelled/consumed hold → `409`; anonymous hold → `409`; validation → `400`; unauthenticated → `401`; other customer’s hold/booking → `404`; unsupported cancellation state / after departure / no captured payment → `409`.
+
+## Public locations — customer discovery
+
+Public read-only catalog for origin/destination pickers. Does not expose admin coordinates, district, timezone, or active flag. Inactive rows are never returned; clients cannot request them.
+
+| Method | Path | Auth | Success |
+|---|---|---|---|
+| `GET` | `/api/v1/locations` | Public | `200 OK` |
+
+Optional query parameters: `state`, `city` (case-insensitive substring, same convention as admin search). Blank values are ignored. Unknown filters return `200 []`. Results are ordered by `state`, `city`, `id` and capped at 100 rows.
+
+Response fields: `id`, `city`, `state`, `countryCode`, `locality`.
 
 ## Customer trip search — V12
 
@@ -238,9 +255,10 @@ Booking = commercial transaction. Ticket = immutable customer-facing travel docu
 | Method | Path | Auth | Success |
 |---|---|---|---|
 | `POST` | `/api/v1/bookings/{bookingId}/tickets` | Bearer JWT (booking owner) | `201 Created` |
+| `GET` | `/api/v1/bookings/{bookingId}/ticket` | Bearer JWT (booking owner) | `200 OK` |
 | `GET` | `/api/v1/tickets/{ticketId}` | Bearer JWT (ticket owner) | `200 OK` |
 
-**Issuance rules:** only `CONFIRMED` bookings; idempotent (repeat calls return the same ticket); concurrent races resolve via `uq_tickets_booking` and return the winner. Non-owners and unknown IDs → `404`. Unauthenticated → `401`. Amounts come from persisted booking/item values — never recalculated and never accepted from the client. **Phase 9.4B** also issues tickets automatically from `BOOKING_CONFIRMED` outbox events; confirmation never depends on ticket generation completing inside the payment webhook.
+**Issuance rules:** only `CONFIRMED` bookings; idempotent (repeat calls return the same ticket); concurrent races resolve via `uq_tickets_booking` and return the winner. Non-owners and unknown IDs → `404`. Unauthenticated → `401`. Amounts come from persisted booking/item values — never recalculated and never accepted from the client. **Phase 9.4B** also issues tickets automatically from `BOOKING_CONFIRMED` outbox events; confirmation never depends on ticket generation completing inside the payment webhook. `GET /api/v1/bookings/{bookingId}/ticket` is read-only: it uses the same booking ownership 404 as booking detail, returns the existing snapshot (including `CANCELLED`), and 404s when no ticket exists. It does not issue a ticket or trigger outbox processing.
 
 Example response:
 
@@ -598,6 +616,10 @@ A user may hold ACTIVE memberships in multiple operators; each path `operatorId`
 If a provider reports success after the hold has expired or the trip is no longer saleable, the API must show a non-confirmed resolution state. It must not claim a released seat; the payment/refund workflow resolves the money separately.
 
 Never offer a general client API that changes inventory state. Operator/admin APIs must validate trip ownership and state transitions.
+
+## Browser CORS
+
+Angular calls this Bearer JWT API from a browser. CORS is an explicit origin allow-list: `blue-bus.cors.allowed-origins` (default empty / fail-closed). Wildcards including `*` are rejected. Cookie credentials are not used. Allowed methods are `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`; allowed request headers are `Authorization`, `Content-Type`, and `Idempotency-Key`. Unlisted origins receive no `Access-Control-Allow-*` headers (Spring rejects the CORS request). Authentication, CSRF (disabled for this stateless Bearer API), and public/private matcher rules are unchanged.
 
 ## Error and security expectations
 

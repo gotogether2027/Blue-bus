@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import in.bluebustickets.bluebus.booking.application.BookingApplicationService;
 import in.bluebustickets.bluebus.booking.application.BookingPaymentPort;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
@@ -43,6 +44,7 @@ public class RefundApplicationService {
     private final RefundRepository refundRepository;
     private final PaymentProviderRegistry providerRegistry;
     private final BookingPaymentPort bookingPaymentPort;
+    private final BookingApplicationService bookingApplicationService;
     private final RefundWorker worker;
     private final Clock clock;
     private final ConcurrentHashMap<UUID, Object> refundCallLocks = new ConcurrentHashMap<>();
@@ -52,12 +54,14 @@ public class RefundApplicationService {
             RefundRepository refundRepository,
             PaymentProviderRegistry providerRegistry,
             BookingPaymentPort bookingPaymentPort,
+            BookingApplicationService bookingApplicationService,
             RefundWorker worker,
             Clock clock) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.refundRepository = refundRepository;
         this.providerRegistry = providerRegistry;
         this.bookingPaymentPort = bookingPaymentPort;
+        this.bookingApplicationService = bookingApplicationService;
         this.worker = worker;
         this.clock = clock;
     }
@@ -67,6 +71,14 @@ public class RefundApplicationService {
         PaymentAttempt attempt = requireOwnedSucceeded(userId, paymentAttemptId);
         requireCancellationRefundFlow(attempt.getBookingId());
         return executeRefund(attempt, key, normalizeReason(reason));
+    }
+
+    @Transactional(readOnly = true)
+    public List<RefundResponse> listOwnedByBooking(UUID userId, UUID bookingId) {
+        bookingApplicationService.requireOwnedBooking(userId, bookingId);
+        return refundRepository.findByBookingIdOrderByCreatedAtDesc(bookingId).stream()
+                .map(RefundApplicationService::toResponse)
+                .toList();
     }
 
     /**

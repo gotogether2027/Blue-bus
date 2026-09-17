@@ -11,6 +11,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import in.bluebustickets.bluebus.booking.application.BookingApplicationService;
 import in.bluebustickets.bluebus.booking.application.BookingPaymentPort;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
@@ -40,6 +41,7 @@ public class PaymentInitiationService {
     private final PaymentProviderRegistry providerRegistry;
     private final PaymentProperties properties;
     private final PaymentInitiationWorker worker;
+    private final BookingApplicationService bookingApplicationService;
     private final Clock clock;
     private final ConcurrentHashMap<UUID, Object> providerCallLocks = new ConcurrentHashMap<>();
 
@@ -48,11 +50,13 @@ public class PaymentInitiationService {
             PaymentProviderRegistry providerRegistry,
             PaymentProperties properties,
             PaymentInitiationWorker worker,
+            BookingApplicationService bookingApplicationService,
             Clock clock) {
         this.paymentAttemptRepository = paymentAttemptRepository;
         this.providerRegistry = providerRegistry;
         this.properties = properties;
         this.worker = worker;
+        this.bookingApplicationService = bookingApplicationService;
         this.clock = clock;
     }
 
@@ -155,6 +159,14 @@ public class PaymentInitiationService {
             throw new ResourceNotFoundException("Payment attempt was not found.");
         }
         return toPaymentResponse(attempt);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PaymentResponse> listOwnedByBooking(UUID userId, UUID bookingId) {
+        bookingApplicationService.requireOwnedBooking(userId, bookingId);
+        return paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(bookingId).stream()
+                .map(PaymentInitiationService::toPaymentResponse)
+                .toList();
     }
 
     static PaymentInitiationResponse toInitiationResponse(PaymentAttempt attempt) {

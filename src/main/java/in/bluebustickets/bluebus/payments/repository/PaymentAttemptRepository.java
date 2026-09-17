@@ -1,5 +1,6 @@
 package in.bluebustickets.bluebus.payments.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,6 +24,8 @@ public interface PaymentAttemptRepository extends JpaRepository<PaymentAttempt, 
     Optional<PaymentAttempt> findByProviderAndProviderPaymentId(String provider, String providerPaymentId);
 
     List<PaymentAttempt> findByBookingIdOrderByCreatedAtDesc(UUID bookingId);
+
+    List<PaymentAttempt> findByBookingIdInOrderByCreatedAtDescIdDesc(Collection<UUID> bookingIds);
 
     boolean existsByBookingIdAndStatusIn(UUID bookingId, List<PaymentStatus> statuses);
 

@@ -25,4 +25,16 @@ public interface LocationRepository extends JpaRepository<Location, UUID> {
             @Param("active") Boolean active,
             @Param("state") String state,
             @Param("city") String city);
+
+    @Query("""
+            SELECT l FROM Location l
+            WHERE l.active = true
+              AND (:state IS NULL OR LOWER(l.state) LIKE LOWER(CONCAT('%', CAST(:state AS string), '%')))
+              AND (:city IS NULL OR LOWER(l.city) LIKE LOWER(CONCAT('%', CAST(:city AS string), '%')))
+            ORDER BY l.state ASC, l.city ASC, l.id ASC
+            """)
+    List<Location> searchActive(
+            @Param("state") String state,
+            @Param("city") String city,
+            org.springframework.data.domain.Pageable pageable);
 }

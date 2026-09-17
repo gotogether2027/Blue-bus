@@ -21,6 +21,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     Optional<Booking> findByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey);
 
+    boolean existsByIdAndUserId(UUID id, UUID userId);
+
     boolean existsByTripIdAndStatusIn(UUID tripId, Collection<BookingStatus> statuses);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

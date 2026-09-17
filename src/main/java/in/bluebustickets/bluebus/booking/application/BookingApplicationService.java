@@ -114,6 +114,19 @@ public class BookingApplicationService {
                 bookingRepository.findDetailedByUserIdOrderByCreatedAtDesc(userId));
     }
 
+    /**
+     * Same ownership gate as {@link #getOwnedBooking}: unknown or cross-customer ids are 404.
+     */
+    @Transactional(readOnly = true)
+    public void requireOwnedBooking(UUID userId, UUID bookingId) {
+        if (userId == null || bookingId == null) {
+            throw new IllegalArgumentException("Authenticated user and booking id are required");
+        }
+        if (!bookingRepository.existsByIdAndUserId(bookingId, userId)) {
+            throw new ResourceNotFoundException("Booking was not found.");
+        }
+    }
+
     private BookingResponse findIdempotent(UUID userId, String idempotencyKey, String fingerprint) {
         return bookingRepository.findByUserIdAndIdempotencyKey(userId, idempotencyKey)
                 .map(existing -> {
