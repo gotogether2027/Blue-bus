@@ -347,10 +347,14 @@ class TicketPostgresIntegrationTest {
                                 }
                                 """.formatted(
                                 busId, routeId, departure, departure.plusSeconds(6 * 3600),
-                                departure.minusSeconds(7 * 24 * 3600), departure.minusSeconds(3600))))
+                                Instant.parse("2020-01-01T00:00:00Z"), departure.minusSeconds(3600))))
                 .andExpect(status().isCreated())
                 .andReturn();
         JsonNode body = objectMapper.readTree(created.getResponse().getContentAsString());
+        UUID tripId = UUID.fromString(body.get("id").asText());
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId)
+                        .with(TestAccessTokenFactory.bearer(adminToken)))
+                .andExpect(status().isOk());
         List<UUID> stopIdsBySequence = new ArrayList<>();
         stopIdsBySequence.add(null);
         for (JsonNode stop : body.get("stops")) {
@@ -366,7 +370,7 @@ class TicketPostgresIntegrationTest {
                 available.add(UUID.fromString(seat.get("id").asText()));
             }
         }
-        return new TripFixture(UUID.fromString(body.get("id").asText()), stopIdsBySequence, available);
+        return new TripFixture(tripId, stopIdsBySequence, available);
     }
 
     private UUID createSeatLayout(UUID operatorId, String registration, int seatCount) throws Exception {

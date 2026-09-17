@@ -74,6 +74,7 @@ public class OperatorTripAdminService {
     private final RouteStopRepository routeStopRepository;
     private final RoutePointRepository routePointRepository;
     private final SeatRepository seatRepository;
+    private final TripCancellationBookingPort tripCancellationBookingPort;
 
     /**
      * Optional test barrier after early authorize and before resource locks. Production null.
@@ -90,7 +91,8 @@ public class OperatorTripAdminService {
             TripSeatInventoryRepository tripSeatInventoryRepository,
             RouteStopRepository routeStopRepository,
             RoutePointRepository routePointRepository,
-            SeatRepository seatRepository) {
+            SeatRepository seatRepository,
+            TripCancellationBookingPort tripCancellationBookingPort) {
         this.operatorAuthorizationService = operatorAuthorizationService;
         this.operatorUserRepository = operatorUserRepository;
         this.operatorRepository = operatorRepository;
@@ -101,6 +103,7 @@ public class OperatorTripAdminService {
         this.routeStopRepository = routeStopRepository;
         this.routePointRepository = routePointRepository;
         this.seatRepository = seatRepository;
+        this.tripCancellationBookingPort = tripCancellationBookingPort;
     }
 
     @Transactional
@@ -216,9 +219,20 @@ public class OperatorTripAdminService {
     @Transactional
     public TripResponse cancel(UUID operatorId, UUID tripId) {
         Trip trip = lockOwnedTripForAdminMutation(operatorId, tripId);
+        rejectIfBlockedByConfirmedBookings(trip);
         trip.cancel();
         entityManager.flush();
         return toResponse(trip);
+    }
+
+    private void rejectIfBlockedByConfirmedBookings(Trip trip) {
+        if (trip.getStatus() == TripStatus.CANCELLED) {
+            return;
+        }
+        if (tripCancellationBookingPort.existsConfirmedOrRefundPending(trip.getId())) {
+            throw new ApplicationConflictException(
+                    "Trip cannot be cancelled while confirmed or refund-pending bookings exist.");
+        }
     }
 
     private Trip lockOwnedTripForAdminMutation(UUID operatorId, UUID tripId) {

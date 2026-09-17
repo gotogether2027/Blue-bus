@@ -375,7 +375,7 @@ class OperatorPortalResourcePostgresIntegrationTest {
 
         Instant departure = Instant.parse("2026-12-01T10:00:00Z");
         Instant arrival = departure.plusSeconds(6 * 3600);
-        Instant opens = departure.minusSeconds(7 * 24 * 3600);
+        Instant opens = Instant.parse("2020-01-01T00:00:00Z");
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
@@ -398,6 +398,9 @@ class OperatorPortalResourcePostgresIntegrationTest {
 
         JsonNode body = objectMapper.readTree(created.getResponse().getContentAsString());
         UUID tripId = UUID.fromString(body.get("id").asText());
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId)
+                        .with(bearer(platformAdminToken)))
+                .andExpect(status().isOk());
         List<UUID> stopIdsBySequence = new ArrayList<>();
         stopIdsBySequence.add(null);
         for (JsonNode stop : body.get("stops")) {

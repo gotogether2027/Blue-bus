@@ -458,7 +458,7 @@ class SeatHoldPostgresIntegrationTest {
         Fixture fixture = createFixture(registration, routeCode, 4);
         Instant departure = Instant.parse("2026-11-10T12:30:00Z");
         Instant arrival = departure.plusSeconds(8 * 3600);
-        Instant opens = departure.minusSeconds(7 * 24 * 3600);
+        Instant opens = Instant.parse("2020-01-01T00:00:00Z");
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
@@ -487,6 +487,8 @@ class SeatHoldPostgresIntegrationTest {
 
         JsonNode body = objectMapper.readTree(created.getResponse().getContentAsString());
         UUID tripId = UUID.fromString(body.get("id").asText());
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId).with(adminAuth()))
+                .andExpect(status().isOk());
         List<UUID> available = new ArrayList<>();
         UUID blocked = null;
         for (JsonNode seat : body.get("seatInventory")) {

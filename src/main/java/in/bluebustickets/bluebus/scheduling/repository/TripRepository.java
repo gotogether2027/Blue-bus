@@ -9,7 +9,9 @@ import java.util.UUID;
 
 import in.bluebustickets.bluebus.scheduling.domain.Trip;
 import in.bluebustickets.bluebus.scheduling.domain.TripStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -37,6 +39,10 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
     boolean existsByRoute_Id(UUID routeId);
 
     Optional<Trip> findByIdAndOperator_Id(UUID id, UUID operatorId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Trip t where t.id = :id")
+    Optional<Trip> findByIdForUpdate(@Param("id") UUID id);
 
     List<Trip> findByOperator_IdOrderByScheduledDepartureAtAsc(UUID operatorId);
 
@@ -108,6 +114,9 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
                  AND origin.sequence_number < destination.sequence_number
                 WHERE t.service_date = :serviceDate
                   AND t.status IN ('SCHEDULED', 'ON_SALE')
+                  AND t.booking_opens_at <= :now
+                  AND t.booking_closes_at > :now
+                  AND t.scheduled_departure_at > :now
                 ORDER BY t.id, origin.sequence_number, destination.sequence_number
             ) matches
             ORDER BY matches.scheduled_departure_at, matches.trip_id
@@ -116,5 +125,6 @@ public interface TripRepository extends JpaRepository<Trip, UUID> {
     List<TripSearchCandidate> searchCustomerTrips(
             @Param("originLocationId") UUID originLocationId,
             @Param("destinationLocationId") UUID destinationLocationId,
-            @Param("serviceDate") LocalDate serviceDate);
+            @Param("serviceDate") LocalDate serviceDate,
+            @Param("now") Instant now);
 }

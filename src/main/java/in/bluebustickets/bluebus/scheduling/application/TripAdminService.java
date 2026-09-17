@@ -54,6 +54,7 @@ public class TripAdminService {
     private final RoutePointRepository routePointRepository;
     private final SeatRepository seatRepository;
     private final AuthorizationService authorizationService;
+    private final TripCancellationBookingPort tripCancellationBookingPort;
 
     public TripAdminService(
             TripRepository tripRepository,
@@ -65,7 +66,8 @@ public class TripAdminService {
             RouteStopRepository routeStopRepository,
             RoutePointRepository routePointRepository,
             SeatRepository seatRepository,
-            AuthorizationService authorizationService) {
+            AuthorizationService authorizationService,
+            TripCancellationBookingPort tripCancellationBookingPort) {
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
         this.tripPointRepository = tripPointRepository;
@@ -76,6 +78,7 @@ public class TripAdminService {
         this.routePointRepository = routePointRepository;
         this.seatRepository = seatRepository;
         this.authorizationService = authorizationService;
+        this.tripCancellationBookingPort = tripCancellationBookingPort;
     }
 
     @Transactional
@@ -150,7 +153,13 @@ public class TripAdminService {
     @Transactional
     public TripResponse deactivate(UUID id) {
         authorizationService.requirePlatformAdmin();
-        Trip trip = requireTrip(id);
+        Trip trip = tripRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Trip was not found."));
+        if (trip.getStatus() != TripStatus.CANCELLED
+                && tripCancellationBookingPort.existsConfirmedOrRefundPending(trip.getId())) {
+            throw new ApplicationConflictException(
+                    "Trip cannot be cancelled while confirmed or refund-pending bookings exist.");
+        }
         trip.cancel();
         return toResponse(trip);
     }

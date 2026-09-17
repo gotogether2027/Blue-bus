@@ -1,5 +1,6 @@
 package in.bluebustickets.bluebus.scheduling.application;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
@@ -34,18 +35,21 @@ public class TripSearchService {
     private final TripStopRepository tripStopRepository;
     private final TripPointRepository tripPointRepository;
     private final SeatAvailabilityService seatAvailabilityService;
+    private final Clock clock;
 
     public TripSearchService(
             LocationRepository locationRepository,
             TripRepository tripRepository,
             TripStopRepository tripStopRepository,
             TripPointRepository tripPointRepository,
-            SeatAvailabilityService seatAvailabilityService) {
+            SeatAvailabilityService seatAvailabilityService,
+            Clock clock) {
         this.locationRepository = locationRepository;
         this.tripRepository = tripRepository;
         this.tripStopRepository = tripStopRepository;
         this.tripPointRepository = tripPointRepository;
         this.seatAvailabilityService = seatAvailabilityService;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -67,7 +71,7 @@ public class TripSearchService {
         }
 
         List<TripSearchCandidate> candidates = tripRepository.searchCustomerTrips(
-                originLocationId, destinationLocationId, serviceDate);
+                originLocationId, destinationLocationId, serviceDate, clock.instant());
         if (candidates.isEmpty()) {
             return List.of();
         }

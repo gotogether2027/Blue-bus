@@ -1,6 +1,7 @@
 package in.bluebustickets.bluebus.booking.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -19,6 +20,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     Optional<Booking> findByHoldId(UUID holdId);
 
     Optional<Booking> findByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey);
+
+    boolean existsByTripIdAndStatusIn(UUID tripId, Collection<BookingStatus> statuses);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select b from Booking b where b.id = :id")

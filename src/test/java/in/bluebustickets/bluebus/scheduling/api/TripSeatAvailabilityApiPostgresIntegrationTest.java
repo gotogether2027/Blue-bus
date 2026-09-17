@@ -212,6 +212,26 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
 
     @Test
     @WithMockUser
+    void unsaleableKnownTripReturnsConflictAndUnknownTripRemainsNotFound() throws Exception {
+        TripFixture trip = createTrip("AVAIL-API-SALE", "AVAIL-API-RT-SALE");
+        jdbcTemplate.update("UPDATE trips SET status = 'CANCELLED' WHERE id = ?", trip.tripId());
+
+        mockMvc.perform(get("/api/v1/trips/{tripId}/seat-availability", trip.tripId())
+                        .param("originStopId", trip.stopId(1).toString())
+                        .param("destinationStopId", trip.stopId(3).toString()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Trip is not on sale."));
+
+        mockMvc.perform(get("/api/v1/trips/{tripId}/seat-availability", UUID.randomUUID())
+                        .param("originStopId", trip.stopId(1).toString())
+                        .param("destinationStopId", trip.stopId(3).toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Trip was not found."));
+    }
+
+    @Test
+    @WithMockUser
     void usesBoundedQueryCountWithoutPerSeatLookups() throws Exception {
         TripFixture trip = createTrip("AVAIL-API-05", "AVAIL-API-RT-05");
         allocationService.allocate(
@@ -261,7 +281,7 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
         Fixture fixture = createFixture(registration, routeCode, 4);
         Instant departure = Instant.parse("2026-11-10T12:30:00Z");
         Instant arrival = departure.plusSeconds(8 * 3600);
-        Instant opens = departure.minusSeconds(7 * 24 * 3600);
+        Instant opens = Instant.parse("2020-01-01T00:00:00Z");
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
@@ -290,6 +310,8 @@ class TripSeatAvailabilityApiPostgresIntegrationTest {
 
         JsonNode body = objectMapper.readTree(created.getResponse().getContentAsString());
         UUID tripId = UUID.fromString(body.get("id").asText());
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId).with(adminAuth()))
+                .andExpect(status().isOk());
         List<UUID> stopIdsBySequence = new ArrayList<>();
         stopIdsBySequence.add(null); // 1-based
         for (JsonNode stop : body.get("stops")) {

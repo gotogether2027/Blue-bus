@@ -86,10 +86,11 @@ public class SeatHoldService {
             UUID userId,
             String idempotencyKey,
             String requestFingerprint) {
+        Instant now = clock.instant();
         if (requestedInventoryIds == null || requestedInventoryIds.isEmpty()) {
             throw new IllegalArgumentException("Seat hold requires at least one inventory id");
         }
-        if (expiresAt == null || !expiresAt.isAfter(clock.instant())) {
+        if (expiresAt == null || !expiresAt.isAfter(now)) {
             throw new IllegalArgumentException("Seat hold expires_at must be in the future");
         }
         if (originSequence < 1 || destinationSequence <= originSequence) {
@@ -112,6 +113,7 @@ public class SeatHoldService {
 
         Trip trip = tripRepository.findById(tripId)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip was not found."));
+        TripSaleability.requireSaleableNow(trip, now);
         if (!tripStopRepository.existsByTripIdAndSequenceNumber(tripId, originSequence)) {
             throw new IllegalArgumentException("Origin sequence does not exist on the trip");
         }

@@ -25,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -76,6 +77,7 @@ class TripSearchApiPostgresIntegrationTest {
     @Autowired private BookingRepository bookingRepository;
     @Autowired private BookingCancellationRepository cancellationRepository;
     @Autowired private TestAccessTokenFactory testAccessTokenFactory;
+    @Autowired private JdbcTemplate jdbcTemplate;
     private String adminToken;
 
     private String customerToken;
@@ -191,6 +193,52 @@ class TripSearchApiPostgresIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    @WithMockUser
+    void searchOmitsTripsOutsideTheSaleableWindow() throws Exception {
+        NetworkFixture network = createNetwork("SEARCH-NET-SALE");
+        TripFixture beforeOpen = createTrip("SEARCH-S1", "SEARCH-RT-S1", network, true);
+        TripFixture duringWindow = createTrip("SEARCH-S2", "SEARCH-RT-S2", network, true);
+        TripFixture afterClose = createTrip("SEARCH-S3", "SEARCH-RT-S3", network, true);
+        TripFixture afterDeparture = createTrip("SEARCH-S4", "SEARCH-RT-S4", network, true);
+        TripFixture cancelled = createTrip("SEARCH-S5", "SEARCH-RT-S5", network, true);
+        TripFixture draft = createTrip("SEARCH-S6", "SEARCH-RT-S6", network, false);
+
+        Instant now = Instant.now();
+        jdbcTemplate.update(
+                "UPDATE trips SET booking_opens_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(now.plusSeconds(3600)),
+                beforeOpen.tripId());
+        jdbcTemplate.update(
+                "UPDATE trips SET booking_closes_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(now.minusSeconds(60)),
+                afterClose.tripId());
+        Instant pastDeparture = now.minusSeconds(120);
+        jdbcTemplate.update(
+                """
+                        UPDATE trips
+                        SET scheduled_departure_at = ?,
+                            scheduled_arrival_at = ?,
+                            booking_closes_at = ?
+                        WHERE id = ?
+                        """,
+                java.sql.Timestamp.from(pastDeparture),
+                java.sql.Timestamp.from(pastDeparture.plusSeconds(3600)),
+                java.sql.Timestamp.from(pastDeparture.minusSeconds(60)),
+                afterDeparture.tripId());
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/deactivate", cancelled.tripId()).with(adminAuth()))
+                .andExpect(status().isOk());
+
+        JsonNode found = search(network.hyderabadId(), network.gunturId(), SERVICE_DATE);
+        assertThat(idsOf(found)).contains(duringWindow.tripId());
+        assertThat(idsOf(found)).doesNotContain(
+                beforeOpen.tripId(),
+                afterClose.tripId(),
+                afterDeparture.tripId(),
+                cancelled.tripId(),
+                draft.tripId());
+    }
+
     private JsonNode search(UUID originLocationId, UUID destinationLocationId, LocalDate serviceDate)
             throws Exception {
         MvcResult result = mockMvc.perform(get("/api/v1/search/trips")
@@ -276,7 +324,7 @@ class TripSearchApiPostgresIntegrationTest {
 
         Instant departure = Instant.parse("2026-12-01T10:00:00Z");
         Instant arrival = departure.plusSeconds(6 * 3600);
-        Instant opens = departure.minusSeconds(7 * 24 * 3600);
+        Instant opens = Instant.parse("2020-01-01T00:00:00Z");
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")

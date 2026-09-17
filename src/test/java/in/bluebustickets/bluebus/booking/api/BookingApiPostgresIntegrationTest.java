@@ -297,6 +297,81 @@ class BookingApiPostgresIntegrationTest {
 
     @Test
     @WithMockUser
+    void bookingAfterWindowCloseLeavesHoldUntouched() throws Exception {
+        TripFixture trip = createTrip("BOOK-SALE-01", "BOOK-SALE-RT-01");
+        UUID seat = trip.availableSeatIds().get(0);
+        JsonNode hold = createHold(trip, List.of(seat), customerAToken);
+        UUID holdId = UUID.fromString(hold.get("holdId").asText());
+
+        jdbcTemplate.update(
+                "UPDATE trips SET booking_closes_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now().minusSeconds(60)),
+                trip.tripId());
+
+        long bookingsBefore = bookingRepository.count();
+        mockMvc.perform(post("/api/v1/bookings")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bookingBody(
+                                holdId,
+                                trip.stopId(1),
+                                trip.stopId(3),
+                                "idem-sale-closed",
+                                List.of(passenger(seat, "Late Booker", 33)))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("Booking is closed."));
+
+        assertThat(bookingRepository.count()).isEqualTo(bookingsBefore);
+        assertThat(seatHoldRepository.findById(holdId).orElseThrow().getStatus())
+                .isEqualTo(SeatHoldStatus.ACTIVE);
+        assertThat(allocationRepository.findByHoldIdOrderByCreatedAtAsc(holdId))
+                .isNotEmpty()
+                .allMatch(allocation -> allocation.getState() == TripSeatAllocationState.HELD);
+    }
+
+    @Test
+    @WithMockUser
+    void bookingDuringWindowStillWorksAndIdempotentReplaySurvivesClose() throws Exception {
+        TripFixture trip = createTrip("BOOK-SALE-02", "BOOK-SALE-RT-02");
+        UUID seat = trip.availableSeatIds().get(0);
+        JsonNode hold = createHold(trip, List.of(seat), customerAToken);
+        UUID holdId = UUID.fromString(hold.get("holdId").asText());
+        String body = bookingBody(
+                holdId,
+                trip.stopId(1),
+                trip.stopId(3),
+                "idem-sale-replay",
+                List.of(passenger(seat, "On Time", 28)));
+
+        MvcResult created = mockMvc.perform(post("/api/v1/bookings")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andReturn();
+        UUID bookingId = UUID.fromString(
+                objectMapper.readTree(created.getResponse().getContentAsString()).get("bookingId").asText());
+
+        jdbcTemplate.update(
+                "UPDATE trips SET booking_closes_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now().minusSeconds(60)),
+                trip.tripId());
+
+        MvcResult replay = mockMvc.perform(post("/api/v1/bookings")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        assertThat(objectMapper.readTree(replay.getResponse().getContentAsString()).get("bookingId").asText())
+                .isEqualTo(bookingId.toString());
+        assertThat(bookingRepository.findByHoldId(holdId).orElseThrow().getId()).isEqualTo(bookingId);
+    }
+
+    @Test
+    @WithMockUser
     void ownerCanCancelUnpaidBookingAndRepeatIsIdempotent() throws Exception {
         TripFixture trip = createTrip("BOOK-CANCEL-01", "BOOK-CANCEL-RT-01");
         UUID seat = trip.availableSeatIds().get(0);
@@ -876,7 +951,7 @@ class BookingApiPostgresIntegrationTest {
         Fixture fixture = createFixture(registration, routeCode, 4);
         Instant departure = Instant.parse("2026-12-01T10:00:00Z");
         Instant arrival = departure.plusSeconds(6 * 3600);
-        Instant opens = departure.minusSeconds(7 * 24 * 3600);
+        Instant opens = Instant.parse("2020-01-01T00:00:00Z");
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
@@ -905,6 +980,8 @@ class BookingApiPostgresIntegrationTest {
 
         JsonNode body = objectMapper.readTree(created.getResponse().getContentAsString());
         UUID tripId = UUID.fromString(body.get("id").asText());
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId).with(adminAuth()))
+                .andExpect(status().isOk());
         List<UUID> stopIdsBySequence = new ArrayList<>();
         stopIdsBySequence.add(null);
         for (JsonNode stop : body.get("stops")) {

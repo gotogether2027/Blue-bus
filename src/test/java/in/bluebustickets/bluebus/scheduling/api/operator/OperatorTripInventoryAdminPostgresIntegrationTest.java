@@ -995,7 +995,7 @@ class OperatorTripInventoryAdminPostgresIntegrationTest {
                 routeId,
                 departure,
                 arrival,
-                dep.minusSeconds(30L * 24 * 3600),
+                Instant.parse("2020-01-01T00:00:00Z"),
                 dep.minusSeconds(3600));
     }
 

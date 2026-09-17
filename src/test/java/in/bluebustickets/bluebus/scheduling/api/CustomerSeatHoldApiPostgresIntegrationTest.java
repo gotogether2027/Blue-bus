@@ -134,6 +134,83 @@ class CustomerSeatHoldApiPostgresIntegrationTest {
 
     @Test
     @WithMockUser
+    void rejectsHoldsOnUnsaleableTripsWithConflict() throws Exception {
+        TripFixture saleable = createTrip("HOLD-API-SALE", "HOLD-API-RT-SALE");
+        mockMvc.perform(post("/api/v1/trips/{tripId}/holds", saleable.tripId())
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(holdBody(
+                                saleable.stopId(1),
+                                saleable.stopId(3),
+                                List.of(saleable.availableSeatIds().get(0)),
+                                null)))
+                .andExpect(status().isCreated());
+
+        Instant now = Instant.now();
+        TripFixture beforeOpen = createTrip("HOLD-API-OPEN", "HOLD-API-RT-OPEN");
+        jdbcTemplate.update(
+                "UPDATE trips SET booking_opens_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(now.plusSeconds(3600)),
+                beforeOpen.tripId());
+        expectHoldConflict(beforeOpen, "Booking is not open.");
+
+        TripFixture afterClose = createTrip("HOLD-API-CLOSE", "HOLD-API-RT-CLOSE");
+        jdbcTemplate.update(
+                "UPDATE trips SET booking_closes_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(now.minusSeconds(60)),
+                afterClose.tripId());
+        expectHoldConflict(afterClose, "Booking is closed.");
+
+        TripFixture departed = createTrip("HOLD-API-DEP", "HOLD-API-RT-DEP");
+        Instant past = now.minusSeconds(120);
+        jdbcTemplate.update(
+                """
+                        UPDATE trips
+                        SET scheduled_departure_at = ?,
+                            scheduled_arrival_at = ?,
+                            booking_closes_at = ?
+                        WHERE id = ?
+                        """,
+                java.sql.Timestamp.from(past),
+                java.sql.Timestamp.from(past.plusSeconds(3600)),
+                java.sql.Timestamp.from(past.minusSeconds(60)),
+                departed.tripId());
+        mockMvc.perform(post("/api/v1/trips/{tripId}/holds", departed.tripId())
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(holdBody(
+                                departed.stopId(1),
+                                departed.stopId(3),
+                                List.of(departed.availableSeatIds().get(0)),
+                                null)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409));
+
+        TripFixture cancelled = createTrip("HOLD-API-CAN", "HOLD-API-RT-CAN");
+        jdbcTemplate.update("UPDATE trips SET status = 'CANCELLED' WHERE id = ?", cancelled.tripId());
+        expectHoldConflict(cancelled, "Trip is not on sale.");
+
+        TripFixture draft = createTrip("HOLD-API-DRAFT", "HOLD-API-RT-DRAFT");
+        jdbcTemplate.update("UPDATE trips SET status = 'DRAFT' WHERE id = ?", draft.tripId());
+        expectHoldConflict(draft, "Trip is not on sale.");
+    }
+
+    private void expectHoldConflict(TripFixture trip, String message) throws Exception {
+        mockMvc.perform(post("/api/v1/trips/{tripId}/holds", trip.tripId())
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(holdBody(
+                                trip.stopId(1),
+                                trip.stopId(3),
+                                List.of(trip.availableSeatIds().get(0)),
+                                null)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value(message));
+    }
+
+    @Test
+    @WithMockUser
     void rejectsInvalidCreateRequests() throws Exception {
         TripFixture trip = createTrip("HOLD-API-02", "HOLD-API-RT-02");
         TripFixture other = createTrip("HOLD-API-02B", "HOLD-API-RT-02B");
@@ -762,7 +839,7 @@ class CustomerSeatHoldApiPostgresIntegrationTest {
         Fixture fixture = createFixture(registration, routeCode, 4);
         Instant departure = Instant.parse("2026-11-10T12:30:00Z");
         Instant arrival = departure.plusSeconds(8 * 3600);
-        Instant opens = departure.minusSeconds(7 * 24 * 3600);
+        Instant opens = Instant.parse("2020-01-01T00:00:00Z");
         Instant closes = departure.minusSeconds(3600);
 
         MvcResult created = mockMvc.perform(post("/api/v1/admin/trips")
@@ -791,6 +868,8 @@ class CustomerSeatHoldApiPostgresIntegrationTest {
 
         JsonNode body = objectMapper.readTree(created.getResponse().getContentAsString());
         UUID tripId = UUID.fromString(body.get("id").asText());
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/activate", tripId).with(adminAuth()))
+                .andExpect(status().isOk());
         List<UUID> stopIdsBySequence = new ArrayList<>();
         stopIdsBySequence.add(null);
         for (JsonNode stop : body.get("stops")) {

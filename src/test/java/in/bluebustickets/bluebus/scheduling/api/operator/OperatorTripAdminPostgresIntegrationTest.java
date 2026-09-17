@@ -346,7 +346,7 @@ class OperatorTripAdminPostgresIntegrationTest {
                         .content("""
                                 {
                                   "baseFare":650.00,
-                                  "bookingOpensAt":"2027-11-01T10:00:00Z",
+                                  "bookingOpensAt":"2020-01-01T10:00:00Z",
                                   "bookingClosesAt":"2027-12-15T08:00:00Z"
                                 }
                                 """))
@@ -486,6 +486,175 @@ class OperatorTripAdminPostgresIntegrationTest {
         assertThat(inventoryAfter).isEqualTo(inventoryCountBefore);
         assertThat(ticketsAfter).isEqualTo(ticketsBefore);
         assertThat(paymentsAfter).isEqualTo(paymentsBefore);
+    }
+
+    @Test
+    void confirmedAndRefundPendingBookingsBlockTripCancelAndLeaveTripUnchanged() throws Exception {
+        IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser customer = tokens.issueCustomer();
+        UUID operatorId = admin.operator().getId();
+
+        BookedTrip confirmed = createPendingBookedTrip(admin, customer, "2027-12-24T10:00:00Z", "2027-12-24T18:00:00Z");
+        jdbcTemplate.update("UPDATE bookings SET status = 'CONFIRMED' WHERE id = ?", confirmed.bookingId());
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/trips/{tripId}/cancel", operatorId, confirmed.tripId())
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message")
+                        .value("Trip cannot be cancelled while confirmed or refund-pending bookings exist."));
+        mockMvc.perform(post("/api/v1/admin/trips/{id}/deactivate", confirmed.tripId())
+                        .with(bearer(platformAdminToken)))
+                .andExpect(status().isConflict());
+        assertThat(tripRepository.findById(confirmed.tripId()).orElseThrow().getStatus().name())
+                .isEqualTo("SCHEDULED");
+
+        BookedTrip refundPending = createPendingBookedTrip(
+                admin, customer, "2027-12-25T10:00:00Z", "2027-12-25T18:00:00Z");
+        jdbcTemplate.update("UPDATE bookings SET status = 'REFUND_PENDING' WHERE id = ?", refundPending.bookingId());
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/trips/{tripId}/cancel",
+                        operatorId, refundPending.tripId())
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isConflict());
+        assertThat(tripRepository.findById(refundPending.tripId()).orElseThrow().getStatus().name())
+                .isEqualTo("SCHEDULED");
+    }
+
+    @Test
+    void pendingExpiredCancelledAndRefundedBookingsDoNotBlockTripCancel() throws Exception {
+        IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser customer = tokens.issueCustomer();
+        UUID operatorId = admin.operator().getId();
+
+        cancelTripWithBookingStatus(admin, customer, operatorId, "2027-12-26T10:00:00Z", "2027-12-26T18:00:00Z", null);
+        cancelTripWithBookingStatus(admin, customer, operatorId, "2027-12-27T10:00:00Z", "2027-12-27T18:00:00Z", "EXPIRED");
+        cancelTripWithBookingStatus(admin, customer, operatorId, "2027-12-28T10:00:00Z", "2027-12-28T18:00:00Z", "CANCELLED");
+        cancelTripWithBookingStatus(admin, customer, operatorId, "2027-12-29T10:00:00Z", "2027-12-29T18:00:00Z", "REFUNDED");
+    }
+
+    @Test
+    void confirmationDuringCancelBlocksTheTripCancellation() throws Exception {
+        IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser customer = tokens.issueCustomer();
+        UUID operatorId = admin.operator().getId();
+        BookedTrip booked = createPendingBookedTrip(admin, customer, "2027-12-30T10:00:00Z", "2027-12-30T18:00:00Z");
+
+        CountDownLatch authorized = new CountDownLatch(1);
+        CountDownLatch confirmed = new CountDownLatch(1);
+        AtomicInteger barrierHits = new AtomicInteger();
+        ReflectionTestUtils.setField(
+                operatorTripAdminService,
+                "afterAuthorizeBeforeLockForTests",
+                (Runnable) () -> {
+                    if (barrierHits.getAndIncrement() != 0) {
+                        return;
+                    }
+                    authorized.countDown();
+                    try {
+                        assertThat(confirmed.await(20, TimeUnit.SECONDS)).isTrue();
+                    } catch (InterruptedException exception) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(exception);
+                    }
+                });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<MvcResult> cancelFuture = executor.submit(() -> mockMvc.perform(
+                            post("/api/v1/operator/{operatorId}/trips/{tripId}/cancel",
+                                    operatorId, booked.tripId())
+                                    .with(bearer(admin.accessToken())))
+                    .andReturn());
+            assertThat(authorized.await(20, TimeUnit.SECONDS)).isTrue();
+            jdbcTemplate.update("UPDATE bookings SET status = 'CONFIRMED' WHERE id = ?", booked.bookingId());
+            confirmed.countDown();
+            MvcResult cancelResult = cancelFuture.get(30, TimeUnit.SECONDS);
+            assertThat(cancelResult.getResponse().getStatus()).isEqualTo(409);
+            assertThat(tripRepository.findById(booked.tripId()).orElseThrow().getStatus().name())
+                    .isEqualTo("SCHEDULED");
+        } finally {
+            ReflectionTestUtils.setField(operatorTripAdminService, "afterAuthorizeBeforeLockForTests", null);
+            executor.shutdownNow();
+        }
+    }
+
+    private void cancelTripWithBookingStatus(
+            IssuedOperatorMember admin,
+            IssuedUser customer,
+            UUID operatorId,
+            String departure,
+            String arrival,
+            String bookingStatus) throws Exception {
+        BookedTrip booked = createPendingBookedTrip(admin, customer, departure, arrival);
+        if (bookingStatus != null) {
+            jdbcTemplate.update("UPDATE bookings SET status = ? WHERE id = ?", bookingStatus, booked.bookingId());
+        }
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/trips/{tripId}/cancel", operatorId, booked.tripId())
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+    }
+
+    private BookedTrip createPendingBookedTrip(
+            IssuedOperatorMember admin,
+            IssuedUser customer,
+            String departure,
+            String arrival) throws Exception {
+        UUID operatorId = admin.operator().getId();
+        Fixture fx = createFixture(operatorId);
+        UUID tripId = createDraftTrip(admin, fx, departure, arrival);
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/trips/{tripId}/schedule", operatorId, tripId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk());
+        JsonNode detail = objectMapper.readTree(mockMvc.perform(get(
+                        "/api/v1/operator/{operatorId}/trips/{tripId}", operatorId, tripId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+        UUID originStopId = UUID.fromString(detail.get("stops").get(0).get("id").asText());
+        UUID destStopId = UUID.fromString(detail.get("stops").get(2).get("id").asText());
+        UUID seatInventoryId = UUID.fromString(detail.get("seatInventory").get(0).get("id").asText());
+
+        MvcResult holdResult = mockMvc.perform(post("/api/v1/trips/{tripId}/holds", tripId)
+                        .with(bearer(customer.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "originStopId":"%s",
+                                  "destinationStopId":"%s",
+                                  "seatInventoryIds":["%s"]
+                                }
+                                """.formatted(originStopId, destStopId, seatInventoryId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID holdId = UUID.fromString(objectMapper.readTree(holdResult.getResponse().getContentAsString())
+                .get("holdId").asText());
+        MvcResult bookingResult = mockMvc.perform(post("/api/v1/bookings")
+                        .with(bearer(customer.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "holdId":"%s",
+                                  "originStopId":"%s",
+                                  "destinationStopId":"%s",
+                                  "idempotencyKey":"sale-cancel-%s",
+                                  "passengers":[
+                                    {"seatInventoryId":"%s","fullName":"Sale Rider","age":30}
+                                  ]
+                                }
+                                """.formatted(holdId, originStopId, destStopId, shortId(), seatInventoryId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
+                .andReturn();
+        UUID bookingId = UUID.fromString(objectMapper.readTree(bookingResult.getResponse().getContentAsString())
+                .get("bookingId").asText());
+        return new BookedTrip(tripId, bookingId);
+    }
+
+    private record BookedTrip(UUID tripId, UUID bookingId) {
     }
 
     @Test
@@ -756,7 +925,7 @@ class OperatorTripAdminPostgresIntegrationTest {
                 routeId,
                 departure,
                 arrival,
-                dep.minusSeconds(30L * 24 * 3600),
+                Instant.parse("2020-01-01T00:00:00Z"),
                 dep.minusSeconds(3600));
     }
 

@@ -27,6 +27,7 @@ import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
 import in.bluebustickets.bluebus.scheduling.domain.SeatHold;
 import in.bluebustickets.bluebus.scheduling.domain.SeatHoldStatus;
 import in.bluebustickets.bluebus.scheduling.domain.Trip;
+import in.bluebustickets.bluebus.scheduling.application.TripSaleability;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatInventory;
@@ -263,6 +264,7 @@ public class BookingApplicationService {
                     || trip.getOperator().getId() == null) {
                 throw new IllegalStateException("Hold trip/operator must be persisted");
             }
+            TripSaleability.requireSaleableNow(trip, now);
 
             BigDecimal unitFare = trip.getBaseFare().setScale(2, RoundingMode.HALF_UP);
             BigDecimal baseTotal = unitFare.multiply(BigDecimal.valueOf(allocations.size()));
