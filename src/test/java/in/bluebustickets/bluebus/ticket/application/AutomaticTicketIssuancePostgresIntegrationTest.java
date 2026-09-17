@@ -262,6 +262,32 @@ class AutomaticTicketIssuancePostgresIntegrationTest {
     }
 
     @Test
+    void processorSkipsWhenBookingIsNoLongerConfirmedAndDoesNotRetryForever() throws Exception {
+        CreatedBooking booking = createPendingBooking(1);
+        bookingLifecycleService.confirmPendingPayment(booking.bookingId());
+        assertThat(outboxEventRepository.countByEventTypeAndAggregateId(
+                OutboxProcessorService.BOOKING_CONFIRMED, booking.bookingId())).isEqualTo(1);
+        OutboxEvent confirmed = outboxEventRepository.findAll().stream()
+                .filter(e -> OutboxProcessorService.BOOKING_CONFIRMED.equals(e.getEventType()))
+                .findFirst()
+                .orElseThrow();
+
+        jdbcTemplate.update("UPDATE bookings SET status = 'REFUND_PENDING' WHERE id = ?", booking.bookingId());
+
+        OutboxProcessingResult result = outboxProcessorService.processPendingBookingConfirmed();
+        assertThat(result.processed()).isEqualTo(1);
+        assertThat(result.failures()).isZero();
+        assertThat(ticketRepository.findByBookingId(booking.bookingId())).isEmpty();
+        assertThat(outboxEventRepository.findById(confirmed.getId()).orElseThrow().getPublishedAt())
+                .isNotNull();
+
+        OutboxProcessingResult second = outboxProcessorService.processPendingBookingConfirmed();
+        assertThat(second.processed()).isZero();
+        assertThat(second.failures()).isZero();
+        assertThat(ticketRepository.count()).isZero();
+    }
+
+    @Test
     void ticketAndTicketIssuedCommitAndRollBackTogether() throws Exception {
         CreatedBooking commitBooking = createPendingBooking(1);
         bookingLifecycleService.confirmPendingPayment(commitBooking.bookingId());

@@ -450,6 +450,37 @@ class FlywayPostgresIntegrationTest {
     }
 
     @Test
+    void appliesTripCancellationBookingCancellationPolicyMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '20'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("20");
+            assertThat(migration.get("description")).hasToString(
+                    "trip cancellation booking cancellation policy");
+            assertThat(migration.get("script")).hasToString(
+                    "V20__trip_cancellation_booking_cancellation_policy.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        String snapshotCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_booking_cancellations_policy_snapshot'
+                """, String.class);
+        assertThat(snapshotCheck)
+                .contains("UNPAID_CUSTOMER_CANCELLATION_V1")
+                .contains("CONFIRMED_FULL_REFUND_CUSTOMER_CANCELLATION_V1")
+                .contains("TRIP_CANCELLED_FULL_REFUND_V1")
+                .contains("TRIP_CANCELLED_UNPAID_V1")
+                .contains("PENDING_PAYMENT")
+                .contains("CONFIRMED");
+    }
+
+    @Test
     void appliesTicketFoundationMigration() {
         List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
                 SELECT version, description, script, success

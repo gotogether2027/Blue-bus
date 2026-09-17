@@ -52,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
  * Operator-scoped trip administration. Create locks bus then route ({@code FOR UPDATE});
  * existing-trip mutations lock the trip row and revalidate ACTIVE {@code OPERATOR_ADMIN}.
  * Same-bus interval overlap among non-{@code CANCELLED} trips is rejected under the bus lock.
+ * Cancel cascades passenger handling through {@link TripCancellationBookingPort} while the trip lock is held.
  */
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
@@ -218,21 +219,20 @@ public class OperatorTripAdminService {
 
     @Transactional
     public TripResponse cancel(UUID operatorId, UUID tripId) {
-        Trip trip = lockOwnedTripForAdminMutation(operatorId, tripId);
-        rejectIfBlockedByConfirmedBookings(trip);
-        trip.cancel();
-        entityManager.flush();
+        OperatorAccess earlyAccess = operatorAuthorizationService.requireMember(
+                operatorId, RoleCode.OPERATOR_ADMIN);
+        Runnable barrier = afterAuthorizeBeforeLockForTests;
+        if (barrier != null) {
+            barrier.run();
+        }
+        Trip trip = lockTripForUpdate(operatorId, tripId);
+        revalidateCallerAdminAfterLock(operatorId, earlyAccess.userId());
+        if (trip.getStatus() != TripStatus.CANCELLED) {
+            tripCancellationBookingPort.cascadePassengersForLockedTrip(trip.getId(), earlyAccess.userId());
+            trip.cancel();
+            entityManager.flush();
+        }
         return toResponse(trip);
-    }
-
-    private void rejectIfBlockedByConfirmedBookings(Trip trip) {
-        if (trip.getStatus() == TripStatus.CANCELLED) {
-            return;
-        }
-        if (tripCancellationBookingPort.existsConfirmedOrRefundPending(trip.getId())) {
-            throw new ApplicationConflictException(
-                    "Trip cannot be cancelled while confirmed or refund-pending bookings exist.");
-        }
     }
 
     private Trip lockOwnedTripForAdminMutation(UUID operatorId, UUID tripId) {

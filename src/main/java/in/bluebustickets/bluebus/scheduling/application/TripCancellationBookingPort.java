@@ -3,9 +3,10 @@ package in.bluebustickets.bluebus.scheduling.application;
 import java.util.UUID;
 
 /**
- * Booking-owned read used while a trip row is locked for operator/admin cancellation.
+ * Booking-owned passenger cascade used while a trip row is already locked for
+ * operator/admin cancellation. Must not lock the trip again or call a payment provider.
  */
 public interface TripCancellationBookingPort {
 
-    boolean existsConfirmedOrRefundPending(UUID tripId);
+    void cascadePassengersForLockedTrip(UUID tripId, UUID actorUserId);
 }

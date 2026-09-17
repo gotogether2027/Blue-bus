@@ -20,6 +20,16 @@ public interface SeatHoldRepository extends JpaRepository<SeatHold, UUID> {
 
     List<SeatHold> findByTripIdAndStatusOrderByCreatedAtDesc(UUID tripId, SeatHoldStatus status);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select h from SeatHold h
+            where h.tripId = :tripId and h.status = :status
+            order by h.id asc
+            """)
+    List<SeatHold> findByTripIdAndStatusForUpdateOrderByIdAsc(
+            @Param("tripId") UUID tripId,
+            @Param("status") SeatHoldStatus status);
+
     Optional<SeatHold> findByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

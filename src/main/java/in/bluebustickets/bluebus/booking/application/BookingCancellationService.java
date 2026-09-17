@@ -2,7 +2,9 @@ package in.bluebustickets.bluebus.booking.application;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.booking.api.dto.BookingCancellationResponse;
@@ -23,12 +25,16 @@ import in.bluebustickets.bluebus.payments.application.RefundRetryProperties;
 import in.bluebustickets.bluebus.payments.domain.PaymentAttempt;
 import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
 import in.bluebustickets.bluebus.payments.domain.Refund;
+import in.bluebustickets.bluebus.payments.domain.RefundStatus;
 import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
 import in.bluebustickets.bluebus.payments.repository.RefundRepository;
+import in.bluebustickets.bluebus.scheduling.domain.SeatHold;
+import in.bluebustickets.bluebus.scheduling.domain.SeatHoldStatus;
 import in.bluebustickets.bluebus.scheduling.domain.Trip;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocation;
 import in.bluebustickets.bluebus.scheduling.domain.TripSeatAllocationState;
 import in.bluebustickets.bluebus.scheduling.domain.TripStatus;
+import in.bluebustickets.bluebus.scheduling.repository.SeatHoldRepository;
 import in.bluebustickets.bluebus.scheduling.repository.TripRepository;
 import in.bluebustickets.bluebus.scheduling.repository.TripSeatAllocationRepository;
 import in.bluebustickets.bluebus.ticket.domain.Ticket;
@@ -38,6 +44,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -47,10 +54,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 public class BookingCancellationService {
 
     private static final Logger log = LoggerFactory.getLogger(BookingCancellationService.class);
+    static final String TRIP_CANCELLED_REASON = "TRIP_CANCELLED";
 
     private final BookingRepository bookingRepository;
     private final BookingCancellationRepository cancellationRepository;
     private final TripSeatAllocationRepository allocationRepository;
+    private final SeatHoldRepository seatHoldRepository;
     private final TripRepository tripRepository;
     private final TicketRepository ticketRepository;
     private final PaymentAttemptRepository paymentAttemptRepository;
@@ -65,6 +74,7 @@ public class BookingCancellationService {
             BookingRepository bookingRepository,
             BookingCancellationRepository cancellationRepository,
             TripSeatAllocationRepository allocationRepository,
+            SeatHoldRepository seatHoldRepository,
             TripRepository tripRepository,
             TicketRepository ticketRepository,
             PaymentAttemptRepository paymentAttemptRepository,
@@ -77,6 +87,7 @@ public class BookingCancellationService {
         this.bookingRepository = bookingRepository;
         this.cancellationRepository = cancellationRepository;
         this.allocationRepository = allocationRepository;
+        this.seatHoldRepository = seatHoldRepository;
         this.tripRepository = tripRepository;
         this.ticketRepository = ticketRepository;
         this.paymentAttemptRepository = paymentAttemptRepository;
@@ -122,12 +133,88 @@ public class BookingCancellationService {
         };
     }
 
+    /**
+     * Operator/admin trip cancellation cascade. Caller must already hold the trip row
+     * {@code FOR UPDATE}. Does not lock the trip and does not call a payment provider.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void cascadePassengersForLockedTrip(UUID tripId, UUID actorUserId) {
+        if (tripId == null || actorUserId == null) {
+            throw new IllegalArgumentException("tripId and actorUserId are required");
+        }
+        Instant now = clock.instant();
+        CancelBookingRequest request = new CancelBookingRequest(TRIP_CANCELLED_REASON);
+        Set<UUID> processed = new LinkedHashSet<>();
+        cascadeLockedBookings(tripId, actorUserId, request, now, processed);
+        cancelActiveHoldsForTrip(tripId);
+        cascadeLockedBookings(tripId, actorUserId, request, now, processed);
+    }
+
+    private void cascadeLockedBookings(
+            UUID tripId,
+            UUID actorUserId,
+            CancelBookingRequest request,
+            Instant now,
+            Set<UUID> processed) {
+        for (Booking locked : bookingRepository.findByTripIdForUpdateOrderByIdAsc(tripId)) {
+            if (!processed.add(locked.getId())) {
+                continue;
+            }
+            cascadeOneLockedBooking(locked, actorUserId, request, now);
+        }
+    }
+
+    private void cascadeOneLockedBooking(
+            Booking locked,
+            UUID actorUserId,
+            CancelBookingRequest request,
+            Instant now) {
+        switch (locked.getStatus()) {
+            case PENDING_PAYMENT -> cancelUnpaidForTrip(locked.getId(), actorUserId, request, now);
+            case CONFIRMED -> cancelConfirmedForTrip(locked.getId(), actorUserId, request, now);
+            case REFUND_PENDING, EXPIRED, CANCELLED, REFUNDED, INITIATED -> {
+                // Leave unchanged: no second cancellation row, refund, or ticket.
+            }
+        }
+    }
+
     private BookingCancellationResponse cancelUnpaid(
             UUID userId,
             UUID bookingId,
             CancelBookingRequest request,
             Instant now) {
         Booking booking = requireDetailed(bookingId);
+        String reason = request == null ? null : request.reason();
+        BookingCancellation cancellation = applyUnpaidCancellation(
+                booking,
+                userId,
+                reason,
+                BookingCancellation.UNPAID_POLICY_CODE,
+                now);
+        return toResponse(cancellation, booking);
+    }
+
+    private void cancelUnpaidForTrip(
+            UUID bookingId,
+            UUID actorUserId,
+            CancelBookingRequest request,
+            Instant now) {
+        Booking booking = requireDetailed(bookingId);
+        String reason = request == null ? null : request.reason();
+        applyUnpaidCancellation(
+                booking,
+                actorUserId,
+                reason,
+                BookingCancellation.TRIP_CANCELLED_UNPAID_POLICY_CODE,
+                now);
+    }
+
+    private BookingCancellation applyUnpaidCancellation(
+            Booking booking,
+            UUID actorUserId,
+            String reason,
+            String policyCode,
+            Instant now) {
         List<TripSeatAllocation> allocations = lockBookedAllocations(booking);
         assertActiveItems(booking);
 
@@ -135,15 +222,18 @@ public class BookingCancellationService {
         booking.getItems().forEach(BookingItem::markCancelled);
         allocations.forEach(TripSeatAllocation::cancel);
 
-        String reason = request == null ? null : request.reason();
-        BookingCancellation cancellation = cancellationRepository.save(new BookingCancellation(
-                bookingId, userId, reason, booking.getCurrency(), now));
-        writeBookingCancelled(bookingId, cancellation, now);
+        BookingCancellation cancellation = cancellationRepository.save(
+                policyCode.equals(BookingCancellation.TRIP_CANCELLED_UNPAID_POLICY_CODE)
+                        ? BookingCancellation.tripCancelledUnpaid(
+                                booking.getId(), actorUserId, reason, booking.getCurrency(), now)
+                        : new BookingCancellation(
+                                booking.getId(), actorUserId, reason, booking.getCurrency(), now));
+        writeBookingCancelled(booking.getId(), cancellation, now);
 
         allocationRepository.saveAllAndFlush(allocations);
         bookingRepository.flush();
         cancellationRepository.flush();
-        return toResponse(cancellation, booking);
+        return cancellation;
     }
 
     private BookingCancellationResponse cancelConfirmed(
@@ -152,15 +242,53 @@ public class BookingCancellationService {
             CancelBookingRequest request,
             Instant now) {
         Booking booking = requireDetailed(bookingId);
-        Trip trip = tripRepository.findById(booking.getTripId())
-                .orElseThrow(() -> new IllegalStateException("Booking trip was not found."));
-        assertCancellableBeforeDeparture(trip, now);
+        String reason = request == null ? null : request.reason();
+        BookingCancellation cancellation = applyConfirmedCancellation(
+                booking,
+                userId,
+                reason,
+                BookingCancellation.CONFIRMED_FULL_REFUND_POLICY_CODE,
+                now,
+                true);
+        scheduleRefundAfterCommit(userId, bookingId, cancellation.getId(), request);
+        return toResponse(cancellation, booking);
+    }
+
+    private void cancelConfirmedForTrip(
+            UUID bookingId,
+            UUID actorUserId,
+            CancelBookingRequest request,
+            Instant now) {
+        Booking booking = requireDetailed(bookingId);
+        String reason = request == null ? null : request.reason();
+        BookingCancellation cancellation = applyConfirmedCancellation(
+                booking,
+                actorUserId,
+                reason,
+                BookingCancellation.TRIP_CANCELLED_FULL_REFUND_POLICY_CODE,
+                now,
+                false);
+        scheduleRefundAfterCommit(booking.getUserId(), bookingId, cancellation.getId(), request);
+    }
+
+    private BookingCancellation applyConfirmedCancellation(
+            Booking booking,
+            UUID actorUserId,
+            String reason,
+            String policyCode,
+            Instant now,
+            boolean enforceCustomerDepartureWindow) {
+        if (enforceCustomerDepartureWindow) {
+            Trip trip = tripRepository.findById(booking.getTripId())
+                    .orElseThrow(() -> new IllegalStateException("Booking trip was not found."));
+            assertCancellableBeforeDeparture(trip, now);
+        }
 
         List<TripSeatAllocation> allocations = lockBookedAllocations(booking);
         assertActiveItems(booking);
 
-        Ticket ticket = ticketRepository.findByBookingIdForUpdate(bookingId).orElse(null);
-        PaymentAttempt payment = lockSucceededPayment(bookingId);
+        Ticket ticket = ticketRepository.findByBookingIdForUpdate(booking.getId()).orElse(null);
+        PaymentAttempt payment = lockSucceededPayment(booking.getId());
 
         booking.markRefundPending();
         booking.getItems().forEach(BookingItem::markCancelled);
@@ -169,23 +297,48 @@ public class BookingCancellationService {
             ticket.cancel();
         }
 
-        String reason = request == null ? null : request.reason();
-        BookingCancellation cancellation = cancellationRepository.save(BookingCancellation.confirmedFullRefund(
-                bookingId,
-                userId,
-                reason,
-                payment.getCapturedAmount(),
-                payment.getCurrency(),
-                now));
+        BookingCancellation cancellation = cancellationRepository.save(
+                policyCode.equals(BookingCancellation.TRIP_CANCELLED_FULL_REFUND_POLICY_CODE)
+                        ? BookingCancellation.tripCancelledFullRefund(
+                                booking.getId(),
+                                actorUserId,
+                                reason,
+                                payment.getCapturedAmount(),
+                                payment.getCurrency(),
+                                now)
+                        : BookingCancellation.confirmedFullRefund(
+                                booking.getId(),
+                                actorUserId,
+                                reason,
+                                payment.getCapturedAmount(),
+                                payment.getCurrency(),
+                                now));
         persistRequestedRefund(cancellation.getId(), payment, reason, now);
-        writeBookingCancelled(bookingId, cancellation, now);
+        writeBookingCancelled(booking.getId(), cancellation, now);
 
         allocationRepository.saveAllAndFlush(allocations);
         bookingRepository.flush();
         cancellationRepository.flush();
+        return cancellation;
+    }
 
-        scheduleRefundAfterCommit(userId, bookingId, cancellation.getId(), request);
-        return toResponse(cancellation, booking);
+    private void cancelActiveHoldsForTrip(UUID tripId) {
+        List<SeatHold> holds = seatHoldRepository.findByTripIdAndStatusForUpdateOrderByIdAsc(
+                tripId, SeatHoldStatus.ACTIVE);
+        for (SeatHold hold : holds) {
+            if (hold.getStatus() != SeatHoldStatus.ACTIVE) {
+                continue;
+            }
+            List<TripSeatAllocation> allocations = allocationRepository.findByHoldIdForUpdate(hold.getId());
+            for (TripSeatAllocation allocation : allocations) {
+                if (allocation.getState() == TripSeatAllocationState.HELD) {
+                    allocation.cancel();
+                }
+            }
+            hold.cancel();
+            seatHoldRepository.saveAndFlush(hold);
+            allocationRepository.saveAllAndFlush(allocations);
+        }
     }
 
     private void persistRequestedRefund(
@@ -195,6 +348,15 @@ public class BookingCancellationService {
             Instant now) {
         String idempotencyKey = RefundApplicationService.cancellationIdempotencyKey(cancellationId);
         if (refundRepository.findByPaymentAttemptIdAndIdempotencyKey(payment.getId(), idempotencyKey).isPresent()) {
+            return;
+        }
+        if (!refundRepository.findByPaymentAttemptIdAndStatusIn(
+                payment.getId(),
+                List.of(
+                        RefundStatus.REQUESTED,
+                        RefundStatus.PROCESSING,
+                        RefundStatus.SUCCEEDED,
+                        RefundStatus.FAILED)).isEmpty()) {
             return;
         }
         String refundReason = reason == null || reason.isBlank() ? "BOOKING_CANCELLED" : reason.trim();

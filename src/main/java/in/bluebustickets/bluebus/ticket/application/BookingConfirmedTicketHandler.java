@@ -34,6 +34,7 @@ public class BookingConfirmedTicketHandler implements OutboxEventHandler {
     @Transactional(propagation = Propagation.MANDATORY)
     public void handle(OutboxEvent event) {
         UUID bookingId = event.getAggregateId();
+        // Null means the booking is no longer CONFIRMED (e.g. trip cancellation); mark published.
         ticketApplicationService.issueForConfirmedBookingInCurrentTransaction(bookingId);
     }
 }

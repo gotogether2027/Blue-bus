@@ -404,7 +404,7 @@ class OperatorTripAdminPostgresIntegrationTest {
     }
 
     @Test
-    void cancelIsStatusOnlyAndLeavesBookingsInventoryUnchanged() throws Exception {
+    void cancelCascadesUnpaidBookingAndLeavesInventoryAndPaymentsIntact() throws Exception {
         IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
                 RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
         IssuedUser customer = tokens.issueCustomer();
@@ -475,7 +475,30 @@ class OperatorTripAdminPostgresIntegrationTest {
         mockMvc.perform(get("/api/v1/bookings/{bookingId}", bookingId)
                         .with(bearer(customer.accessToken())))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("PENDING_PAYMENT"));
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        String policy = jdbcTemplate.queryForObject(
+                "SELECT policy_code FROM booking_cancellations WHERE booking_id = ?",
+                String.class,
+                bookingId);
+        UUID requestedBy = UUID.fromString(jdbcTemplate.queryForObject(
+                "SELECT requested_by_user_id::text FROM booking_cancellations WHERE booking_id = ?",
+                String.class,
+                bookingId));
+        assertThat(policy).isEqualTo("TRIP_CANCELLED_UNPAID_V1");
+        assertThat(requestedBy).isEqualTo(admin.user().getId());
+        Integer refunds = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM refunds WHERE booking_id = ?", Integer.class, bookingId);
+        assertThat(refunds).isZero();
+        String allocationState = jdbcTemplate.queryForObject(
+                """
+                SELECT a.state FROM trip_seat_allocations a
+                JOIN booking_items i ON i.id = a.booking_item_id
+                WHERE i.booking_id = ?
+                """,
+                String.class,
+                bookingId);
+        assertThat(allocationState).isEqualTo("CANCELLED");
 
         Integer inventoryAfter = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM trip_seat_inventory WHERE trip_id = ?", Integer.class, tripId);
@@ -486,10 +509,19 @@ class OperatorTripAdminPostgresIntegrationTest {
         assertThat(inventoryAfter).isEqualTo(inventoryCountBefore);
         assertThat(ticketsAfter).isEqualTo(ticketsBefore);
         assertThat(paymentsAfter).isEqualTo(paymentsBefore);
+
+        mockMvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId)
+                        .with(bearer(customer.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+        Integer cancellations = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM booking_cancellations WHERE booking_id = ?", Integer.class, bookingId);
+        assertThat(cancellations).isEqualTo(1);
     }
 
     @Test
-    void confirmedAndRefundPendingBookingsBlockTripCancelAndLeaveTripUnchanged() throws Exception {
+    void confirmedBookingWithoutCapturedPaymentRollsBackTripCancel() throws Exception {
         IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
                 RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
         IssuedUser customer = tokens.issueCustomer();
@@ -501,12 +533,23 @@ class OperatorTripAdminPostgresIntegrationTest {
                         .with(bearer(admin.accessToken())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message")
-                        .value("Trip cannot be cancelled while confirmed or refund-pending bookings exist."));
+                        .value("Confirmed booking has no captured payment eligible for refund."));
         mockMvc.perform(post("/api/v1/admin/trips/{id}/deactivate", confirmed.tripId())
                         .with(bearer(platformAdminToken)))
                 .andExpect(status().isConflict());
         assertThat(tripRepository.findById(confirmed.tripId()).orElseThrow().getStatus().name())
                 .isEqualTo("SCHEDULED");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM bookings WHERE id = ?", String.class, confirmed.bookingId()))
+                .isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    void refundPendingBookingIsLeftUnchangedWhenTripIsCancelled() throws Exception {
+        IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser customer = tokens.issueCustomer();
+        UUID operatorId = admin.operator().getId();
 
         BookedTrip refundPending = createPendingBookedTrip(
                 admin, customer, "2027-12-25T10:00:00Z", "2027-12-25T18:00:00Z");
@@ -514,9 +557,92 @@ class OperatorTripAdminPostgresIntegrationTest {
         mockMvc.perform(post("/api/v1/operator/{operatorId}/trips/{tripId}/cancel",
                         operatorId, refundPending.tripId())
                         .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM bookings WHERE id = ?", String.class, refundPending.bookingId()))
+                .isEqualTo("REFUND_PENDING");
+        Integer cancellations = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM booking_cancellations WHERE booking_id = ?",
+                Integer.class,
+                refundPending.bookingId());
+        Integer refunds = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM refunds WHERE booking_id = ?",
+                Integer.class,
+                refundPending.bookingId());
+        assertThat(cancellations).isZero();
+        assertThat(refunds).isZero();
+    }
+
+    @Test
+    void cancelTripCancelsActiveHoldsAndRejectsHoldConversion() throws Exception {
+        IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser customer = tokens.issueCustomer();
+        UUID operatorId = admin.operator().getId();
+        Fixture fx = createFixture(operatorId);
+        UUID tripId = createDraftTrip(admin, fx, "2027-12-31T10:00:00Z", "2027-12-31T18:00:00Z");
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/trips/{tripId}/schedule", operatorId, tripId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk());
+        JsonNode detail = objectMapper.readTree(mockMvc.perform(get(
+                        "/api/v1/operator/{operatorId}/trips/{tripId}", operatorId, tripId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+        UUID originStopId = UUID.fromString(detail.get("stops").get(0).get("id").asText());
+        UUID destStopId = UUID.fromString(detail.get("stops").get(2).get("id").asText());
+        UUID seatInventoryId = UUID.fromString(detail.get("seatInventory").get(0).get("id").asText());
+
+        MvcResult holdResult = mockMvc.perform(post("/api/v1/trips/{tripId}/holds", tripId)
+                        .with(bearer(customer.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "originStopId":"%s",
+                                  "destinationStopId":"%s",
+                                  "seatInventoryIds":["%s"]
+                                }
+                                """.formatted(originStopId, destStopId, seatInventoryId)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID holdId = UUID.fromString(objectMapper.readTree(holdResult.getResponse().getContentAsString())
+                .get("holdId").asText());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/trips/{tripId}/cancel", operatorId, tripId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM seat_holds WHERE id = ?", String.class, holdId))
+                .isEqualTo("CANCELLED");
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM trip_seat_allocations WHERE hold_id = ? AND state = 'HELD'",
+                Integer.class,
+                holdId)).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM trip_seat_allocations WHERE hold_id = ? AND state = 'CANCELLED'",
+                Integer.class,
+                holdId)).isGreaterThan(0);
+
+        mockMvc.perform(post("/api/v1/bookings")
+                        .with(bearer(customer.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "holdId":"%s",
+                                  "originStopId":"%s",
+                                  "destinationStopId":"%s",
+                                  "idempotencyKey":"hold-after-cancel-%s",
+                                  "passengers":[
+                                    {"seatInventoryId":"%s","fullName":"Late Rider","age":30}
+                                  ]
+                                }
+                                """.formatted(holdId, originStopId, destStopId, shortId(), seatInventoryId)))
                 .andExpect(status().isConflict());
-        assertThat(tripRepository.findById(refundPending.tripId()).orElseThrow().getStatus().name())
-                .isEqualTo("SCHEDULED");
     }
 
     @Test
@@ -594,6 +720,23 @@ class OperatorTripAdminPostgresIntegrationTest {
                         .with(bearer(admin.accessToken())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("CANCELLED"));
+        String expectedBookingStatus = bookingStatus == null ? "CANCELLED" : bookingStatus;
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM bookings WHERE id = ?", String.class, booked.bookingId()))
+                .isEqualTo(expectedBookingStatus);
+        if (bookingStatus == null) {
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT policy_code FROM booking_cancellations WHERE booking_id = ?",
+                    String.class,
+                    booked.bookingId()))
+                    .isEqualTo("TRIP_CANCELLED_UNPAID_V1");
+        } else {
+            Integer cancellations = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM booking_cancellations WHERE booking_id = ?",
+                    Integer.class,
+                    booked.bookingId());
+            assertThat(cancellations).isZero();
+        }
     }
 
     private BookedTrip createPendingBookedTrip(

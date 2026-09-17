@@ -12,7 +12,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 
 /**
- * Immutable record of a completed customer cancellation decision.
+ * Immutable record of a completed cancellation decision (customer or trip cascade).
  */
 @Entity
 @Table(name = "booking_cancellations")
@@ -21,6 +21,8 @@ public class BookingCancellation extends AuditableEntity {
     public static final String UNPAID_POLICY_CODE = "UNPAID_CUSTOMER_CANCELLATION_V1";
     public static final String CONFIRMED_FULL_REFUND_POLICY_CODE =
             "CONFIRMED_FULL_REFUND_CUSTOMER_CANCELLATION_V1";
+    public static final String TRIP_CANCELLED_FULL_REFUND_POLICY_CODE = "TRIP_CANCELLED_FULL_REFUND_V1";
+    public static final String TRIP_CANCELLED_UNPAID_POLICY_CODE = "TRIP_CANCELLED_UNPAID_V1";
 
     @Column(name = "booking_id", nullable = false, updatable = false)
     private UUID bookingId;
@@ -73,6 +75,58 @@ public class BookingCancellation extends AuditableEntity {
             BigDecimal refundableAmount,
             String currency,
             Instant now) {
+        return confirmedRefund(
+                bookingId,
+                requestedByUserId,
+                reason,
+                refundableAmount,
+                currency,
+                now,
+                CONFIRMED_FULL_REFUND_POLICY_CODE);
+    }
+
+    public static BookingCancellation tripCancelledFullRefund(
+            UUID bookingId,
+            UUID requestedByUserId,
+            String reason,
+            BigDecimal refundableAmount,
+            String currency,
+            Instant now) {
+        return confirmedRefund(
+                bookingId,
+                requestedByUserId,
+                reason,
+                refundableAmount,
+                currency,
+                now,
+                TRIP_CANCELLED_FULL_REFUND_POLICY_CODE);
+    }
+
+    public static BookingCancellation tripCancelledUnpaid(
+            UUID bookingId,
+            UUID requestedByUserId,
+            String reason,
+            String currency,
+            Instant now) {
+        return new BookingCancellation(
+                bookingId,
+                requestedByUserId,
+                BookingStatus.PENDING_PAYMENT,
+                reason,
+                TRIP_CANCELLED_UNPAID_POLICY_CODE,
+                BigDecimal.ZERO.setScale(2),
+                currency,
+                now);
+    }
+
+    private static BookingCancellation confirmedRefund(
+            UUID bookingId,
+            UUID requestedByUserId,
+            String reason,
+            BigDecimal refundableAmount,
+            String currency,
+            Instant now,
+            String policyCode) {
         if (refundableAmount == null || refundableAmount.signum() <= 0) {
             throw new IllegalArgumentException("Confirmed cancellation requires a positive refundable amount");
         }
@@ -81,7 +135,7 @@ public class BookingCancellation extends AuditableEntity {
                 requestedByUserId,
                 BookingStatus.CONFIRMED,
                 reason,
-                CONFIRMED_FULL_REFUND_POLICY_CODE,
+                policyCode,
                 refundableAmount,
                 currency,
                 now);

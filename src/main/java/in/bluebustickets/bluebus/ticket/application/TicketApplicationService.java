@@ -93,22 +93,34 @@ public class TicketApplicationService {
     /**
      * System/outbox path: issue for a confirmed booking without customer ownership checks.
      * Joins the caller's transaction so ticket + {@code TICKET_ISSUED} stay atomic with the
-     * outbox mark-published step.
+     * outbox mark-published step. If the booking is no longer {@code CONFIRMED} because trip
+     * cancellation already cascaded it, returns {@code null} without creating a ticket so the
+     * outbox event can be marked published. Premature events for {@code PENDING_PAYMENT} still
+     * conflict so they can retry until confirmation.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Ticket issueForConfirmedBookingInCurrentTransaction(UUID bookingId) {
+        Booking locked = bookingRepository.findByIdForUpdate(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
+
         Ticket existing = ticketRepository.findDetailedByBookingId(bookingId).orElse(null);
         if (existing != null) {
             ensureTicketIssuedEvent(existing, clock.instant());
             return existing;
         }
 
-        Booking booking = bookingRepository.findDetailedById(bookingId)
-                .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
-        if (booking.getStatus() != BookingStatus.CONFIRMED) {
-            throw new ApplicationConflictException("Only confirmed bookings can issue a ticket.");
+        if (locked.getStatus() != BookingStatus.CONFIRMED) {
+            if (locked.getStatus() == BookingStatus.PENDING_PAYMENT
+                    || locked.getStatus() == BookingStatus.INITIATED) {
+                throw new ApplicationConflictException("Only confirmed bookings can issue a ticket.");
+            }
+            // Trip cancellation (or other terminal transition) already moved the booking off CONFIRMED.
+            // Consume the outbox event without creating a ticket or retrying forever.
+            return null;
         }
 
+        Booking booking = bookingRepository.findDetailedById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking was not found."));
         JourneySnapshot journey = loadJourneySnapshot(booking);
         Instant issuedAt = clock.instant();
         UUID ticketId = issuanceWorker.persistInCurrentTransaction(

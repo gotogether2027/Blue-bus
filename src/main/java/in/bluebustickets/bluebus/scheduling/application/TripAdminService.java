@@ -16,6 +16,7 @@ import in.bluebustickets.bluebus.fleet.repository.SeatRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
 import in.bluebustickets.bluebus.identity.application.AuthorizationService;
+import in.bluebustickets.bluebus.identity.domain.User;
 import in.bluebustickets.bluebus.scheduling.api.admin.dto.TripResponse;
 import in.bluebustickets.bluebus.scheduling.api.admin.dto.TripSeatInventoryResponse;
 import in.bluebustickets.bluebus.scheduling.api.admin.dto.TripStopResponse;
@@ -152,15 +153,13 @@ public class TripAdminService {
 
     @Transactional
     public TripResponse deactivate(UUID id) {
-        authorizationService.requirePlatformAdmin();
+        User admin = authorizationService.requirePlatformAdmin();
         Trip trip = tripRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Trip was not found."));
-        if (trip.getStatus() != TripStatus.CANCELLED
-                && tripCancellationBookingPort.existsConfirmedOrRefundPending(trip.getId())) {
-            throw new ApplicationConflictException(
-                    "Trip cannot be cancelled while confirmed or refund-pending bookings exist.");
+        if (trip.getStatus() != TripStatus.CANCELLED) {
+            tripCancellationBookingPort.cascadePassengersForLockedTrip(trip.getId(), admin.getId());
+            trip.cancel();
         }
-        trip.cancel();
         return toResponse(trip);
     }
 
