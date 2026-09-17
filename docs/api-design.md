@@ -216,7 +216,12 @@ Refunds use the captured amount from the database (client `amount` is ignored), 
 
 ### INITIATING recovery
 
-If Razorpay accepts an order and BLUE BUS crashes before persisting `provider_order_id`, the attempt remains `INITIATING`. Retrying the same customer `Idempotency-Key` calls Orders again with `X-Razorpay-Idempotency-Key` = `payment_attempt_id`, which returns the existing Razorpay order instead of creating another charge. Remaining operational requirement: if the customer never retries, an `INITIATING` row with a null provider order id should be reconciled from the Razorpay dashboard using the receipt/merchant reference; there is no automatic poller in this phase.
+If Razorpay accepts an order and BLUE BUS crashes before persisting `provider_order_id`, the attempt remains `INITIATING` with a null provider order id. Two recovery paths reuse the same Razorpay Orders call and **`X-Razorpay-Idempotency-Key` = `payment_attempt_id`** (never a newly generated key):
+
+1. The customer retries `POST /api/v1/bookings/{bookingId}/payments` with the same `Idempotency-Key`.
+2. A scheduled worker (`blue-bus.payments.initiating-recovery.*`, default every 5s, batch 50) claims stale rows (`status = INITIATING`, `provider_order_id IS NULL`, `created_at` older than the 30s stale threshold, `next_retry_at` due) with `FOR UPDATE SKIP LOCKED`, sets a 45s lease on `next_retry_at`, then calls Razorpay **after** that short transaction commits. Success persists the order id and moves `INITIATING → PENDING` through the existing initiation worker. Uncertain failures (timeout, 5xx, crash) stay `INITIATING` with bounded exponential backoff (5s … 15 minutes) and no hard attempt cap. This phase does **not** poll GET-order.
+
+`PAYMENT_INITIATED` is written only on an actual `INITIATING → PENDING` transition. Already-`PENDING` / terminal attempts, webhook-resolved attempts, and initiation that expires because the booking is no longer payable do not emit another event. The worker never confirms a booking, issues a ticket, or writes `BOOKING_CONFIRMED`; verified webhook/checkout processing remains the confirmation authority. Checkout stays unavailable until `provider_order_id` exists. `GET /api/v1/payments/{paymentAttemptId}` remains truthful. Existing APIs are unchanged.
 
 The webhook endpoint supplies the untouched request bytes and headers to the provider adapter. Only a verified, normalized event is persisted. `(provider, provider_event_id)` makes duplicate and concurrent delivery harmless. Pending/failure events never confirm a booking; verified success validates provider references and exact `NUMERIC(12,2)` amount/ISO currency.
 

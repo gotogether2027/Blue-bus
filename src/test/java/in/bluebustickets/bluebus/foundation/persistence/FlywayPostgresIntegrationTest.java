@@ -481,6 +481,43 @@ class FlywayPostgresIntegrationTest {
     }
 
     @Test
+    void appliesInitiatingPaymentRecoveryMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '21'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("21");
+            assertThat(migration.get("description")).hasToString("initiating payment recovery");
+            assertThat(migration.get("script")).hasToString("V21__initiating_payment_recovery.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(columnExists("payment_attempts", "attempt_count")).isTrue();
+        assertThat(columnExists("payment_attempts", "next_retry_at")).isTrue();
+        assertThat(indexExists("ix_payment_attempts_initiating_retry")).isTrue();
+
+        String attemptCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_payment_attempts_attempt_count'
+                """, String.class);
+        assertThat(attemptCheck).contains("attempt_count");
+
+        String indexDef = jdbcTemplate.queryForObject("""
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ix_payment_attempts_initiating_retry'
+                """, String.class);
+        assertThat(indexDef).contains("next_retry_at");
+        assertThat(indexDef).contains("created_at");
+        assertThat(indexDef).contains("INITIATING");
+        assertThat(indexDef).contains("provider_order_id");
+    }
+
+    @Test
     void appliesTicketFoundationMigration() {
         List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
                 SELECT version, description, script, success

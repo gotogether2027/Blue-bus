@@ -41,3 +41,11 @@ blue-bus:
       lease-ms: 45000
       initial-backoff-ms: 5000
       max-backoff-ms: 900000
+    initiating-recovery:
+      enabled: false
+      poll-interval-ms: 5000
+      batch-size: 50
+      lease-ms: 45000
+      stale-threshold-ms: 30000
+      initial-backoff-ms: 5000
+      max-backoff-ms: 900000

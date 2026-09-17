@@ -24,6 +24,8 @@ import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
 import in.bluebustickets.bluebus.payments.provider.PaymentProvider;
 import in.bluebustickets.bluebus.payments.provider.PaymentProviderRegistry;
 import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -85,6 +87,20 @@ public class PaymentInitiationService {
         }
 
         return completeProviderOrder(reservation.attempt(), provider);
+    }
+
+    /**
+     * Worker recovery: reuse the same provider initiation path and Razorpay
+     * {@code payment_attempt_id} idempotency key. Never confirms a booking.
+     */
+    public void recoverProviderOrder(UUID attemptId) {
+        PaymentAttempt attempt = paymentAttemptRepository.findById(attemptId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
+        if (!needsProviderRecovery(attempt)) {
+            return;
+        }
+        PaymentProvider provider = providerRegistry.require(attempt.getProvider());
+        completeProviderOrder(attempt, provider);
     }
 
     private PaymentInitiationResponse resumeOrReturn(
@@ -202,6 +218,7 @@ public class PaymentInitiationService {
         private final BookingPaymentPort bookingPaymentPort;
         private final PaymentAttemptRepository paymentAttemptRepository;
         private final OutboxEventRepository outboxEventRepository;
+        private final Logger log = LoggerFactory.getLogger(PaymentInitiationWorker.class);
 
         PaymentInitiationWorker(
                 BookingPaymentPort bookingPaymentPort,
@@ -261,21 +278,31 @@ public class PaymentInitiationService {
             PaymentAttempt attempt = paymentAttemptRepository.findByIdForUpdate(attemptId)
                     .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
 
+            boolean wasInitiating = attempt.getStatus() == PaymentStatus.INITIATING;
             attempt.markInitiated(
                     result.providerOrderId(), result.providerStatus(), result.checkoutReference());
+            boolean becamePending = wasInitiating && attempt.getStatus() == PaymentStatus.PENDING;
             if (booking.status() != BookingStatus.PENDING_PAYMENT
                     || !booking.paymentExpiresAt().isAfter(now)) {
                 attempt.markExpired(result.providerStatus(), now);
             }
-            outboxEventRepository.save(new OutboxEvent(
-                    "PAYMENT_INITIATED",
-                    "PAYMENT_ATTEMPT",
-                    attempt.getId(),
-                    "{\"paymentAttemptId\":\"" + attempt.getId()
-                            + "\",\"bookingId\":\"" + attempt.getBookingId() + "\"}",
-                    now,
-                    attempt.getIdempotencyKey(),
-                    null));
+            if (becamePending && attempt.getStatus() == PaymentStatus.PENDING) {
+                outboxEventRepository.save(new OutboxEvent(
+                        "PAYMENT_INITIATED",
+                        "PAYMENT_ATTEMPT",
+                        attempt.getId(),
+                        "{\"paymentAttemptId\":\"" + attempt.getId()
+                                + "\",\"bookingId\":\"" + attempt.getBookingId() + "\"}",
+                        now,
+                        attempt.getIdempotencyKey(),
+                        null));
+                log.info(
+                        "PAYMENT_INITIATED paymentAttemptId={} bookingId={} provider={} providerOrderId={}",
+                        attempt.getId(),
+                        attempt.getBookingId(),
+                        attempt.getProvider(),
+                        attempt.getProviderOrderId());
+            }
             return paymentAttemptRepository.saveAndFlush(attempt);
         }
     }

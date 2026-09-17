@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -39,10 +40,13 @@ import in.bluebustickets.bluebus.identity.domain.UserRole;
 import in.bluebustickets.bluebus.identity.repository.RoleRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
+import in.bluebustickets.bluebus.payments.application.InitiatingPaymentRecoveryProcessor;
+import in.bluebustickets.bluebus.payments.application.InitiatingPaymentRecoveryService;
 import in.bluebustickets.bluebus.payments.application.RefundApplicationService;
 import in.bluebustickets.bluebus.payments.application.RefundRetryProcessor;
 import in.bluebustickets.bluebus.payments.application.RefundRetryProperties;
 import in.bluebustickets.bluebus.payments.application.RefundRetryService;
+import in.bluebustickets.bluebus.payments.domain.PaymentAttempt;
 import in.bluebustickets.bluebus.payments.domain.PaymentDisposition;
 import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
 import in.bluebustickets.bluebus.payments.domain.Refund;
@@ -150,6 +154,8 @@ class RazorpayPaymentPostgresIntegrationTest {
     @Autowired private RefundRetryService refundRetryService;
     @Autowired private RefundRetryProcessor refundRetryProcessor;
     @Autowired private RefundRetryProperties refundRetryProperties;
+    @Autowired private InitiatingPaymentRecoveryService initiatingPaymentRecoveryService;
+    @Autowired private InitiatingPaymentRecoveryProcessor initiatingPaymentRecoveryProcessor;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private TestAccessTokenFactory testAccessTokenFactory;
 
@@ -1357,6 +1363,340 @@ class RazorpayPaymentPostgresIntegrationTest {
     }
 
     @Test
+    void staleInitiatingAttemptIsRecoveredToPendingWithoutConfirmingBooking() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-stale");
+        markStaleForRecovery(stuck.getId());
+
+        InitiatingPaymentRecoveryService.InitiatingPaymentRecoveryResult result =
+                initiatingPaymentRecoveryService.processDueRecoveries();
+        assertThat(result.claimed()).isEqualTo(1);
+        assertThat(result.completed()).isEqualTo(1);
+
+        PaymentAttempt recovered = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(recovered.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(recovered.getProviderOrderId()).isNotBlank();
+        assertThat(recovered.getCheckoutReference()).isEqualTo(KEY_ID);
+        assertThat(GATEWAY.lastOrderIdempotencyKey()).isEqualTo(stuck.getId().toString());
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(GATEWAY.orderIdFor(stuck.getId().toString())).isEqualTo(recovered.getProviderOrderId());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+        assertThat(ticketRepository.findByBookingId(booking.bookingId())).isEmpty();
+        assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId())).hasSize(1);
+
+        mockMvc.perform(get("/api/v1/payments/{id}", stuck.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.providerOrderId").value(recovered.getProviderOrderId()));
+
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId())).hasSize(1);
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+    }
+
+    @Test
+    void nonStaleInitiatingAttemptIsNotRecovered() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-fresh");
+
+        InitiatingPaymentRecoveryService.InitiatingPaymentRecoveryResult result =
+                initiatingPaymentRecoveryService.processDueRecoveries();
+        assertThat(result.claimed()).isZero();
+        assertThat(paymentAttemptRepository.findById(stuck.getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.INITIATING);
+        assertThat(paymentAttemptRepository.findById(stuck.getId()).orElseThrow().getProviderOrderId()).isNull();
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isZero();
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+    }
+
+    @Test
+    void recoveryFailureSchedulesBackoffAndNeverMarksFailed() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-fail");
+        markStaleForRecovery(stuck.getId());
+        GATEWAY.orderStatus = 500;
+        Instant before = Instant.now();
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        GATEWAY.orderStatus = 200;
+
+        PaymentAttempt retried = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(retried.getStatus()).isEqualTo(PaymentStatus.INITIATING);
+        assertThat(retried.getProviderOrderId()).isNull();
+        assertThat(retried.getAttemptCount()).isEqualTo(1);
+        assertThat(retried.getNextRetryAt()).isAfter(before.plusSeconds(3));
+        assertThat(retried.getNextRetryAt()).isBefore(before.plusSeconds(15));
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isZero();
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        assertThat(paymentAttemptRepository.findById(stuck.getId()).orElseThrow().getAttemptCount()).isEqualTo(1);
+
+        jdbcTemplate.update("UPDATE payment_attempts SET next_retry_at = NULL WHERE id = ?", stuck.getId());
+        GATEWAY.orderStatus = 500;
+        Instant second = Instant.now();
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        GATEWAY.orderStatus = 200;
+        PaymentAttempt secondTry = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(secondTry.getStatus()).isEqualTo(PaymentStatus.INITIATING);
+        assertThat(secondTry.getAttemptCount()).isEqualTo(2);
+        assertThat(secondTry.getNextRetryAt()).isAfter(second.plusSeconds(8));
+        assertThat(secondTry.getNextRetryAt()).isBefore(second.plusSeconds(20));
+
+        for (int i = 0; i < 6; i++) {
+            jdbcTemplate.update("UPDATE payment_attempts SET next_retry_at = NULL WHERE id = ?", stuck.getId());
+            GATEWAY.orderStatus = 500;
+            initiatingPaymentRecoveryService.processDueRecoveries();
+            GATEWAY.orderStatus = 200;
+        }
+        PaymentAttempt uncapped = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(uncapped.getStatus()).isEqualTo(PaymentStatus.INITIATING);
+        assertThat(uncapped.getAttemptCount()).isGreaterThanOrEqualTo(8);
+        assertThat(uncapped.getNextRetryAt()).isAfter(Instant.now().plusSeconds(60));
+    }
+
+    @Test
+    void multipleWorkersCannotClaimTheSameInitiatingAttemptWhileLeased() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-lease");
+        markStaleForRecovery(stuck.getId());
+        int httpBefore = GATEWAY.orderHttpCalls();
+        GATEWAY.delayOrders = true;
+        runConcurrent(
+                () -> initiatingPaymentRecoveryService.processDueRecoveries(),
+                () -> initiatingPaymentRecoveryService.processDueRecoveries());
+        GATEWAY.delayOrders = false;
+
+        PaymentAttempt after = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(after.getAttemptCount()).isEqualTo(1);
+        assertThat(GATEWAY.orderHttpCalls()).isEqualTo(httpBefore + 1);
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(GATEWAY.lastOrderIdempotencyKey()).isEqualTo(stuck.getId().toString());
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+
+        Instant now = Instant.now();
+        assertThat(initiatingPaymentRecoveryProcessor.tryClaimDueAttempt(stuck.getId(), now)).isEmpty();
+
+        jdbcTemplate.update(
+                "UPDATE payment_attempts SET next_retry_at = ? WHERE id = ?",
+                Timestamp.from(now.minusSeconds(1)),
+                stuck.getId());
+        initiatingPaymentRecoveryService.processDueRecoveries(now);
+        PaymentAttempt recovered = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(recovered.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(recovered.getProviderOrderId()).isNotBlank();
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+    }
+
+    @Test
+    void pendingSucceededAndExpiredAttemptsAreIgnoredByRecovery() throws Exception {
+        CreatedBooking pendingBooking = createPendingBooking();
+        JsonNode pendingInitiated = initiate(pendingBooking, "recover-ignore-pending");
+        UUID pendingId = UUID.fromString(pendingInitiated.get("paymentAttemptId").asText());
+        markStaleForRecovery(pendingId);
+        assertThat(initiatingPaymentRecoveryService.processDueRecoveries().claimed()).isZero();
+        assertThat(paymentAttemptRepository.findById(pendingId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.PENDING);
+        assertThat(outboxCount("PAYMENT_INITIATED", pendingId)).isEqualTo(1);
+
+        CreatedBooking succeededBooking = createPendingBooking();
+        JsonNode succeededInitiated = initiate(succeededBooking, "recover-ignore-succeeded");
+        UUID succeededId = UUID.fromString(succeededInitiated.get("paymentAttemptId").asText());
+        sendWebhook(capturedBody(succeededInitiated, "evt_rec_ok", "pay_rec_ok", epochNow()), "evt_rec_ok")
+                .andExpect(status().isOk());
+        markStaleForRecovery(succeededId);
+        assertThat(initiatingPaymentRecoveryService.processDueRecoveries().claimed()).isZero();
+        assertThat(paymentAttemptRepository.findById(succeededId).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(succeededBooking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+
+        CreatedBooking expiredBooking = createPendingBooking();
+        PaymentAttempt expiredStuck = leaveStuckInitiating(expiredBooking, "recover-ignore-expired");
+        jdbcTemplate.update("""
+                UPDATE payment_attempts
+                   SET status = 'EXPIRED', created_at = ?
+                 WHERE id = ?
+                """, Timestamp.from(Instant.now().minusSeconds(45)), expiredStuck.getId());
+        assertThat(initiatingPaymentRecoveryService.processDueRecoveries().claimed()).isZero();
+        assertThat(paymentAttemptRepository.findById(expiredStuck.getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.EXPIRED);
+        assertThat(outboxCount("PAYMENT_INITIATED", expiredStuck.getId())).isZero();
+        assertThat(outboxCount("BOOKING_CONFIRMED", expiredBooking.bookingId())).isZero();
+    }
+
+    @Test
+    void webhookWinsRaceAgainstInitiatingRecovery() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-webhook-wins");
+        markStaleForRecovery(stuck.getId());
+        String orderId = GATEWAY.orderIdFor(stuck.getId().toString());
+        sendWebhook(
+                capturedBody(stuck, orderId, "evt_rec_wh_win", "pay_rec_wh_win", epochNow()),
+                "evt_rec_wh_win")
+                .andExpect(status().isOk());
+        assertThat(paymentAttemptRepository.findById(stuck.getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+
+        InitiatingPaymentRecoveryService.InitiatingPaymentRecoveryResult result =
+                initiatingPaymentRecoveryService.processDueRecoveries();
+        assertThat(result.claimed()).isZero();
+        PaymentAttempt after = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(after.getStatus()).isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(after.getDisposition()).isEqualTo(PaymentDisposition.APPLIED_TO_BOOKING);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isZero();
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isEqualTo(1);
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId())).hasSize(1);
+    }
+
+    @Test
+    void recoveryWinsBeforeWebhookThenWebhookConfirmsNormally() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-then-webhook");
+        markStaleForRecovery(stuck.getId());
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        PaymentAttempt pending = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(pending.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+
+        sendWebhook(
+                capturedBody(pending, pending.getProviderOrderId(), "evt_rec_then_wh", "pay_rec_then_wh", epochNow()),
+                "evt_rec_then_wh")
+                .andExpect(status().isOk());
+        assertThat(paymentAttemptRepository.findById(stuck.getId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.SUCCEEDED);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CONFIRMED);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isEqualTo(1);
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+    }
+
+    @Test
+    void bookingExpiryAndCustomerCancellationRacesDoNotConfirmFromRecovery() throws Exception {
+        CreatedBooking expired = createPendingBooking();
+        PaymentAttempt expiredStuck = leaveStuckInitiating(expired, "recover-expiry-race");
+        markStaleForRecovery(expiredStuck.getId());
+        forcePaymentExpiresAt(expired.bookingId(), Instant.now().minusSeconds(5));
+        runConcurrent(
+                () -> initiatingPaymentRecoveryService.processDueRecoveries(),
+                () -> bookingExpiryService.expireDueBookings(Instant.now()));
+        assertThat(bookingRepository.findById(expired.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        PaymentStatus expiredPaymentStatus =
+                paymentAttemptRepository.findById(expiredStuck.getId()).orElseThrow().getStatus();
+        assertThat(expiredPaymentStatus).isIn(PaymentStatus.PENDING, PaymentStatus.EXPIRED, PaymentStatus.INITIATING);
+        if (expiredPaymentStatus == PaymentStatus.INITIATING) {
+            jdbcTemplate.update(
+                    "UPDATE payment_attempts SET next_retry_at = NULL, created_at = ? WHERE id = ?",
+                    Timestamp.from(Instant.now().minusSeconds(45)),
+                    expiredStuck.getId());
+            initiatingPaymentRecoveryService.processDueRecoveries();
+        }
+        PaymentAttempt afterExpiry = paymentAttemptRepository.findById(expiredStuck.getId()).orElseThrow();
+        assertThat(afterExpiry.getStatus()).isIn(PaymentStatus.PENDING, PaymentStatus.EXPIRED);
+        assertThat(afterExpiry.getProviderOrderId()).isNotBlank();
+        assertThat(bookingRepository.findById(expired.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.EXPIRED);
+        assertThat(outboxCount("BOOKING_CONFIRMED", expired.bookingId())).isZero();
+        assertThat(ticketRepository.findByBookingId(expired.bookingId())).isEmpty();
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+
+        CreatedBooking cancelled = createPendingBooking();
+        PaymentAttempt cancelledStuck = leaveStuckInitiating(cancelled, "recover-cancel-race");
+        markStaleForRecovery(cancelledStuck.getId());
+        runConcurrent(
+                () -> initiatingPaymentRecoveryService.processDueRecoveries(),
+                () -> mockMvc.perform(post("/api/v1/bookings/{id}/cancel", cancelled.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                        .andExpect(status().isOk()));
+        assertThat(bookingRepository.findById(cancelled.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CANCELLED);
+        PaymentAttempt afterCancel = paymentAttemptRepository.findById(cancelledStuck.getId()).orElseThrow();
+        if (afterCancel.getStatus() == PaymentStatus.INITIATING) {
+            jdbcTemplate.update(
+                    "UPDATE payment_attempts SET next_retry_at = NULL, created_at = ? WHERE id = ?",
+                    Timestamp.from(Instant.now().minusSeconds(45)),
+                    cancelledStuck.getId());
+            initiatingPaymentRecoveryService.processDueRecoveries();
+            afterCancel = paymentAttemptRepository.findById(cancelledStuck.getId()).orElseThrow();
+        }
+        assertThat(afterCancel.getStatus()).isIn(PaymentStatus.PENDING, PaymentStatus.EXPIRED);
+        assertThat(bookingRepository.findById(cancelled.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CANCELLED);
+        assertThat(outboxCount("BOOKING_CONFIRMED", cancelled.bookingId())).isZero();
+        assertThat(ticketRepository.findByBookingId(cancelled.bookingId())).isEmpty();
+    }
+
+    @Test
+    void tripCancellationRaceDoesNotConfirmFromRecovery() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-trip-cancel");
+        markStaleForRecovery(stuck.getId());
+        runConcurrent(
+                () -> initiatingPaymentRecoveryService.processDueRecoveries(),
+                () -> mockMvc.perform(post("/api/v1/admin/trips/{id}/deactivate", booking.tripId())
+                        .with(TestAccessTokenFactory.bearer(adminToken)))
+                        .andExpect(status().isOk()));
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CANCELLED);
+        PaymentAttempt after = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        if (after.getStatus() == PaymentStatus.INITIATING) {
+            jdbcTemplate.update(
+                    "UPDATE payment_attempts SET next_retry_at = NULL, created_at = ? WHERE id = ?",
+                    Timestamp.from(Instant.now().minusSeconds(45)),
+                    stuck.getId());
+            initiatingPaymentRecoveryService.processDueRecoveries();
+            after = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        }
+        assertThat(after.getStatus()).isIn(PaymentStatus.PENDING, PaymentStatus.EXPIRED);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.CANCELLED);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+        assertThat(ticketRepository.findByBookingId(booking.bookingId())).isEmpty();
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId())).hasSize(1);
+    }
+
+    @Test
+    void customerRetryRacesRecoveryWithoutDuplicateOrdersOrEvents() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "recover-customer-race");
+        markStaleForRecovery(stuck.getId());
+        runConcurrent(
+                () -> mockMvc.perform(post("/api/v1/bookings/{id}/payments", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .header("Idempotency-Key", "recover-customer-race"))
+                        .andExpect(status().isCreated()),
+                () -> initiatingPaymentRecoveryService.processDueRecoveries());
+        PaymentAttempt recovered = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(recovered.getStatus()).isIn(PaymentStatus.PENDING, PaymentStatus.EXPIRED);
+        assertThat(recovered.getProviderOrderId()).isNotBlank();
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(GATEWAY.lastOrderIdempotencyKey()).isEqualTo(stuck.getId().toString());
+        assertThat(paymentAttemptRepository.findByBookingIdOrderByCreatedAtDesc(booking.bookingId())).hasSize(1);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+    }
+
+    @Test
     void initiatingRecoveryReusesProviderIdempotencyAndDoesNotDuplicateOrders() throws Exception {
         CreatedBooking booking = createPendingBooking();
         GATEWAY.delayOrders = true;
@@ -1411,15 +1751,42 @@ class RazorpayPaymentPostgresIntegrationTest {
     }
 
     private String capturedBody(JsonNode attempt, String eventId, String paymentId, long createdAt) {
+        return capturedBody(
+                attempt.get("providerOrderId").asText(),
+                attempt.get("merchantReference").asText(),
+                attempt.get("amount").decimalValue(),
+                eventId,
+                paymentId,
+                createdAt);
+    }
+
+    private String capturedBody(
+            PaymentAttempt attempt, String orderId, String eventId, String paymentId, long createdAt) {
+        return capturedBody(
+                orderId,
+                attempt.getMerchantReference(),
+                attempt.getRequestedAmount(),
+                eventId,
+                paymentId,
+                createdAt);
+    }
+
+    private String capturedBody(
+            String orderId,
+            String merchantReference,
+            BigDecimal amount,
+            String eventId,
+            String paymentId,
+            long createdAt) {
         return """
                 {"id":"%s","event":"payment.captured","created_at":%d,"payload":{"payment":{"entity":{"id":"%s","order_id":"%s","amount":%d,"currency":"INR","status":"captured","notes":{"merchant_reference":"%s"}}}}}
                 """.formatted(
                 eventId,
                 createdAt,
                 paymentId,
-                attempt.get("providerOrderId").asText(),
-                paise(attempt.get("amount").decimalValue()),
-                attempt.get("merchantReference").asText()).trim();
+                orderId,
+                paise(amount),
+                merchantReference).trim();
     }
 
     private String authorizedBody(JsonNode attempt, String eventId, String paymentId, long createdAt) {
@@ -1507,6 +1874,28 @@ class RazorpayPaymentPostgresIntegrationTest {
                 "UPDATE bookings SET payment_expires_at = ? WHERE id = ?",
                 java.sql.Timestamp.from(expiresAt),
                 bookingId);
+    }
+
+    private PaymentAttempt leaveStuckInitiating(CreatedBooking booking, String key) throws Exception {
+        GATEWAY.delayOrders = true;
+        mockMvc.perform(post("/api/v1/bookings/{id}/payments", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken)
+                        .header("Idempotency-Key", key))
+                .andExpect(status().isServiceUnavailable());
+        GATEWAY.delayOrders = false;
+        PaymentAttempt attempt = paymentAttemptRepository
+                .findByBookingIdOrderByCreatedAtDesc(booking.bookingId())
+                .get(0);
+        assertThat(attempt.getStatus()).isEqualTo(PaymentStatus.INITIATING);
+        assertThat(attempt.getProviderOrderId()).isNull();
+        return attempt;
+    }
+
+    private void markStaleForRecovery(UUID attemptId) {
+        jdbcTemplate.update(
+                "UPDATE payment_attempts SET created_at = ?, next_retry_at = NULL WHERE id = ?",
+                Timestamp.from(Instant.now().minusSeconds(45)),
+                attemptId);
     }
 
     private String createOtherCustomer() throws Exception {
@@ -1739,9 +2128,11 @@ class RazorpayPaymentPostgresIntegrationTest {
         private final AtomicInteger orderHttpCalls = new AtomicInteger();
         private final AtomicInteger refundHttpCalls = new AtomicInteger();
         private final AtomicInteger totalHttpCalls = new AtomicInteger();
+        private final AtomicInteger inFlight = new AtomicInteger();
         private final AtomicLong lastOrderAmountPaise = new AtomicLong();
         private final AtomicLong lastRefundAmountPaise = new AtomicLong();
         private final AtomicReference<String> lastRefundIdempotencyKey = new AtomicReference<>();
+        private final AtomicReference<String> lastOrderIdempotencyKey = new AtomicReference<>();
         private final AtomicReference<String> lastAuth = new AtomicReference<>();
         volatile boolean delayOrders;
         volatile boolean delayRefunds;
@@ -1774,6 +2165,7 @@ class RazorpayPaymentPostgresIntegrationTest {
         }
 
         void reset() {
+            awaitIdle();
             orders.clear();
             refunds.clear();
             orderHttpCalls.set(0);
@@ -1782,6 +2174,7 @@ class RazorpayPaymentPostgresIntegrationTest {
             lastOrderAmountPaise.set(0);
             lastRefundAmountPaise.set(0);
             lastRefundIdempotencyKey.set(null);
+            lastOrderIdempotencyKey.set(null);
             delayOrders = false;
             delayRefunds = false;
             failRefunds = false;
@@ -1821,7 +2214,28 @@ class RazorpayPaymentPostgresIntegrationTest {
             return lastRefundIdempotencyKey.get();
         }
 
+        String lastOrderIdempotencyKey() {
+            return lastOrderIdempotencyKey.get();
+        }
+
+        String orderIdFor(String idempotencyKey) {
+            return orders.get(idempotencyKey);
+        }
+
+        private void awaitIdle() {
+            long deadline = System.currentTimeMillis() + 5_000L;
+            while (inFlight.get() > 0 && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+
         private void handle(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+            inFlight.incrementAndGet();
             try {
                 totalHttpCalls.incrementAndGet();
                 lastAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
@@ -1839,6 +2253,8 @@ class RazorpayPaymentPostgresIntegrationTest {
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt();
                 write(exchange, 500, "{\"error\":\"interrupted\"}");
+            } finally {
+                inFlight.decrementAndGet();
             }
         }
 
@@ -1846,6 +2262,7 @@ class RazorpayPaymentPostgresIntegrationTest {
                 throws IOException, InterruptedException {
             orderHttpCalls.incrementAndGet();
             String idempotency = header(exchange, "X-Razorpay-Idempotency-Key");
+            lastOrderIdempotencyKey.set(idempotency);
             String json = new String(request, StandardCharsets.UTF_8);
             lastOrderAmountPaise.set(readAmount(json));
             if (delayOrders) {

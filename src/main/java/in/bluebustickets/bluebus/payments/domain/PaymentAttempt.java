@@ -93,6 +93,12 @@ public class PaymentAttempt extends AuditableEntity {
     @Column(nullable = false)
     private int version = 1;
 
+    @Column(name = "attempt_count", nullable = false)
+    private int attemptCount = 0;
+
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
+
     protected PaymentAttempt() {
     }
 
@@ -209,6 +215,27 @@ public class PaymentAttempt extends AuditableEntity {
         this.version++;
     }
 
+    /**
+     * Worker claim/lease: increments {@code attemptCount} and defers the next due time
+     * so another instance skips an in-flight Razorpay order call.
+     */
+    public void claimForRetry(Instant nextRetryAt) {
+        if (nextRetryAt == null) {
+            throw new IllegalArgumentException("nextRetryAt is required");
+        }
+        this.attemptCount++;
+        this.nextRetryAt = nextRetryAt;
+        this.version++;
+    }
+
+    public void scheduleRetry(Instant nextRetryAt) {
+        if (nextRetryAt == null) {
+            throw new IllegalArgumentException("nextRetryAt is required");
+        }
+        this.nextRetryAt = nextRetryAt;
+        this.version++;
+    }
+
     private static String requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " is required");
@@ -241,4 +268,6 @@ public class PaymentAttempt extends AuditableEntity {
     public Instant getProviderOccurredAt() { return providerOccurredAt; }
     public Instant getProcessedAt() { return processedAt; }
     public int getVersion() { return version; }
+    public int getAttemptCount() { return attemptCount; }
+    public Instant getNextRetryAt() { return nextRetryAt; }
 }
