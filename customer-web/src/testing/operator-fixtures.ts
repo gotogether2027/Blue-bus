@@ -4,6 +4,9 @@ import {
   OperatorBusType,
   OperatorMembership,
   OperatorProfile,
+  OperatorRoute,
+  OperatorRoutePoint,
+  OperatorRouteStop,
   OperatorSeatLayout,
   OperatorTrip
 } from '../app/operator/models/operator.models';
@@ -62,6 +65,71 @@ export const operatorSeatLayoutFixture = (
   columnCount: 3,
   status: 'PUBLISHED',
   seats: [],
+  ...overrides
+});
+
+export const operatorRoutePointFixture = (
+  overrides: Partial<OperatorRoutePoint> = {}
+): OperatorRoutePoint => ({
+  id: 'route-point-1',
+  routeStopId: 'route-stop-1',
+  name: 'Miyapur',
+  pointType: 'BOARDING',
+  address: 'Miyapur X Roads',
+  latitude: 17.5,
+  longitude: 78.3,
+  active: true,
+  ...overrides
+});
+
+export const operatorRouteStopFixture = (
+  overrides: Partial<OperatorRouteStop> = {}
+): OperatorRouteStop => ({
+  id: 'route-stop-1',
+  routeId: 'route-1',
+  locationId: 'location-hyd',
+  sequenceNumber: 1,
+  stopKind: 'SOURCE',
+  arrivalOffsetMinutes: null,
+  departureOffsetMinutes: 0,
+  distanceKm: 0,
+  points: [operatorRoutePointFixture()],
+  ...overrides
+});
+
+export const operatorRouteFixture = (
+  overrides: Partial<OperatorRoute> = {}
+): OperatorRoute => ({
+  id: 'route-1',
+  operatorId: 'operator-1',
+  code: 'HYD-VJA',
+  name: 'Hyderabad to Vijayawada',
+  sourceLocationId: 'location-hyd',
+  destinationLocationId: 'location-vja',
+  status: 'ACTIVE',
+  stops: [
+    operatorRouteStopFixture(),
+    operatorRouteStopFixture({
+      id: 'route-stop-2',
+      locationId: 'location-vja',
+      sequenceNumber: 2,
+      stopKind: 'DESTINATION',
+      arrivalOffsetMinutes: 270,
+      departureOffsetMinutes: null,
+      distanceKm: 270,
+      points: [
+        operatorRoutePointFixture({
+          id: 'route-point-2',
+          routeStopId: 'route-stop-2',
+          name: 'Benz Circle',
+          pointType: 'DROPPING',
+          address: null,
+          latitude: null,
+          longitude: null
+        })
+      ]
+    })
+  ],
   ...overrides
 });
 
