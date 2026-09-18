@@ -2,6 +2,7 @@ import {
   OperatorBooking,
   OperatorBus,
   OperatorBusType,
+  OperatorMember,
   OperatorMembership,
   OperatorProfile,
   OperatorRoute,
@@ -18,6 +19,18 @@ export const operatorMembershipFixture = (
   operatorId: 'operator-1',
   operatorDisplayName: 'Coastal Travels',
   role: 'OPERATOR_ADMIN',
+  ...overrides
+});
+
+export const operatorMemberFixture = (
+  overrides: Partial<OperatorMember> = {}
+): OperatorMember => ({
+  userId: '11111111-1111-4111-8111-111111111111',
+  email: 'admin.ops@example.test',
+  firstName: 'Asha',
+  lastName: 'Rao',
+  role: 'OPERATOR_ADMIN',
+  status: 'ACTIVE',
   ...overrides
 });
 

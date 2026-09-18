@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   CreateOperatorBusRequest,
+  CreateOperatorMemberRequest,
   CreateOperatorRoutePointRequest,
   CreateOperatorRouteRequest,
   CreateOperatorRouteStopRequest,
@@ -11,6 +12,7 @@ import {
   OperatorBooking,
   OperatorBus,
   OperatorBusType,
+  OperatorMember,
   OperatorMembership,
   OperatorProfile,
   OperatorRoute,
@@ -23,6 +25,7 @@ import {
   OperatorTripSeatInventory,
   BlockOperatorTripSeatRequest,
   UpdateOperatorBusRequest,
+  UpdateOperatorMemberRequest,
   UpdateOperatorTripRequest,
   UpdateOperatorRoutePointRequest,
   UpdateOperatorRouteRequest,
@@ -40,6 +43,32 @@ export class OperatorApiService {
 
   getOperator(operatorId: string): Observable<OperatorProfile> {
     return this.http.get<OperatorProfile>(`${this.operatorBase(operatorId)}`);
+  }
+
+  listMembers(operatorId: string): Observable<OperatorMember[]> {
+    return this.http.get<OperatorMember[]>(this.membersBase(operatorId));
+  }
+
+  addMember(
+    operatorId: string,
+    request: CreateOperatorMemberRequest
+  ): Observable<OperatorMember> {
+    return this.http.post<OperatorMember>(this.membersBase(operatorId), request);
+  }
+
+  updateMember(
+    operatorId: string,
+    userId: string,
+    request: UpdateOperatorMemberRequest
+  ): Observable<OperatorMember> {
+    return this.http.patch<OperatorMember>(this.memberBase(operatorId, userId), request);
+  }
+
+  deactivateMember(operatorId: string, userId: string): Observable<OperatorMember> {
+    return this.http.post<OperatorMember>(
+      `${this.memberBase(operatorId, userId)}/deactivate`,
+      null
+    );
   }
 
   listBuses(operatorId: string): Observable<OperatorBus[]> {
@@ -314,6 +343,14 @@ export class OperatorApiService {
 
   private operatorBase(operatorId: string): string {
     return `${this.base}/operator/${encodeURIComponent(operatorId)}`;
+  }
+
+  private membersBase(operatorId: string): string {
+    return `${this.operatorBase(operatorId)}/members`;
+  }
+
+  private memberBase(operatorId: string, userId: string): string {
+    return `${this.membersBase(operatorId)}/${encodeURIComponent(userId)}`;
   }
 
   private inventoryBase(operatorId: string, tripId: string): string {

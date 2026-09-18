@@ -8,6 +8,7 @@ import {
 } from '../../core/api/models';
 
 export type OperatorRole = 'OPERATOR_ADMIN' | 'OPERATOR_STAFF';
+export type OperatorMemberStatus = 'ACTIVE' | 'INACTIVE';
 export type OperatorStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'INACTIVE';
 export type OperatorBusStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
 export type OperatorSeatLayoutStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
@@ -18,6 +19,25 @@ export interface OperatorMembership {
   operatorId: string;
   operatorDisplayName: string;
   role: OperatorRole;
+}
+
+export interface OperatorMember {
+  userId: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: OperatorRole;
+  status: OperatorMemberStatus;
+}
+
+export interface CreateOperatorMemberRequest {
+  userId: string;
+  role: OperatorRole;
+}
+
+export interface UpdateOperatorMemberRequest {
+  role?: OperatorRole;
+  status?: OperatorMemberStatus;
 }
 
 export interface OperatorProfile {

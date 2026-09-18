@@ -9,6 +9,7 @@ import {
   operatorBookingFixture,
   operatorBusFixture,
   operatorBusTypeFixture,
+  operatorMemberFixture,
   operatorMembershipFixture,
   operatorProfileFixture,
   operatorRouteFixture,
@@ -280,5 +281,41 @@ describe('OperatorApiService', () => {
         `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/bookings/booking%2F1`
       )
       .flush(operatorBookingFixture());
+  });
+
+  it('uses the exact operator membership contracts', () => {
+    const member = operatorMemberFixture();
+    service.listMembers('operator-1').subscribe((result) => expect(result).toEqual([member]));
+    const list = http.expectOne(`${environment.apiBaseUrl}/operator/operator-1/members`);
+    expect(list.request.method).toBe('GET');
+    list.flush([member]);
+
+    const createRequest = {
+      userId: '22222222-2222-4222-8222-222222222222',
+      role: 'OPERATOR_STAFF' as const
+    };
+    service.addMember('operator-1', createRequest).subscribe();
+    const create = http.expectOne(`${environment.apiBaseUrl}/operator/operator-1/members`);
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body).toEqual(createRequest);
+    create.flush(operatorMemberFixture({ ...createRequest, status: 'ACTIVE' }));
+
+    service
+      .updateMember('operator-1', 'user/1', { role: 'OPERATOR_ADMIN', status: 'INACTIVE' })
+      .subscribe();
+    const update = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/members/user%2F1`
+    );
+    expect(update.request.method).toBe('PATCH');
+    expect(update.request.body).toEqual({ role: 'OPERATOR_ADMIN', status: 'INACTIVE' });
+    update.flush(operatorMemberFixture({ role: 'OPERATOR_ADMIN', status: 'INACTIVE' }));
+
+    service.deactivateMember('operator-1', 'user/1').subscribe();
+    const deactivate = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/members/user%2F1/deactivate`
+    );
+    expect(deactivate.request.method).toBe('POST');
+    expect(deactivate.request.body).toBeNull();
+    deactivate.flush(operatorMemberFixture({ status: 'INACTIVE' }));
   });
 });

@@ -56,7 +56,7 @@ describe('OperatorShellComponent', () => {
     fixture.detectChanges();
   });
 
-  it('renders dashboard, buses, routes, and trips navigation for the selected operator', () => {
+  it('renders dashboard, buses, routes, trips, and team navigation for the selected operator', () => {
     const hrefs = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLAnchorElement>(
         '.operator-nav a'
@@ -67,6 +67,14 @@ describe('OperatorShellComponent', () => {
     expect(hrefs).toContain('/operator/operator-1/buses');
     expect(hrefs).toContain('/operator/operator-1/routes');
     expect(hrefs).toContain('/operator/operator-1/trips');
+    expect(hrefs).toContain('/operator/operator-1/members');
+  });
+
+  it('labels the operator workspace without calling it read-only', () => {
+    expect(pageText(fixture.nativeElement)).toContain(
+      'BLUE BUS Operator Portal · Operations workspace'
+    );
+    expect(pageText(fixture.nativeElement)).not.toContain('Read-only operations');
   });
 
   it('switches the shell to another current membership', () => {
@@ -82,3 +90,7 @@ describe('OperatorShellComponent', () => {
     expect(navigate).toHaveBeenCalledWith(['/operator', 'operator-2']);
   });
 });
+
+function pageText(element: HTMLElement): string {
+  return element.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+}

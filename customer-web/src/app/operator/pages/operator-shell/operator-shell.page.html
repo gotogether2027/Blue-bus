@@ -48,6 +48,12 @@
         >
           Trips
         </a>
+        <a
+          [routerLink]="['/operator', membership.operatorId, 'members']"
+          routerLinkActive="active"
+        >
+          Team
+        </a>
       }
       <a routerLink="/profile">Profile</a>
       <span class="nav-user">{{ auth.currentUser()?.firstName }}</span>
@@ -78,6 +84,6 @@
     <router-outlet />
   </main>
   <footer class="footer">
-    <p>BLUE BUS Operator Portal · Read-only operations</p>
+    <p>BLUE BUS Operator Portal · Operations workspace</p>
   </footer>
 </div>

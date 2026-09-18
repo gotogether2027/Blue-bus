@@ -1,0 +1,297 @@
+<section class="page operator-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Access</p>
+      <h1>Team</h1>
+      <p class="muted">
+        {{ context.canManageOperator()
+          ? 'Manage operator membership for the current workspace. Role and status changes are authorized by BLUE BUS.'
+          : 'Review operator membership. Your operator staff access is read-only.' }}
+      </p>
+    </div>
+    @if (context.canManageOperator() && !adding) {
+      <button type="button" class="btn btn-primary" (click)="startAdd()">Add member</button>
+    }
+  </header>
+
+  @if (successMessage) {
+    <div class="operator-alert operator-alert-success" role="status">
+      {{ successMessage }}
+    </div>
+  }
+
+  @if (actionError) {
+    <div class="operator-alert operator-alert-danger" role="alert">
+      <strong>{{ actionError.title }}</strong>
+      <span>{{ actionError.message }}</span>
+    </div>
+  }
+
+  @if (adding && context.canManageOperator()) {
+    <form class="card operator-form" [formGroup]="addForm" (ngSubmit)="submitAdd()" novalidate>
+      <div>
+        <h2>Add member</h2>
+        <p class="muted">
+          Add an existing BLUE BUS user by user ID. Invite-by-email and password setup are not
+          available on this API.
+        </p>
+      </div>
+      <div class="operator-form-grid">
+        <label class="field">
+          <span>User ID</span>
+          <input
+            type="text"
+            formControlName="userId"
+            autocomplete="off"
+            spellcheck="false"
+            [attr.aria-invalid]="addForm.controls.userId.touched && addForm.controls.userId.invalid"
+            aria-describedby="member-user-id-help member-user-id-error"
+          />
+          <small id="member-user-id-help" class="field-hint">
+            Existing platform user UUID. CUSTOMER, ADMIN, and SUPER_ADMIN cannot be assigned as
+            operator roles.
+          </small>
+          @if (addForm.controls.userId.touched && addForm.controls.userId.invalid) {
+            <small id="member-user-id-error" class="field-error">
+              Enter a valid user ID.
+            </small>
+          }
+        </label>
+        <label class="field">
+          <span>Role</span>
+          <select
+            formControlName="role"
+            [attr.aria-invalid]="addForm.controls.role.touched && addForm.controls.role.invalid"
+            aria-describedby="member-role-help member-role-error"
+          >
+            @for (role of roleOptions; track role) {
+              <option [value]="role">{{ roleLabel(role) }}</option>
+            }
+          </select>
+          <small id="member-role-help" class="field-hint">
+            Only OPERATOR_ADMIN and OPERATOR_STAFF are permitted.
+          </small>
+          @if (addForm.controls.role.touched && addForm.controls.role.invalid) {
+            <small id="member-role-error" class="field-error">Select a role.</small>
+          }
+        </label>
+      </div>
+      <div class="operator-page-actions">
+        <button type="submit" class="btn btn-primary" [disabled]="submitting">
+          {{ submitting ? 'Adding member…' : 'Add member' }}
+        </button>
+        <button type="button" class="btn" [disabled]="submitting" (click)="cancelAdd()">
+          Cancel
+        </button>
+      </div>
+    </form>
+  }
+
+  @if (loading) {
+    <div class="operator-card-grid" aria-label="Loading team members">
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+    </div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else if (members.length === 0) {
+    <app-empty-state
+      title="No team members"
+      message="No operator memberships are available in this workspace."
+    >
+      @if (context.canManageOperator() && !adding) {
+        <button type="button" class="btn btn-primary" (click)="startAdd()">
+          Add the first member
+        </button>
+      }
+    </app-empty-state>
+  } @else {
+    <section class="card operator-filter-bar operator-filter-bar-ops" aria-label="Filter team members">
+      <label class="field">
+        <span>Search members</span>
+        <input
+          type="search"
+          [(ngModel)]="searchQuery"
+          placeholder="Name, email, user ID, or role"
+        />
+      </label>
+      <label class="field">
+        <span>Role</span>
+        <select [(ngModel)]="roleFilter">
+          <option value="ALL">All roles</option>
+          @for (role of roleOptions; track role) {
+            <option [value]="role">{{ roleLabel(role) }}</option>
+          }
+        </select>
+      </label>
+      <label class="field">
+        <span>Status</span>
+        <select [(ngModel)]="statusFilter">
+          <option value="ALL">All statuses</option>
+          @for (status of statusOptions; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </label>
+    </section>
+
+    @if (filteredMembers.length === 0) {
+      <app-empty-state
+        title="No matching members"
+        message="Change the search text, role, or status filter to see more members."
+      />
+    } @else {
+      <div class="operator-card-grid">
+        @for (member of filteredMembers; track member.userId) {
+          <article class="card operator-resource-card">
+            <div class="operator-section-head">
+              <span>
+                <strong>{{ memberName(member) }}</strong>
+                <small>{{ member.email }}</small>
+              </span>
+              <div class="operator-badge-row">
+                <app-status-badge
+                  [label]="roleLabel(member.role)"
+                  [tone]="statusTone(member.role)"
+                />
+                <app-status-badge
+                  [label]="member.status"
+                  [tone]="statusTone(member.status)"
+                />
+              </div>
+            </div>
+            <dl class="operator-detail-list operator-detail-list-compact">
+              <div>
+                <dt>User ID</dt>
+                <dd><code>{{ member.userId }}</code></dd>
+              </div>
+              <div>
+                <dt>Role</dt>
+                <dd>{{ roleLabel(member.role) }}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{{ member.status }}</dd>
+              </div>
+            </dl>
+            @if (context.canManageOperator()) {
+              <div class="operator-page-actions">
+                <button
+                  type="button"
+                  class="btn"
+                  [attr.aria-label]="'Edit ' + memberName(member)"
+                  (click)="startEdit(member)"
+                >
+                  Edit
+                </button>
+                @if (member.status !== 'INACTIVE') {
+                  <button
+                    type="button"
+                    class="btn btn-danger"
+                    [attr.aria-label]="'Deactivate ' + memberName(member)"
+                    (click)="requestDeactivate(member)"
+                  >
+                    Deactivate
+                  </button>
+                }
+              </div>
+            }
+          </article>
+        }
+      </div>
+    }
+  }
+</section>
+
+@if (editingMember; as member) {
+  <div class="operator-dialog-backdrop" (click)="cancelEdit()">
+    <section
+      class="card operator-dialog"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      [attr.aria-busy]="submitting"
+      aria-labelledby="edit-member-title"
+      aria-describedby="edit-member-help"
+      (click)="$event.stopPropagation()"
+    >
+      <form class="operator-form" [formGroup]="editForm" (ngSubmit)="submitEdit()" novalidate>
+        <div>
+          <p class="eyebrow">Edit membership</p>
+          <h2 id="edit-member-title">{{ memberName(member) }}</h2>
+          <p id="edit-member-help" class="muted">{{ lastAdminNote }}</p>
+        </div>
+        <label class="field">
+          <span>Role</span>
+          <select formControlName="role" aria-describedby="edit-role-help">
+            @for (role of roleOptions; track role) {
+              <option [value]="role">{{ roleLabel(role) }}</option>
+            }
+          </select>
+          <small id="edit-role-help" class="field-hint">
+            Only OPERATOR_ADMIN and OPERATOR_STAFF can be assigned.
+          </small>
+        </label>
+        <label class="field">
+          <span>Status</span>
+          <select formControlName="status" aria-describedby="edit-status-help">
+            @for (status of statusOptions; track status) {
+              <option [value]="status">{{ status }}</option>
+            }
+          </select>
+          <small id="edit-status-help" class="field-hint">
+            Inactive members lose access to this operator workspace.
+          </small>
+        </label>
+        <div class="operator-page-actions">
+          <button type="button" class="btn" [disabled]="submitting" (click)="cancelEdit()">
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" [disabled]="submitting">
+            {{ submitting ? 'Saving…' : 'Save changes' }}
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+}
+
+@if (pendingDeactivate; as member) {
+  <div class="operator-dialog-backdrop" (click)="cancelDeactivate()">
+    <section
+      class="card operator-dialog"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      [attr.aria-busy]="submitting"
+      aria-labelledby="deactivate-member-title"
+      aria-describedby="deactivate-member-message"
+      (click)="$event.stopPropagation()"
+    >
+      <div>
+        <p class="eyebrow">Confirm deactivation</p>
+        <h2 id="deactivate-member-title">Deactivate {{ memberName(member) }}?</h2>
+        <p id="deactivate-member-message">
+          Deactivation removes this user's access to the current operator. {{ lastAdminNote }}
+        </p>
+      </div>
+      <div class="operator-page-actions">
+        <button type="button" class="btn" [disabled]="submitting" (click)="cancelDeactivate()">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger"
+          [disabled]="submitting"
+          (click)="confirmDeactivate()"
+        >
+          {{ submitting ? 'Deactivating…' : 'Deactivate member' }}
+        </button>
+      </div>
+    </section>
+  </div>
+}
