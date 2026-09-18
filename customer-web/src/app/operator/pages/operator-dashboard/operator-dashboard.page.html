@@ -4,6 +4,7 @@
       <div class="skeleton card"></div>
       <div class="skeleton card"></div>
       <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
     </div>
     <div class="skeleton card operator-large-skeleton"></div>
   } @else if (error) {
@@ -12,37 +13,50 @@
         <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
       }
     </app-empty-state>
-  } @else {
-    @if (operator && context.currentMembership(); as membership) {
+  } @else if (operator) {
     <header class="page-head">
       <div>
         <p class="eyebrow">Operations overview</p>
         <h1>{{ operator.displayName }}</h1>
-        <p class="muted">{{ operator.legalName }}</p>
+        <p class="muted">{{ operator.legalName }} · <code>{{ operator.id }}</code></p>
       </div>
       <div class="operator-badge-row">
         <app-status-badge [label]="operator.status" [tone]="statusTone(operator.status)" />
-        <app-status-badge
-          [label]="roleLabel(membership.role)"
-          [tone]="statusTone(membership.role)"
-        />
+        @if (context.currentMembership(); as membership) {
+          <app-status-badge
+            [label]="roleLabel(membership.role)"
+            [tone]="statusTone(membership.role)"
+          />
+        }
       </div>
     </header>
 
-    <div class="operator-metric-grid">
+    <div class="operator-metric-grid" aria-label="Operator operations metrics">
       <article class="card operator-metric-card">
-        <span class="muted">Buses</span>
-        <strong>{{ buses.length }}</strong>
+        <span class="muted">Active buses</span>
+        <strong>{{ activeBuses }}</strong>
+        @if (activeBuses === 0) {
+          <small>No active buses</small>
+        }
         <a [routerLink]="['/operator', operator.id, 'buses']">View fleet</a>
       </article>
       <article class="card operator-metric-card">
-        <span class="muted">Trips</span>
-        <strong>{{ trips.length }}</strong>
+        <span class="muted">Active routes</span>
+        <strong>{{ activeRoutes }}</strong>
+        @if (activeRoutes === 0) {
+          <small>No active routes</small>
+        }
+        <a [routerLink]="['/operator', operator.id, 'routes']">View routes</a>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Today's trips</span>
+        <strong>{{ todayTrips.length }}</strong>
         <a [routerLink]="['/operator', operator.id, 'trips']">View schedule</a>
       </article>
       <article class="card operator-metric-card">
-        <span class="muted">Operator reference</span>
-        <code>{{ operator.id }}</code>
+        <span class="muted">Upcoming trips</span>
+        <strong>{{ upcoming.length }}</strong>
+        <a [routerLink]="['/operator', operator.id, 'trips']">View schedule</a>
       </article>
     </div>
 
@@ -51,42 +65,140 @@
         <div class="operator-section-head">
           <div>
             <p class="eyebrow">Schedule</p>
-            <h2>{{ tripPreviewTitle }}</h2>
+            <h2>Upcoming trips</h2>
+            <p class="muted">Next departures from the operator trip list. Cancelled, departed, and completed trips are omitted.</p>
           </div>
           <a [routerLink]="['/operator', operator.id, 'trips']">All trips</a>
         </div>
-        @if (tripPreview.length === 0) {
-          <p class="muted">No trips are available for this operator.</p>
+        @if (upcomingPreview.length === 0) {
+          <app-empty-state
+            title="No upcoming trips"
+            message="No future departures are currently listed for this operator."
+          />
         } @else {
-          <div class="operator-compact-list">
-            @for (trip of tripPreview; track trip.id) {
-              <a [routerLink]="['/operator', operator.id, 'trips', trip.id]">
-                <span>
-                  <strong>{{ formatDate(trip.serviceDate) }}</strong>
-                  <small>{{ formatInstant(trip.scheduledDepartureAt, trip.timeZone) }}</small>
-                </span>
-                <app-status-badge [label]="trip.status" [tone]="statusTone(trip.status)" />
-              </a>
+          @if (upcoming.length > upcomingPreview.length) {
+            <p class="muted">
+              Showing the next {{ upcomingPreview.length }} of {{ upcoming.length }} upcoming trips
+              from the operator trip list.
+            </p>
+          }
+          <div class="operator-card-grid">
+            @for (trip of upcomingPreview; track trip.id) {
+              @let seats = physicalSeats(trip);
+              <article class="card operator-resource-card">
+                <div class="operator-section-head">
+                  <span>
+                    <strong>{{ formatDate(trip.serviceDate) }}</strong>
+                    <small>
+                      {{ formatInstant(trip.scheduledDepartureAt, trip.timeZone) }}
+                      →
+                      {{ formatInstant(trip.scheduledArrivalAt, trip.timeZone) }}
+                    </small>
+                  </span>
+                  <app-status-badge [label]="trip.status" [tone]="statusTone(trip.status)" />
+                </div>
+                <dl class="operator-detail-list operator-detail-list-compact">
+                  <div>
+                    <dt>Bus</dt>
+                    <dd>{{ busLabel(trip.busId) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Route</dt>
+                    <dd>{{ routeLabel(trip.routeId) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Base fare</dt>
+                    <dd>{{ formatMoney(trip.baseFare) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Physical seats</dt>
+                    <dd>
+                      @if (seats.total === 0) {
+                        No physical inventory on this trip yet
+                      } @else {
+                        {{ seats.available }} available · {{ seats.blocked }} blocked
+                      }
+                    </dd>
+                  </div>
+                </dl>
+                <p class="muted">Physical seat status is not booking occupancy. HELD and BOOKED allocations are not returned by this API.</p>
+                <div class="operator-page-actions">
+                  <a
+                    class="btn"
+                    [routerLink]="['/operator', operator.id, 'trips', trip.id]"
+                  >
+                    View trip
+                  </a>
+                  <a
+                    class="btn"
+                    [routerLink]="['/operator', operator.id, 'trips', trip.id, 'inventory']"
+                  >
+                    Inventory
+                  </a>
+                  <a
+                    class="btn"
+                    [routerLink]="['/operator', operator.id, 'trips', trip.id, 'bookings']"
+                  >
+                    Bookings
+                  </a>
+                </div>
+              </article>
             }
           </div>
         }
       </section>
 
-      <section class="card">
-        <p class="eyebrow">Operator contact</p>
-        <h2>Support details</h2>
-        <dl class="operator-detail-list">
-          <div>
-            <dt>Email</dt>
-            <dd>{{ operator.supportEmail || 'Not provided' }}</dd>
+      <div class="operator-action-card">
+        <section class="card">
+          <div class="operator-section-head">
+            <div>
+              <p class="eyebrow">Bookings</p>
+              <h2>Trip bookings</h2>
+            </div>
           </div>
-          <div>
-            <dt>Phone</dt>
-            <dd>{{ operator.supportPhoneE164 || 'Not provided' }}</dd>
+          <p class="muted">
+            There is no operator-wide booking summary API. Confirmed, pending-payment, and passenger
+            totals are not shown here. Open a trip to review its bookings.
+          </p>
+          <div class="operator-page-actions">
+            <a class="btn" [routerLink]="['/operator', operator.id, 'trips']">Open trips</a>
           </div>
-        </dl>
-      </section>
+        </section>
+
+        <section class="card">
+          <div class="operator-section-head">
+            <div>
+              <p class="eyebrow">Workspace</p>
+              <h2>Quick actions</h2>
+            </div>
+          </div>
+          <div class="operator-page-actions">
+            <a class="btn" [routerLink]="['/operator', operator.id, 'buses']">Buses</a>
+            <a class="btn" [routerLink]="['/operator', operator.id, 'routes']">Routes</a>
+            <a class="btn" [routerLink]="['/operator', operator.id, 'trips']">Trips</a>
+            <a class="btn" [routerLink]="['/operator', operator.id, 'members']">Team</a>
+            <a class="btn" [routerLink]="['/operator', operator.id, 'settings']">Settings</a>
+          </div>
+        </section>
+
+        <section class="card">
+          <p class="eyebrow">Operator contact</p>
+          <h2>Support details</h2>
+          <dl class="operator-detail-list">
+            <div>
+              <dt>Email</dt>
+              <dd>{{ operator.supportEmail || 'Not provided' }}</dd>
+            </div>
+            <div>
+              <dt>Phone</dt>
+              <dd>{{ operator.supportPhoneE164 || 'Not provided' }}</dd>
+            </div>
+          </dl>
+          <div class="operator-page-actions">
+            <a class="btn" [routerLink]="['/operator', operator.id, 'settings']">Workspace settings</a>
+          </div>
+        </section>
+      </div>
     </div>
-    }
   }
 </section>

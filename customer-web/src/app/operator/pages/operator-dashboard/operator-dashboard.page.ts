@@ -3,11 +3,22 @@ import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
-import { formatDate, formatInstant } from '../../../shared/format';
+import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
+import {
+  activeBusCount,
+  activeRouteCount,
+  operatorDashboardToday,
+  physicalSeatCounts,
+  scopedToOperator,
+  tripsOnServiceDate,
+  upcomingTrips
+} from '../../components/operator-dashboard-summary';
 import { operatorRoleLabel, operatorStatusTone } from '../../components/operator-status';
+import { busSummary, routeSummary } from '../../components/operator-trip-references';
 import {
   OperatorBus,
   OperatorProfile,
+  OperatorRoute,
   OperatorTrip
 } from '../../models/operator.models';
 import { OperatorApiService } from '../../services/operator-api.service';
@@ -26,18 +37,28 @@ export class OperatorDashboardPageComponent implements OnInit {
   private readonly api = inject(OperatorApiService);
   readonly context = inject(OperatorContextService);
   private readonly errors = inject(OperatorErrorService);
+  private loadVersion = 0;
 
   loading = true;
   error: OperatorPageError | null = null;
   operator: OperatorProfile | null = null;
   buses: OperatorBus[] = [];
+  routes: OperatorRoute[] = [];
   trips: OperatorTrip[] = [];
-  tripPreview: OperatorTrip[] = [];
-  tripPreviewTitle = 'Upcoming trips';
+  todayTrips: OperatorTrip[] = [];
+  upcoming: OperatorTrip[] = [];
+  upcomingPreview: OperatorTrip[] = [];
+  activeBuses = 0;
+  activeRoutes = 0;
   readonly formatDate = formatDate;
   readonly formatInstant = formatInstant;
+  readonly formatMoney = formatMoney;
   readonly roleLabel = operatorRoleLabel;
   readonly statusTone = operatorStatusTone;
+
+  get selectedOperatorId(): string {
+    return this.context.selectedOperatorId() ?? '';
+  }
 
   ngOnInit(): void {
     this.load();
@@ -45,13 +66,10 @@ export class OperatorDashboardPageComponent implements OnInit {
 
   load(): void {
     const operatorId = this.context.selectedOperatorId();
+    const version = ++this.loadVersion;
+    this.clearDashboard();
     if (!operatorId) {
-      this.loading = false;
-      this.error = {
-        kind: 'forbidden',
-        title: 'Operator access denied',
-        message: "You don't have access to this operator."
-      };
+      this.showAccessDenied();
       return;
     }
 
@@ -60,34 +78,87 @@ export class OperatorDashboardPageComponent implements OnInit {
     forkJoin({
       operator: this.api.getOperator(operatorId),
       buses: this.api.listBuses(operatorId),
+      routes: this.api.listRoutes(operatorId),
       trips: this.api.listTrips(operatorId)
     }).subscribe({
-      next: ({ operator, buses, trips }) => {
+      next: ({ operator, buses, routes, trips }) => {
+        if (version !== this.loadVersion) {
+          return;
+        }
+        if (operator.id !== operatorId) {
+          this.loading = false;
+          this.error = {
+            kind: 'not-found',
+            title: 'Resource not found',
+            message: 'The requested operator resource was not found.'
+          };
+          return;
+        }
         this.operator = operator;
-        this.buses = buses;
-        this.trips = trips;
-        this.setTripPreview(trips);
+        this.buses = scopedToOperator(buses, operatorId);
+        this.routes = scopedToOperator(routes, operatorId);
+        this.trips = scopedToOperator(trips, operatorId);
+        this.activeBuses = activeBusCount(this.buses, operatorId);
+        this.activeRoutes = activeRouteCount(this.routes, operatorId);
+        this.todayTrips = tripsOnServiceDate(
+          this.trips,
+          operatorId,
+          operatorDashboardToday()
+        );
+        this.upcoming = upcomingTrips(this.trips, operatorId);
+        this.upcomingPreview = this.upcoming.slice(0, 5);
         this.loading = false;
       },
       error: (error: unknown) => {
+        if (version !== this.loadVersion) {
+          return;
+        }
         this.loading = false;
         this.error = this.errors.handle(error);
       }
     });
   }
 
-  private setTripPreview(trips: OperatorTrip[]): void {
-    const now = Date.now();
-    const upcoming = trips.filter((trip) => {
-      const departure = new Date(trip.scheduledDepartureAt).getTime();
-      return !Number.isNaN(departure) && departure >= now;
-    });
-    if (upcoming.length > 0) {
-      this.tripPreviewTitle = 'Upcoming trips';
-      this.tripPreview = upcoming.slice(0, 5);
-      return;
-    }
-    this.tripPreviewTitle = 'Recent trips';
-    this.tripPreview = trips.slice(-5).reverse();
+  busLabel(busId: string): string {
+    return busSummary(
+      this.buses.find((bus) => bus.id === busId),
+      busId
+    );
+  }
+
+  routeLabel(routeId: string): string {
+    return routeSummary(
+      this.routes.find((route) => route.id === routeId),
+      routeId
+    );
+  }
+
+  physicalSeats(trip: OperatorTrip): {
+    available: number;
+    blocked: number;
+    total: number;
+  } {
+    return physicalSeatCounts(trip.seatInventory);
+  }
+
+  private clearDashboard(): void {
+    this.operator = null;
+    this.buses = [];
+    this.routes = [];
+    this.trips = [];
+    this.todayTrips = [];
+    this.upcoming = [];
+    this.upcomingPreview = [];
+    this.activeBuses = 0;
+    this.activeRoutes = 0;
+  }
+
+  private showAccessDenied(): void {
+    this.loading = false;
+    this.error = {
+      kind: 'forbidden',
+      title: 'Operator access denied',
+      message: "You don't have access to this operator."
+    };
   }
 }
