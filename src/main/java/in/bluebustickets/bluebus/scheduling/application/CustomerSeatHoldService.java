@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
 import in.bluebustickets.bluebus.scheduling.api.dto.CreateSeatHoldRequest;
 import in.bluebustickets.bluebus.scheduling.api.dto.SeatHoldResponse;
 import in.bluebustickets.bluebus.scheduling.application.SeatHoldService.SeatHoldResult;
@@ -21,8 +22,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Customer seat-hold application facade.
- * Anonymous holds keep {@code userId = null} and are not bookable.
- * When created with a JWT, {@code userId} is persisted and booking is restricted to that owner.
+ * Anonymous holds keep {@code userId = null} and remain readable/cancellable by hold UUID.
+ * Owned holds (created with a JWT) are readable/cancellable only by that customer; others get 404.
+ * Bookings remain restricted to the hold owner. Anonymous holds are not bookable.
  * <p>
  * Idempotency keys are accepted and stored, but V7 does not uniquely enforce
  * {@code (NULL user_id, idempotency_key)} — anonymous replay is not DB-guaranteed.
@@ -93,14 +95,26 @@ public class CustomerSeatHoldService {
     }
 
     @Transactional(readOnly = true)
-    public SeatHoldResponse get(UUID holdId) {
+    public SeatHoldResponse get(UUID holdId, UUID requesterUserId) {
         SeatHoldResult result = seatHoldService.getHold(holdId);
+        requireAccessible(result.hold().getUserId(), requesterUserId);
         return toResponseFromPersisted(result);
     }
 
     @Transactional
-    public void cancel(UUID holdId) {
+    public void cancel(UUID holdId, UUID requesterUserId) {
+        SeatHoldResult current = seatHoldService.getHold(holdId);
+        requireAccessible(current.hold().getUserId(), requesterUserId);
         seatHoldService.cancel(holdId);
+    }
+
+    private static void requireAccessible(UUID ownerUserId, UUID requesterUserId) {
+        if (ownerUserId == null) {
+            return;
+        }
+        if (requesterUserId == null || !ownerUserId.equals(requesterUserId)) {
+            throw new ResourceNotFoundException("Seat hold was not found.");
+        }
     }
 
     private SeatHoldResponse toResponseFromPersisted(SeatHoldResult result) {

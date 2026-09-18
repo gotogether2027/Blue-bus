@@ -397,7 +397,8 @@ class OperatorTripInventoryAdminPostgresIntegrationTest {
         UUID seat = trip.seatIds().get(0);
 
         JsonNode cancelledHold = createHold(trip, List.of(seat), customer.accessToken());
-        mockMvc.perform(delete("/api/v1/holds/{holdId}", cancelledHold.get("holdId").asText()))
+        mockMvc.perform(delete("/api/v1/holds/{holdId}", cancelledHold.get("holdId").asText())
+                        .with(bearer(customer.accessToken())))
                 .andExpect(status().isNoContent());
         assertThat(allocationRepository.findByHoldIdOrderByCreatedAtAsc(
                         UUID.fromString(cancelledHold.get("holdId").asText())))

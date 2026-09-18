@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory;
+import in.bluebustickets.bluebus.foundation.security.TestAccessTokenFactory.IssuedUser;
 import in.bluebustickets.bluebus.scheduling.application.JourneySeatAvailability;
 import in.bluebustickets.bluebus.scheduling.application.SeatHoldExpiryService;
 import in.bluebustickets.bluebus.scheduling.application.SeatHoldService;
@@ -238,6 +239,18 @@ class CustomerSeatHoldApiPostgresIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(holdBody(trip.stopId(1), trip.stopId(3), List.of(), null)))
                 .andExpect(status().isBadRequest());
+
+        List<UUID> oversized = new ArrayList<>();
+        for (int i = 0; i < 81; i++) {
+            oversized.add(UUID.randomUUID());
+        }
+        mockMvc.perform(post("/api/v1/trips/{tripId}/holds", trip.tripId())
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(holdBody(trip.stopId(1), trip.stopId(3), oversized, null)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("Request validation failed."));
 
         mockMvc.perform(post("/api/v1/trips/{tripId}/holds", trip.tripId())
                         .with(anonymous())
@@ -765,6 +778,107 @@ class CustomerSeatHoldApiPostgresIntegrationTest {
 
         mockMvc.perform(get("/api/v1/admin/trips/{id}", trip.tripId()).with(anonymous()))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser
+    void ownerCanReadAndDeleteOwnAuthenticatedHold() throws Exception {
+        TripFixture trip = createTrip("HOLD-API-OWN", "HOLD-API-RT-OWN");
+        IssuedUser owner = testAccessTokenFactory.issueCustomer();
+        UUID holdId = createAuthenticatedHold(
+                trip, owner.accessToken(), List.of(trip.availableSeatIds().get(0)));
+
+        mockMvc.perform(get("/api/v1/holds/{holdId}", holdId)
+                        .with(TestAccessTokenFactory.bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.holdId").value(holdId.toString()))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.userId").doesNotExist());
+
+        mockMvc.perform(delete("/api/v1/holds/{holdId}", holdId)
+                        .with(TestAccessTokenFactory.bearer(owner.accessToken())))
+                .andExpect(status().isNoContent());
+        assertThat(seatHoldRepository.findById(holdId).orElseThrow().getStatus())
+                .isEqualTo(SeatHoldStatus.CANCELLED);
+    }
+
+    @Test
+    @WithMockUser
+    void otherCustomerCannotReadOrDeleteAnotherCustomersHold() throws Exception {
+        TripFixture trip = createTrip("HOLD-API-XOWN", "HOLD-API-RT-XOWN");
+        IssuedUser owner = testAccessTokenFactory.issueCustomer();
+        IssuedUser other = testAccessTokenFactory.issueCustomer();
+        UUID holdId = createAuthenticatedHold(
+                trip, owner.accessToken(), List.of(trip.availableSeatIds().get(0)));
+
+        MvcResult otherGet = mockMvc.perform(get("/api/v1/holds/{holdId}", holdId)
+                        .with(TestAccessTokenFactory.bearer(other.accessToken())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Seat hold was not found."))
+                .andReturn();
+        assertThat(otherGet.getResponse().getContentAsString())
+                .doesNotContain(owner.user().getId().toString())
+                .doesNotContain(owner.user().getEmail());
+
+        mockMvc.perform(get("/api/v1/holds/{holdId}", holdId).with(anonymous()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Seat hold was not found."));
+
+        mockMvc.perform(delete("/api/v1/holds/{holdId}", holdId)
+                        .with(TestAccessTokenFactory.bearer(other.accessToken())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Seat hold was not found."));
+        mockMvc.perform(delete("/api/v1/holds/{holdId}", holdId).with(anonymous()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Seat hold was not found."));
+
+        assertThat(seatHoldRepository.findById(holdId).orElseThrow().getStatus())
+                .isEqualTo(SeatHoldStatus.ACTIVE);
+        mockMvc.perform(get("/api/v1/holds/{holdId}", holdId)
+                        .with(TestAccessTokenFactory.bearer(owner.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    @WithMockUser
+    void guestHoldsRemainReadableAndCancellableWithoutJwt() throws Exception {
+        TripFixture trip = createTrip("HOLD-API-GUEST", "HOLD-API-RT-GUEST");
+        IssuedUser customer = testAccessTokenFactory.issueCustomer();
+        UUID holdId = UUID.fromString(objectMapper
+                .readTree(createHoldViaApi(
+                                trip, trip.stopId(1), trip.stopId(3), List.of(trip.availableSeatIds().get(0)))
+                        .getResponse()
+                        .getContentAsString())
+                .get("holdId")
+                .asText());
+
+        mockMvc.perform(get("/api/v1/holds/{holdId}", holdId).with(anonymous()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.holdId").value(holdId.toString()))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+        mockMvc.perform(get("/api/v1/holds/{holdId}", holdId)
+                        .with(TestAccessTokenFactory.bearer(customer.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        mockMvc.perform(delete("/api/v1/holds/{holdId}", holdId).with(anonymous()))
+                .andExpect(status().isNoContent());
+        assertThat(seatHoldRepository.findById(holdId).orElseThrow().getStatus())
+                .isEqualTo(SeatHoldStatus.CANCELLED);
+    }
+
+    private UUID createAuthenticatedHold(TripFixture trip, String accessToken, List<UUID> seats)
+            throws Exception {
+        MvcResult created = mockMvc.perform(post("/api/v1/trips/{tripId}/holds", trip.tripId())
+                        .with(TestAccessTokenFactory.bearer(accessToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(holdBody(trip.stopId(1), trip.stopId(3), seats, null)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return UUID.fromString(
+                objectMapper.readTree(created.getResponse().getContentAsString()).get("holdId").asText());
     }
 
     private String availabilityOf(TripFixture trip, UUID inventoryId) throws Exception {

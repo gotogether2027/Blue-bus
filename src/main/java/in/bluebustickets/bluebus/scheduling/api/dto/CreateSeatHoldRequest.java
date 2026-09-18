@@ -10,6 +10,6 @@ import jakarta.validation.constraints.Size;
 public record CreateSeatHoldRequest(
         @NotNull UUID originStopId,
         @NotNull UUID destinationStopId,
-        @NotEmpty List<@NotNull UUID> seatInventoryIds,
+        @NotEmpty @Size(max = 80) List<@NotNull UUID> seatInventoryIds,
         @Size(max = 100) String idempotencyKey) {
 }

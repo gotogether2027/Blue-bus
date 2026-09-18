@@ -69,4 +69,17 @@ public class CurrentUserService {
             throw new ResourceNotFoundException("User was not found.");
         }
     }
+
+    /**
+     * JWT subject when a Bearer access token is present; {@code null} for anonymous callers.
+     */
+    public UUID optionalAuthenticatedUserId(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return null;
+        }
+        if (!(authentication.getPrincipal() instanceof Jwt)) {
+            return null;
+        }
+        return requireAuthenticatedUserId(authentication);
+    }
 }

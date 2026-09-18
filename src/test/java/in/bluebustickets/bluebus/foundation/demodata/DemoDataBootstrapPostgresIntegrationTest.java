@@ -133,7 +133,8 @@ class DemoDataBootstrapPostgresIntegrationTest {
         UUID holdId = UUID.fromString(
                 objectMapper.readTree(holdCreated.getResponse().getContentAsString()).get("holdId").asText());
 
-        mockMvc.perform(get("/api/v1/holds/{holdId}", holdId))
+        mockMvc.perform(get("/api/v1/holds/{holdId}", holdId)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.holdId").value(holdId.toString()))
                 .andExpect(jsonPath("$.status").value("ACTIVE"));

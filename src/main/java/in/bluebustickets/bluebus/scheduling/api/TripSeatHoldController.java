@@ -11,7 +11,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,18 +42,8 @@ public class TripSeatHoldController {
             @PathVariable UUID tripId,
             @Valid @RequestBody CreateSeatHoldRequest request,
             Authentication authentication) {
-        UUID userId = optionalAuthenticatedUserId(authentication);
+        UUID userId = currentUserService.optionalAuthenticatedUserId(authentication);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(customerSeatHoldService.create(tripId, request, userId));
-    }
-
-    private UUID optionalAuthenticatedUserId(Authentication authentication) {
-        if (authentication == null || !authentication.isAuthenticated()) {
-            return null;
-        }
-        if (!(authentication.getPrincipal() instanceof Jwt)) {
-            return null;
-        }
-        return currentUserService.requireAuthenticatedUserId(authentication);
     }
 }

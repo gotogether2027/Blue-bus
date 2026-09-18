@@ -201,7 +201,7 @@ class BookingApiPostgresIntegrationTest {
         UUID cancelHoldId = UUID.fromString(cancelHold.get("holdId").asText());
         mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .delete("/api/v1/holds/{holdId}", cancelHoldId)
-                        .with(anonymous()))
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken))
                 .andExpect(status().isNoContent());
         mockMvc.perform(post("/api/v1/bookings")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerAToken)

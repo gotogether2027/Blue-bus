@@ -78,7 +78,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/search/trips").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/locations").permitAll()
                         .requestMatchers("/api/v1/trips/*/seat-availability").permitAll()
-                        // Public hold APIs: optional JWT on create persists seat_holds.user_id for booking auth.
+                        // Hold APIs stay permitAll so guests can create/read/cancel unowned holds.
+                        // Owned holds (JWT on create) are authorized in CustomerSeatHoldService.
                         .requestMatchers(HttpMethod.POST, "/api/v1/trips/*/holds").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/holds/*").permitAll()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/holds/*").permitAll()
