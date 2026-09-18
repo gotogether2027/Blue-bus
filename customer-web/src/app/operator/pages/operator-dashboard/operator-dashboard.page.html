@@ -1,0 +1,92 @@
+<section class="page operator-page">
+  @if (loading) {
+    <div class="operator-metric-grid" aria-label="Loading operator dashboard">
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+    </div>
+    <div class="skeleton card operator-large-skeleton"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (operator && context.currentMembership(); as membership) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Operations overview</p>
+        <h1>{{ operator.displayName }}</h1>
+        <p class="muted">{{ operator.legalName }}</p>
+      </div>
+      <div class="operator-badge-row">
+        <app-status-badge [label]="operator.status" [tone]="statusTone(operator.status)" />
+        <app-status-badge
+          [label]="roleLabel(membership.role)"
+          [tone]="statusTone(membership.role)"
+        />
+      </div>
+    </header>
+
+    <div class="operator-metric-grid">
+      <article class="card operator-metric-card">
+        <span class="muted">Buses</span>
+        <strong>{{ buses.length }}</strong>
+        <a [routerLink]="['/operator', operator.id, 'buses']">View fleet</a>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Trips</span>
+        <strong>{{ trips.length }}</strong>
+        <a [routerLink]="['/operator', operator.id, 'trips']">View schedule</a>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Operator reference</span>
+        <code>{{ operator.id }}</code>
+      </article>
+    </div>
+
+    <div class="operator-content-grid">
+      <section class="card">
+        <div class="operator-section-head">
+          <div>
+            <p class="eyebrow">Schedule</p>
+            <h2>{{ tripPreviewTitle }}</h2>
+          </div>
+          <a [routerLink]="['/operator', operator.id, 'trips']">All trips</a>
+        </div>
+        @if (tripPreview.length === 0) {
+          <p class="muted">No trips are available for this operator.</p>
+        } @else {
+          <div class="operator-compact-list">
+            @for (trip of tripPreview; track trip.id) {
+              <a [routerLink]="['/operator', operator.id, 'trips', trip.id]">
+                <span>
+                  <strong>{{ formatDate(trip.serviceDate) }}</strong>
+                  <small>{{ formatInstant(trip.scheduledDepartureAt, trip.timeZone) }}</small>
+                </span>
+                <app-status-badge [label]="trip.status" [tone]="statusTone(trip.status)" />
+              </a>
+            }
+          </div>
+        }
+      </section>
+
+      <section class="card">
+        <p class="eyebrow">Operator contact</p>
+        <h2>Support details</h2>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Email</dt>
+            <dd>{{ operator.supportEmail || 'Not provided' }}</dd>
+          </div>
+          <div>
+            <dt>Phone</dt>
+            <dd>{{ operator.supportPhoneE164 || 'Not provided' }}</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+    }
+  }
+</section>

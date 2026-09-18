@@ -1,0 +1,160 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    <a class="back" [routerLink]="['/operator', operatorId, 'trips']">← Back to trips</a>
+  }
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading trip"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (trip; as tripDetail) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Trip detail</p>
+        <h1>{{ bus?.displayName || bus?.registrationNumber || tripDetail.id }}</h1>
+        <p class="muted">Trip {{ tripDetail.id }}</p>
+      </div>
+      <div class="operator-page-actions">
+        <app-status-badge [label]="tripDetail.status" [tone]="statusTone(tripDetail.status)" />
+        @if (context.selectedOperatorId(); as operatorId) {
+          <a
+            class="btn btn-primary"
+            [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'bookings']"
+          >
+            Bookings
+          </a>
+        }
+      </div>
+    </header>
+
+    <div class="operator-content-grid">
+      <section class="card">
+        <h2>Schedule</h2>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Service date</dt>
+            <dd>{{ formatDate(tripDetail.serviceDate) }}</dd>
+          </div>
+          <div>
+            <dt>Departure</dt>
+            <dd>{{ formatInstant(tripDetail.scheduledDepartureAt, tripDetail.timeZone) }}</dd>
+          </div>
+          <div>
+            <dt>Arrival</dt>
+            <dd>{{ formatInstant(tripDetail.scheduledArrivalAt, tripDetail.timeZone) }}</dd>
+          </div>
+          <div>
+            <dt>Time zone</dt>
+            <dd>{{ tripDetail.timeZone }}</dd>
+          </div>
+          <div>
+            <dt>Booking opens</dt>
+            <dd>{{ formatInstant(tripDetail.bookingOpensAt, tripDetail.timeZone) }}</dd>
+          </div>
+          <div>
+            <dt>Booking closes</dt>
+            <dd>{{ formatInstant(tripDetail.bookingClosesAt, tripDetail.timeZone) }}</dd>
+          </div>
+          <div>
+            <dt>Base fare</dt>
+            <dd>{{ formatMoney(tripDetail.baseFare) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Supply references</h2>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Bus</dt>
+            <dd>{{ bus?.registrationNumber || tripDetail.busId }}</dd>
+          </div>
+          <div>
+            <dt>Bus reference</dt>
+            <dd><code>{{ tripDetail.busId }}</code></dd>
+          </div>
+          <div>
+            <dt>Route reference</dt>
+            <dd><code>{{ tripDetail.routeId }}</code></dd>
+          </div>
+          <div>
+            <dt>Seat layout reference</dt>
+            <dd><code>{{ tripDetail.seatLayoutId }}</code></dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Route snapshot</p>
+          <h2>Stops</h2>
+        </div>
+        <span class="muted">{{ tripDetail.stops.length }} stops</span>
+      </div>
+      @if (tripDetail.stops.length === 0) {
+        <p class="muted">No stop snapshot is available.</p>
+      } @else {
+        <ol class="operator-stop-list">
+          @for (stop of tripDetail.stops; track stop.id) {
+            <li>
+              <div>
+                <strong>{{ stop.stopKind }}</strong>
+                <span>Location {{ stop.locationId }}</span>
+                <small>
+                  {{ formatInstant(stop.scheduledArrivalAt, tripDetail.timeZone) }}
+                  →
+                  {{ formatInstant(stop.scheduledDepartureAt, tripDetail.timeZone) }}
+                </small>
+              </div>
+              <app-status-badge [label]="stop.stopStatus" [tone]="statusTone(stop.stopStatus)" />
+              @if (stop.points.length > 0) {
+                <ul class="plain-list">
+                  @for (point of stop.points; track point.id) {
+                    <li>{{ point.name }} · {{ point.pointType }}</li>
+                  }
+                </ul>
+              }
+            </li>
+          }
+        </ol>
+      }
+    </section>
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Physical inventory snapshot</p>
+          <h2>Seats</h2>
+        </div>
+        <span class="muted">{{ tripDetail.seatInventory.length }} seats</span>
+      </div>
+      @if (tripDetail.seatInventory.length === 0) {
+        <p class="muted">No seat inventory snapshot is available.</p>
+      } @else {
+        <div class="operator-seat-grid">
+          @for (seat of tripDetail.seatInventory; track seat.id) {
+            <div class="operator-seat-card">
+              <strong>{{ seat.seatNumber }}</strong>
+              <small>{{ seat.seatType }} · Deck {{ seat.deckNumber }}</small>
+              <app-status-badge
+                [label]="seat.physicalStatus"
+                [tone]="statusTone(seat.physicalStatus)"
+              />
+              @if (seat.blockReason) {
+                <span class="muted">{{ seat.blockReason }}</span>
+              }
+            </div>
+          }
+        </div>
+      }
+    </section>
+    }
+  }
+</section>

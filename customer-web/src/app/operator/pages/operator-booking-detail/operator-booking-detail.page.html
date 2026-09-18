@@ -1,0 +1,130 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    <a
+      class="back"
+      [routerLink]="['/operator', operatorId, 'trips', tripId, 'bookings']"
+    >
+      ← Back to trip bookings
+    </a>
+  }
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading booking"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (booking; as bookingDetail) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Booking detail</p>
+        <h1>{{ bookingDetail.bookingReference }}</h1>
+        <p class="muted">Created {{ formatInstant(bookingDetail.createdAt, bookingDetail.trip.timeZone) }}</p>
+      </div>
+      <app-status-badge
+        [label]="bookingDetail.status"
+        [tone]="statusTone(bookingDetail.status)"
+      />
+    </header>
+
+    <div class="operator-content-grid">
+      <section class="card">
+        <h2>Journey</h2>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Route</dt>
+            <dd>{{ bookingDetail.trip.routeName }} ({{ bookingDetail.trip.routeCode }})</dd>
+          </div>
+          <div>
+            <dt>Journey</dt>
+            <dd>
+              {{ bookingDetail.trip.origin.city }}
+              →
+              {{ bookingDetail.trip.destination.city }}
+            </dd>
+          </div>
+          <div>
+            <dt>Service date</dt>
+            <dd>{{ formatDate(bookingDetail.trip.serviceDate) }}</dd>
+          </div>
+          <div>
+            <dt>Departure</dt>
+            <dd>
+              {{
+                formatInstant(
+                  bookingDetail.trip.scheduledDepartureAt,
+                  bookingDetail.trip.timeZone
+                )
+              }}
+            </dd>
+          </div>
+          <div>
+            <dt>Bus</dt>
+            <dd>
+              {{
+                bookingDetail.trip.busDisplayName ||
+                  bookingDetail.trip.busRegistrationNumber
+              }}
+              · {{ bookingDetail.trip.busRegistrationNumber }}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Booking summary</h2>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Booking reference</dt>
+            <dd>{{ bookingDetail.bookingReference }}</dd>
+          </div>
+          <div>
+            <dt>Booking ID</dt>
+            <dd><code>{{ bookingDetail.bookingId }}</code></dd>
+          </div>
+          <div>
+            <dt>Trip ID</dt>
+            <dd><code>{{ bookingDetail.tripId }}</code></dd>
+          </div>
+          <div>
+            <dt>Total</dt>
+            <dd>{{ formatMoney(bookingDetail.totalAmount, bookingDetail.currency) }}</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Manifest</p>
+          <h2>Passengers and seats</h2>
+        </div>
+        <span class="muted">{{ bookingDetail.passengers.length }} passengers</span>
+      </div>
+      <div class="operator-manifest">
+        @for (item of bookingDetail.items; track item.bookingItemId) {
+          <article>
+            <div>
+              <strong>{{ passengerFor(item.passengerId)?.fullName || 'Passenger not assigned' }}</strong>
+              <span class="muted">
+                @if (passengerFor(item.passengerId); as passenger) {
+                  Age {{ passenger.age ?? '—' }} · {{ passenger.gender || 'Gender not provided' }}
+                }
+              </span>
+            </div>
+            <div>
+              <strong>Seat {{ item.seatNumber }}</strong>
+              <span class="muted">{{ item.seatType }}</span>
+            </div>
+            <app-status-badge [label]="item.status" [tone]="statusTone(item.status)" />
+          </article>
+        }
+      </div>
+    </section>
+    }
+  }
+</section>

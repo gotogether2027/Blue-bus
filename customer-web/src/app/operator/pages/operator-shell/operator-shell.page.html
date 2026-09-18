@@ -1,0 +1,77 @@
+<div class="shell operator-shell">
+  @if (loading.active()) {
+    <div class="progress" aria-hidden="true"></div>
+  }
+  <header class="topbar operator-topbar">
+    <a routerLink="/operator" class="brand">BLUE BUS <span>Operator</span></a>
+    <div class="operator-identity">
+      <strong>{{ context.currentMembership()?.operatorDisplayName }}</strong>
+      @if (context.currentMembership(); as membership) {
+        <app-status-badge
+          [label]="roleLabel(membership.role)"
+          [tone]="statusTone(membership.role)"
+        />
+      }
+    </div>
+    <button
+      class="menu-toggle"
+      type="button"
+      (click)="menuOpen = !menuOpen"
+      [attr.aria-expanded]="menuOpen"
+    >
+      Menu
+    </button>
+    <nav class="nav operator-nav" [class.open]="menuOpen">
+      @if (context.currentMembership(); as membership) {
+        <a
+          [routerLink]="['/operator', membership.operatorId]"
+          routerLinkActive="active"
+          [routerLinkActiveOptions]="{ exact: true }"
+        >
+          Dashboard
+        </a>
+        <a
+          [routerLink]="['/operator', membership.operatorId, 'buses']"
+          routerLinkActive="active"
+        >
+          Buses
+        </a>
+        <a
+          [routerLink]="['/operator', membership.operatorId, 'trips']"
+          routerLinkActive="active"
+        >
+          Trips
+        </a>
+      }
+      <a routerLink="/profile">Profile</a>
+      <span class="nav-user">{{ auth.currentUser()?.firstName }}</span>
+      <button type="button" class="link-button" (click)="logout()">Logout</button>
+    </nav>
+  </header>
+
+  @if (context.hasMultipleMemberships()) {
+    <div class="operator-switcher">
+      <label>
+        <span>Current operator</span>
+        <select
+          [value]="context.selectedOperatorId() ?? ''"
+          (change)="switchOperator($event)"
+          aria-label="Current operator"
+        >
+          @for (membership of context.memberships(); track membership.operatorId) {
+            <option [value]="membership.operatorId">
+              {{ membership.operatorDisplayName }}
+            </option>
+          }
+        </select>
+      </label>
+    </div>
+  }
+
+  <main class="operator-main">
+    <router-outlet />
+  </main>
+  <footer class="footer">
+    <p>BLUE BUS Operator Portal · Read-only operations</p>
+  </footer>
+</div>

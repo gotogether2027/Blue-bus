@@ -1,0 +1,65 @@
+<section class="page operator-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Schedule</p>
+      <h1>Trips</h1>
+      <p class="muted">Trips are ordered by their scheduled departure from the backend.</p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="stack" aria-label="Loading trips">
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+    </div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else if (trips.length === 0) {
+    <app-empty-state
+      title="No trips"
+      message="No trips are available in this operator workspace."
+    />
+  } @else {
+    @if (context.selectedOperatorId(); as operatorId) {
+      <div class="stack">
+        @for (trip of trips; track trip.id) {
+          <a
+            class="card operator-trip-row"
+            [routerLink]="['/operator', operatorId, 'trips', trip.id]"
+          >
+            <div>
+              <div class="operator-badge-row">
+                <app-status-badge [label]="trip.status" [tone]="statusTone(trip.status)" />
+                <span class="muted">Trip {{ trip.id }}</span>
+              </div>
+              <h2>{{ busLabel(trip.busId) }}</h2>
+              <p class="muted">Route reference {{ trip.routeId }}</p>
+            </div>
+            <div class="operator-trip-times">
+              <span>
+                <small>Service date</small>
+                <strong>{{ formatDate(trip.serviceDate) }}</strong>
+              </span>
+              <span>
+                <small>Departure</small>
+                <strong>{{ formatInstant(trip.scheduledDepartureAt, trip.timeZone) }}</strong>
+              </span>
+              <span>
+                <small>Arrival</small>
+                <strong>{{ formatInstant(trip.scheduledArrivalAt, trip.timeZone) }}</strong>
+              </span>
+              <span>
+                <small>Base fare</small>
+                <strong>{{ formatMoney(trip.baseFare) }}</strong>
+              </span>
+            </div>
+          </a>
+        }
+      </div>
+    }
+  }
+</section>

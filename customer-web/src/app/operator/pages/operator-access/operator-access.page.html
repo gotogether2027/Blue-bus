@@ -1,0 +1,67 @@
+<div class="shell operator-shell">
+  <header class="topbar operator-topbar">
+    <a routerLink="/operator" class="brand">BLUE BUS <span>Operator</span></a>
+    <nav class="nav operator-access-nav">
+      <a routerLink="/">Customer site</a>
+      <a routerLink="/profile">Profile</a>
+      <span class="nav-user">{{ auth.currentUser()?.firstName }}</span>
+      <button type="button" class="link-button" (click)="logout()">Logout</button>
+    </nav>
+  </header>
+
+  <main class="operator-main operator-access-main">
+    <section class="page">
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Operator portal</p>
+          <h1>Select your workspace</h1>
+          <p class="muted">Operator access is verified against your current backend memberships.</p>
+        </div>
+      </header>
+
+      @if (loading) {
+        <div class="stack" aria-label="Loading operator memberships">
+          <div class="skeleton card"></div>
+          <div class="skeleton card"></div>
+        </div>
+      } @else if (error) {
+        <app-empty-state [title]="error.title" [message]="error.message">
+          @if (error.kind !== 'unauthorized') {
+            <button type="button" class="btn btn-primary" (click)="loadMemberships()">Try again</button>
+          }
+        </app-empty-state>
+      } @else if (context.memberships().length === 0) {
+        <app-empty-state
+          title="No operator access"
+          message="Your account does not have an active membership for an active operator."
+        >
+          <a routerLink="/" class="btn">Return to customer site</a>
+        </app-empty-state>
+      } @else {
+        @if (accessDenied) {
+          <div class="operator-alert operator-alert-danger" role="alert">
+            You don't have access to this operator. Choose one of your current memberships.
+          </div>
+        }
+        <div class="operator-selector-grid">
+          @for (membership of context.memberships(); track membership.operatorId) {
+            <button
+              type="button"
+              class="card operator-selector-card"
+              (click)="openOperator(membership.operatorId)"
+            >
+              <span>
+                <strong>{{ membership.operatorDisplayName }}</strong>
+                <small>Operator {{ membership.operatorId }}</small>
+              </span>
+              <app-status-badge
+                [label]="roleLabel(membership.role)"
+                [tone]="statusTone(membership.role)"
+              />
+            </button>
+          }
+        </div>
+      }
+    </section>
+  </main>
+</div>

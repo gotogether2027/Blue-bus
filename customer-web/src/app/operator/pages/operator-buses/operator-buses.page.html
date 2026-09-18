@@ -1,0 +1,54 @@
+<section class="page operator-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Fleet</p>
+      <h1>Buses</h1>
+      <p class="muted">Read-only fleet information for the current operator.</p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="operator-card-grid" aria-label="Loading buses">
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+    </div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else if (buses.length === 0) {
+    <app-empty-state
+      title="No buses"
+      message="No buses are available in this operator workspace."
+    />
+  } @else {
+    <div class="operator-card-grid">
+      @for (bus of buses; track bus.id) {
+        <a
+          class="card operator-resource-card"
+          [routerLink]="['/operator', bus.operatorId, 'buses', bus.id]"
+        >
+          <div class="operator-section-head">
+            <span>
+              <strong>{{ bus.displayName || bus.registrationNumber }}</strong>
+              <small>{{ bus.registrationNumber }}</small>
+            </span>
+            <app-status-badge [label]="bus.status" [tone]="statusTone(bus.status)" />
+          </div>
+          <dl class="operator-detail-list operator-detail-list-compact">
+            <div>
+              <dt>Bus type reference</dt>
+              <dd><code>{{ bus.busTypeId }}</code></dd>
+            </div>
+            <div>
+              <dt>Seat layout reference</dt>
+              <dd><code>{{ bus.seatLayoutId }}</code></dd>
+            </div>
+          </dl>
+        </a>
+      }
+    </div>
+  }
+</section>

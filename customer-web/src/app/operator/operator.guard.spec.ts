@@ -1,0 +1,102 @@
+import { HttpErrorResponse } from '@angular/common/http';
+import { signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { Router, UrlTree, convertToParamMap, provideRouter } from '@angular/router';
+import { Observable, firstValueFrom, of, throwError } from 'rxjs';
+import { AuthService } from '../core/auth/auth.service';
+import { operatorMembershipFixture } from '../../testing/operator-fixtures';
+import { operatorMembershipGuard } from './operator.guard';
+import { OperatorContextService } from './services/operator-context.service';
+
+describe('operatorMembershipGuard', () => {
+  const membership = operatorMembershipFixture();
+  let memberships$: Observable<ReturnType<typeof operatorMembershipFixture>[]>;
+  let selectOperator: jasmine.Spy<(operatorId: string) => boolean>;
+  let clearSession: jasmine.Spy<() => void>;
+  const selectedOperatorId = signal<string | null>(null);
+
+  beforeEach(() => {
+    memberships$ = of([membership]);
+    selectedOperatorId.set(null);
+    selectOperator = jasmine.createSpy('selectOperator').and.callFake((operatorId: string) => {
+      selectedOperatorId.set(operatorId);
+      return true;
+    });
+    clearSession = jasmine.createSpy('clearSession');
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        {
+          provide: OperatorContextService,
+          useValue: {
+            loadMemberships: () => memberships$,
+            selectedOperatorId: selectedOperatorId.asReadonly(),
+            selectOperator
+          }
+        },
+        {
+          provide: AuthService,
+          useValue: { clearSession }
+        }
+      ]
+    });
+  });
+
+  it('allows a route only when the membership endpoint returns that operator', async () => {
+    const result = await runGuard('operator-1', '/operator/operator-1/buses');
+
+    expect(result).toBeTrue();
+    expect(selectOperator).toHaveBeenCalledOnceWith('operator-1');
+  });
+
+  it('redirects cross-operator navigation to the operator selector', async () => {
+    const result = await runGuard('operator-2', '/operator/operator-2');
+    const router = TestBed.inject(Router);
+
+    expect(result).toEqual(
+      router.createUrlTree(['/operator'], { queryParams: { accessDenied: 'true' } })
+    );
+  });
+
+  it('drops a reused child route when switching to another valid operator', async () => {
+    selectedOperatorId.set('operator-1');
+    memberships$ = of([
+      membership,
+      operatorMembershipFixture({
+        operatorId: 'operator-2',
+        operatorDisplayName: 'Inland Express'
+      })
+    ]);
+
+    const result = await runGuard('operator-2', '/operator/operator-2/trips');
+    const router = TestBed.inject(Router);
+
+    expect(result).toEqual(router.createUrlTree(['/operator', 'operator-2']));
+    expect(selectedOperatorId()).toBe('operator-2');
+  });
+
+  it('clears an unauthorized session and redirects to login', async () => {
+    memberships$ = throwError(
+      () => new HttpErrorResponse({ status: 401, statusText: 'Unauthorized' })
+    );
+    const result = await runGuard('operator-1', '/operator/operator-1');
+    const router = TestBed.inject(Router);
+
+    expect(clearSession).toHaveBeenCalled();
+    expect(result).toEqual(
+      router.createUrlTree(['/login'], {
+        queryParams: { returnUrl: '/operator/operator-1' }
+      })
+    );
+  });
+
+  async function runGuard(operatorId: string, url: string): Promise<boolean | UrlTree> {
+    const result = TestBed.runInInjectionContext(() =>
+      operatorMembershipGuard(
+        { paramMap: convertToParamMap({ operatorId }) } as never,
+        { url } as never
+      )
+    );
+    return firstValueFrom(result as Observable<boolean | UrlTree>);
+  }
+});

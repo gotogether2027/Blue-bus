@@ -1,0 +1,54 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    <a class="back" [routerLink]="['/operator', operatorId, 'buses']">← Back to buses</a>
+  }
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading bus"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (bus; as busDetail) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Bus detail</p>
+        <h1>{{ busDetail.displayName || busDetail.registrationNumber }}</h1>
+        <p class="muted">{{ busDetail.registrationNumber }}</p>
+      </div>
+      <app-status-badge
+        [label]="busDetail.status"
+        [tone]="statusTone(busDetail.status)"
+      />
+    </header>
+
+    <section class="card">
+      <h2>Fleet references</h2>
+      <p class="muted">
+        The current operator API returns identifiers for bus type and seat layout.
+      </p>
+      <dl class="operator-detail-list">
+        <div>
+          <dt>Bus reference</dt>
+          <dd><code>{{ busDetail.id }}</code></dd>
+        </div>
+        <div>
+          <dt>Operator reference</dt>
+          <dd><code>{{ busDetail.operatorId }}</code></dd>
+        </div>
+        <div>
+          <dt>Bus type reference</dt>
+          <dd><code>{{ busDetail.busTypeId }}</code></dd>
+        </div>
+        <div>
+          <dt>Seat layout reference</dt>
+          <dd><code>{{ busDetail.seatLayoutId }}</code></dd>
+        </div>
+      </dl>
+    </section>
+    }
+  }
+</section>

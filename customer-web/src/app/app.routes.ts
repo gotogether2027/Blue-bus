@@ -17,6 +17,12 @@ import { ProfilePageComponent } from './features/profile/profile.page';
 
 export const routes: Routes = [
   {
+    path: 'operator',
+    canActivate: [authGuard],
+    loadChildren: () =>
+      import('./operator/operator.routes').then((module) => module.OPERATOR_ROUTES)
+  },
+  {
     path: '',
     component: AppShellComponent,
     children: [

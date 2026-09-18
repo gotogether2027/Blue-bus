@@ -125,9 +125,107 @@ input, select {
 .skeleton { min-height: 96px; background: linear-gradient(90deg, #edf1f5, #f7f9fb, #edf1f5); background-size: 200% 100%; animation: pulse 1.2s infinite; }
 @keyframes pulse { to { background-position: -200% 0; } }
 
+.operator-shell { background: #eef3f8; }
+.operator-topbar { background: #082f55; }
+.operator-topbar .brand span {
+  margin-left: 0.35rem; color: #9fc2e4; font-size: 0.72rem; letter-spacing: 0.04em;
+}
+.operator-identity { display: flex; align-items: center; gap: 0.65rem; color: #fff; margin-right: auto; }
+.operator-nav { margin-left: auto; }
+.operator-main {
+  flex: 1; width: min(1240px, calc(100% - 2rem)); margin: 1.25rem auto 2rem;
+}
+.operator-access-main { width: min(900px, calc(100% - 2rem)); padding-top: 2rem; }
+.operator-access-nav { margin-left: auto; }
+.operator-switcher {
+  background: #fff; border-bottom: 1px solid var(--bb-line); padding: 0.65rem max(1rem, calc((100% - 1240px) / 2));
+}
+.operator-switcher label {
+  display: flex; align-items: center; justify-content: flex-end; gap: 0.65rem; font-size: 0.82rem;
+  font-weight: 700;
+}
+.operator-switcher select { width: min(340px, 100%); padding: 0.5rem 0.7rem; }
+.operator-page { min-width: 0; }
+.operator-page-actions, .operator-badge-row {
+  display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+}
+.operator-alert { border-radius: 10px; padding: 0.8rem 1rem; font-weight: 600; }
+.operator-alert-danger { color: var(--bb-danger); background: #fde8e6; border: 1px solid #f7b7b2; }
+.operator-selector-grid, .operator-card-grid, .operator-metric-grid, .operator-content-grid {
+  display: grid; gap: 1rem;
+}
+.operator-selector-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%;
+  text-align: left; color: var(--bb-text); cursor: pointer;
+}
+.operator-selector-card:hover, .operator-resource-card:hover { border-color: #8bb2d9; }
+.operator-selector-card span, .operator-resource-card span {
+  display: grid; gap: 0.25rem; min-width: 0;
+}
+.operator-selector-card small, .operator-resource-card small, .operator-trip-times small,
+.operator-compact-list small, .operator-stop-list small, .operator-seat-card small {
+  color: var(--bb-muted);
+}
+.operator-metric-card { display: grid; gap: 0.45rem; align-content: start; }
+.operator-metric-card > strong { color: var(--bb-navy); font-size: 2rem; line-height: 1; }
+.operator-metric-card code { font-size: 0.75rem; overflow-wrap: anywhere; }
+.operator-large-skeleton { min-height: 260px; }
+.operator-section-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+.operator-compact-list { display: grid; }
+.operator-compact-list > a {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem; color: var(--bb-text);
+  padding: 0.75rem 0; border-top: 1px solid var(--bb-line);
+}
+.operator-compact-list > a > span { display: grid; gap: 0.2rem; }
+.operator-resource-card { display: grid; gap: 0.85rem; color: var(--bb-text); min-width: 0; }
+.operator-detail-list { display: grid; gap: 0; margin: 0.8rem 0 0; }
+.operator-detail-list > div {
+  display: grid; grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.3fr); gap: 1rem;
+  padding: 0.65rem 0; border-top: 1px solid var(--bb-line);
+}
+.operator-detail-list dt { color: var(--bb-muted); }
+.operator-detail-list dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.operator-detail-list-compact > div { grid-template-columns: 1fr; gap: 0.2rem; }
+.operator-trip-row, .operator-booking-row {
+  display: grid; gap: 1rem; color: var(--bb-text); min-width: 0;
+}
+.operator-trip-times {
+  display: grid; grid-template-columns: repeat(2, minmax(150px, 1fr)); gap: 0.8rem 1rem;
+}
+.operator-trip-times > span { display: grid; gap: 0.2rem; }
+.operator-stop-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: stops; }
+.operator-stop-list > li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem 1rem;
+  border-top: 1px solid var(--bb-line); padding: 0.85rem 0; counter-increment: stops;
+}
+.operator-stop-list > li > div { display: grid; gap: 0.2rem; }
+.operator-stop-list > li > div strong::before {
+  content: counter(stops) ". "; color: var(--bb-muted);
+}
+.operator-stop-list .plain-list { grid-column: 1 / -1; }
+.operator-seat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 0.75rem; }
+.operator-seat-card {
+  display: grid; gap: 0.35rem; border: 1px solid var(--bb-line); border-radius: 10px; padding: 0.75rem;
+}
+.operator-manifest { display: grid; }
+.operator-manifest article {
+  display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(100px, 0.7fr) auto;
+  gap: 1rem; align-items: center; border-top: 1px solid var(--bb-line); padding: 0.85rem 0;
+}
+.operator-manifest article > div { display: grid; gap: 0.2rem; }
+.operator-page code { overflow-wrap: anywhere; }
+
 @media (min-width: 800px) {
   .hero { grid-template-columns: 1fr 1.1fr; align-items: center; }
   .trip-card, .booking-row { grid-template-columns: 1fr auto; align-items: center; }
+  .operator-selector-grid, .operator-card-grid, .operator-metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .operator-content-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operator-trip-row, .operator-booking-row { grid-template-columns: minmax(0, 1fr) minmax(360px, auto); align-items: center; }
 }
 
 @media (max-width: 900px) {
@@ -139,4 +237,19 @@ input, select {
   .nav.open { display: flex; }
   .topbar { position: sticky; top: 0; z-index: 10; }
   .times { grid-template-columns: 1fr; }
+  .operator-access-nav {
+    display: flex; position: static; flex-direction: row; align-items: center; padding: 0;
+    background: transparent;
+  }
+}
+
+@media (max-width: 640px) {
+  .operator-identity { order: 3; width: 100%; }
+  .operator-switcher label { display: grid; justify-content: stretch; }
+  .operator-switcher select { width: 100%; }
+  .operator-trip-times { grid-template-columns: 1fr; }
+  .operator-detail-list > div { grid-template-columns: 1fr; gap: 0.2rem; }
+  .operator-manifest article { grid-template-columns: 1fr auto; }
+  .operator-manifest article > div:first-child { grid-column: 1 / -1; }
+  .operator-access-nav .nav-user { display: none; }
 }
