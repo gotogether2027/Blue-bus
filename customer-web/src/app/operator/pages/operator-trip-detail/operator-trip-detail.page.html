@@ -16,12 +16,20 @@
     <header class="page-head">
       <div>
         <p class="eyebrow">Trip detail</p>
-        <h1>{{ bus?.displayName || bus?.registrationNumber || tripDetail.id }}</h1>
-        <p class="muted">Trip {{ tripDetail.id }}</p>
+        <h1>{{ busLabel() }}</h1>
+        <p class="muted">{{ routeLabel() }} · Trip {{ tripDetail.id }}</p>
       </div>
       <div class="operator-page-actions">
         <app-status-badge [label]="tripDetail.status" [tone]="statusTone(tripDetail.status)" />
         @if (context.selectedOperatorId(); as operatorId) {
+          @if (context.canManageOperator() && canEditTripCommercialTerms(tripDetail.status)) {
+            <a
+              class="btn"
+              [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'edit']"
+            >
+              Edit commercial terms
+            </a>
+          }
           <a
             class="btn btn-primary"
             [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'bookings']"
@@ -31,6 +39,19 @@
         }
       </div>
     </header>
+
+    @if (successMessage) {
+      <div class="operator-alert operator-alert-success" role="status">
+        {{ successMessage }}
+      </div>
+    }
+
+    @if (actionError) {
+      <div class="operator-alert operator-alert-danger" role="alert">
+        <strong>{{ actionError.title }}</strong>
+        <span>{{ actionError.message }}</span>
+      </div>
+    }
 
     <div class="operator-content-grid">
       <section class="card">
@@ -53,6 +74,20 @@
             <dd>{{ tripDetail.timeZone }}</dd>
           </div>
           <div>
+            <dt>Status</dt>
+            <dd>{{ tripDetail.status }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Commercial terms</h2>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Base fare</dt>
+            <dd>{{ formatMoney(tripDetail.baseFare) }}</dd>
+          </div>
+          <div>
             <dt>Booking opens</dt>
             <dd>{{ formatInstant(tripDetail.bookingOpensAt, tripDetail.timeZone) }}</dd>
           </div>
@@ -60,35 +95,51 @@
             <dt>Booking closes</dt>
             <dd>{{ formatInstant(tripDetail.bookingClosesAt, tripDetail.timeZone) }}</dd>
           </div>
-          <div>
-            <dt>Base fare</dt>
-            <dd>{{ formatMoney(tripDetail.baseFare) }}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section class="card">
-        <h2>Supply references</h2>
-        <dl class="operator-detail-list">
-          <div>
-            <dt>Bus</dt>
-            <dd>{{ bus?.registrationNumber || tripDetail.busId }}</dd>
-          </div>
-          <div>
-            <dt>Bus reference</dt>
-            <dd><code>{{ tripDetail.busId }}</code></dd>
-          </div>
-          <div>
-            <dt>Route reference</dt>
-            <dd><code>{{ tripDetail.routeId }}</code></dd>
-          </div>
-          <div>
-            <dt>Seat layout reference</dt>
-            <dd><code>{{ tripDetail.seatLayoutId }}</code></dd>
-          </div>
         </dl>
       </section>
     </div>
+
+    <section class="card">
+      <h2>Supply references</h2>
+      <dl class="operator-detail-list">
+        <div>
+          <dt>Bus</dt>
+          <dd>
+            {{ busLabel() }}
+            <small><code>{{ tripDetail.busId }}</code></small>
+          </dd>
+        </div>
+        <div>
+          <dt>Route</dt>
+          <dd>
+            {{ routeLabel() }}
+            <small><code>{{ tripDetail.routeId }}</code></small>
+          </dd>
+        </div>
+        <div>
+          <dt>Seat layout reference</dt>
+          <dd><code>{{ tripDetail.seatLayoutId }}</code></dd>
+        </div>
+        <div>
+          <dt>Trip reference</dt>
+          <dd><code>{{ tripDetail.id }}</code></dd>
+        </div>
+        <div>
+          <dt>Operator reference</dt>
+          <dd><code>{{ tripDetail.operatorId }}</code></dd>
+        </div>
+      </dl>
+      @if (context.selectedOperatorId(); as operatorId) {
+        <div class="operator-page-actions">
+          <a class="btn" [routerLink]="['/operator', operatorId, 'buses', tripDetail.busId]">
+            View bus
+          </a>
+          <a class="btn" [routerLink]="['/operator', operatorId, 'routes', tripDetail.routeId]">
+            View route
+          </a>
+        </div>
+      }
+    </section>
 
     <section class="card">
       <div class="operator-section-head">
@@ -106,7 +157,7 @@
             <li>
               <div>
                 <strong>{{ stop.stopKind }}</strong>
-                <span>Location {{ stop.locationId }}</span>
+                <span>{{ stopLocationLabel(stop.locationId) }}</span>
                 <small>
                   {{ formatInstant(stop.scheduledArrivalAt, tripDetail.timeZone) }}
                   →
@@ -135,6 +186,10 @@
         </div>
         <span class="muted">{{ tripDetail.seatInventory.length }} seats</span>
       </div>
+      <p class="muted">
+        This snapshot is created with the trip. Operator inventory mutation is not part of this
+        trip-management screen.
+      </p>
       @if (tripDetail.seatInventory.length === 0) {
         <p class="muted">No seat inventory snapshot is available.</p>
       } @else {
@@ -155,6 +210,74 @@
         </div>
       }
     </section>
+
+    @if (context.canManageOperator()) {
+      <section class="card operator-action-card">
+        <div>
+          <h2>Lifecycle</h2>
+          <p class="muted">
+            Scheduling publishes a DRAFT trip without editing its stored times. Cancellation is a
+            lifecycle action; the backend remains authoritative for whether it is allowed.
+          </p>
+        </div>
+        <div class="operator-page-actions">
+          @if (canScheduleTrip(tripDetail.status)) {
+            <button type="button" class="btn btn-primary" (click)="requestLifecycle('schedule')">
+              Schedule trip
+            </button>
+          }
+          @if (canCancelTrip(tripDetail.status)) {
+            <button type="button" class="btn btn-danger" (click)="requestLifecycle('cancel')">
+              Cancel trip
+            </button>
+          }
+        </div>
+      </section>
+    } @else {
+      <div class="operator-alert operator-alert-info" role="note">
+        Your OPERATOR_STAFF membership provides read-only trip access.
+      </div>
+    }
     }
   }
 </section>
+
+@if (pendingLifecycleAction; as action) {
+  <div class="operator-dialog-backdrop" (click)="cancelLifecycle()">
+    <section
+      class="card operator-dialog"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-busy]="lifecycleSubmitting"
+      aria-labelledby="trip-lifecycle-dialog-title"
+      aria-describedby="trip-lifecycle-dialog-message"
+      (click)="$event.stopPropagation()"
+    >
+      <div>
+        <p class="eyebrow">Confirm lifecycle change</p>
+        <h2 id="trip-lifecycle-dialog-title">{{ lifecycleActionLabel(action) }}</h2>
+        <p id="trip-lifecycle-dialog-message">{{ lifecycleConfirmationMessage(action) }}</p>
+      </div>
+      <div class="operator-page-actions">
+        <button
+          type="button"
+          class="btn"
+          [disabled]="lifecycleSubmitting"
+          (click)="cancelLifecycle()"
+        >
+          {{ action === 'cancel' ? 'Keep trip' : 'Not now' }}
+        </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-danger]="action === 'cancel'"
+          [class.btn-primary]="action === 'schedule'"
+          [disabled]="lifecycleSubmitting"
+          (click)="confirmLifecycle()"
+        >
+          {{ lifecycleSubmitting ? 'Applying change…' : lifecycleActionLabel(action) }}
+        </button>
+      </div>
+    </section>
+  </div>
+}

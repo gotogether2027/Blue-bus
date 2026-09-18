@@ -1,0 +1,242 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    <a class="back" [routerLink]="['/operator', operatorId, 'trips']">← Back to trips</a>
+  }
+
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Trip management</p>
+      <h1>Create trip</h1>
+      <p class="muted">
+        New trips start as DRAFT. Only an active bus and an active route with at least two stops
+        can be used. Service date and seat layout are derived by the backend.
+      </p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading trip form"></div>
+  } @else if (pageError) {
+    <app-empty-state [title]="pageError.title" [message]="pageError.message">
+      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
+        <button type="button" class="btn btn-primary" (click)="loadReferenceData()">
+          Try again
+        </button>
+      }
+    </app-empty-state>
+  } @else if (buses.length === 0) {
+    <app-empty-state
+      title="No active buses"
+      message="Activate an operator-owned bus before creating a trip."
+    />
+  } @else if (routes.length === 0) {
+    <app-empty-state
+      title="No eligible routes"
+      message="Activate an operator-owned route with at least two ordered stops before creating a trip."
+    />
+  } @else {
+    <form class="card operator-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div>
+        <h2>Bus and route</h2>
+        <p class="muted">
+          Bus, route, and departure times cannot be changed after creation. Same-bus overlap and
+          uniqueness are checked by the backend.
+        </p>
+      </div>
+
+      <div class="operator-form-grid">
+        <label class="field">
+          <span>Bus</span>
+          <select
+            formControlName="busId"
+            [attr.aria-invalid]="form.controls.busId.touched && form.controls.busId.invalid"
+            aria-describedby="trip-bus-help trip-bus-error"
+          >
+            <option value="">Select an active bus</option>
+            @for (bus of buses; track bus.id) {
+              <option [value]="bus.id">
+                {{ bus.displayName || bus.registrationNumber }} ({{ bus.registrationNumber }})
+              </option>
+            }
+          </select>
+          <small id="trip-bus-help" class="field-hint">Only ACTIVE buses owned by this operator are listed.</small>
+          @if (form.controls.busId.touched && form.controls.busId.invalid) {
+            <small id="trip-bus-error" class="field-error">Select a bus.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Route</span>
+          <select
+            formControlName="routeId"
+            [attr.aria-invalid]="form.controls.routeId.touched && form.controls.routeId.invalid"
+            aria-describedby="trip-route-help trip-route-error"
+          >
+            <option value="">Select an active route</option>
+            @for (route of routes; track route.id) {
+              <option [value]="route.id">{{ route.code }} · {{ route.name }}</option>
+            }
+          </select>
+          <small id="trip-route-help" class="field-hint">
+            Only ACTIVE routes with at least two stops can be snapshotted onto a trip.
+          </small>
+          @if (form.controls.routeId.touched && form.controls.routeId.invalid) {
+            <small id="trip-route-error" class="field-error">Select a route.</small>
+          }
+        </label>
+      </div>
+
+      <div>
+        <h2>Schedule</h2>
+        <p class="muted">
+          Times are interpreted in the trip time zone. Arrival must be after departure. Scheduling
+          later is a lifecycle transition, not a time edit.
+        </p>
+      </div>
+
+      <div class="operator-form-grid">
+        <label class="field">
+          <span>Scheduled departure</span>
+          <input
+            type="datetime-local"
+            formControlName="scheduledDepartureAt"
+            step="60"
+            [attr.aria-invalid]="
+              form.controls.scheduledDepartureAt.touched && form.controls.scheduledDepartureAt.invalid
+            "
+            aria-describedby="trip-departure-error"
+          />
+          @if (form.controls.scheduledDepartureAt.touched && form.controls.scheduledDepartureAt.invalid) {
+            <small id="trip-departure-error" class="field-error">Enter a departure date and time.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Scheduled arrival</span>
+          <input
+            type="datetime-local"
+            formControlName="scheduledArrivalAt"
+            step="60"
+            [attr.aria-invalid]="
+              (form.controls.scheduledArrivalAt.touched || form.touched) &&
+              (form.controls.scheduledArrivalAt.invalid || form.hasError('arrivalNotAfterDeparture'))
+            "
+            aria-describedby="trip-arrival-error"
+          />
+          @if (form.controls.scheduledArrivalAt.touched && form.controls.scheduledArrivalAt.invalid) {
+            <small id="trip-arrival-error" class="field-error">Enter an arrival date and time.</small>
+          }
+          @if (form.touched && form.hasError('arrivalNotAfterDeparture')) {
+            <small id="trip-arrival-order-error" class="field-error">
+              Arrival must be after departure.
+            </small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Time zone</span>
+          <input
+            type="text"
+            formControlName="timeZone"
+            maxlength="64"
+            spellcheck="false"
+            [attr.aria-invalid]="form.controls.timeZone.touched && form.controls.timeZone.invalid"
+            aria-describedby="trip-timezone-help trip-timezone-error"
+          />
+          <small id="trip-timezone-help" class="field-hint">
+            Defaults to Asia/Kolkata. The backend derives the service date from departure in this zone.
+          </small>
+          @if (form.controls.timeZone.touched && form.controls.timeZone.invalid) {
+            <small id="trip-timezone-error" class="field-error">
+              Enter a time zone of 64 characters or fewer.
+            </small>
+          }
+        </label>
+      </div>
+
+      <div>
+        <h2>Commercial terms</h2>
+        <p class="muted">
+          Booking must open before it closes, and it must close on or before departure.
+        </p>
+      </div>
+
+      <div class="operator-form-grid">
+        <label class="field">
+          <span>Base fare</span>
+          <input
+            type="number"
+            formControlName="baseFare"
+            min="0"
+            step="0.01"
+            [attr.aria-invalid]="form.controls.baseFare.touched && form.controls.baseFare.invalid"
+            aria-describedby="trip-fare-help trip-fare-error"
+          />
+          <small id="trip-fare-help" class="field-hint">Must be zero or greater.</small>
+          @if (form.controls.baseFare.touched && form.controls.baseFare.invalid) {
+            <small id="trip-fare-error" class="field-error">Enter a non-negative base fare.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Booking opens</span>
+          <input
+            type="datetime-local"
+            formControlName="bookingOpensAt"
+            step="60"
+            [attr.aria-invalid]="form.controls.bookingOpensAt.touched && form.controls.bookingOpensAt.invalid"
+            aria-describedby="trip-opens-error"
+          />
+          @if (form.controls.bookingOpensAt.touched && form.controls.bookingOpensAt.invalid) {
+            <small id="trip-opens-error" class="field-error">Enter when booking opens.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Booking closes</span>
+          <input
+            type="datetime-local"
+            formControlName="bookingClosesAt"
+            step="60"
+            [attr.aria-invalid]="
+              (form.controls.bookingClosesAt.touched || form.touched) &&
+              (form.controls.bookingClosesAt.invalid ||
+                form.hasError('bookingCloseNotAfterOpen') ||
+                form.hasError('bookingClosesAfterDeparture'))
+            "
+            aria-describedby="trip-closes-error trip-window-error"
+          />
+          @if (form.controls.bookingClosesAt.touched && form.controls.bookingClosesAt.invalid) {
+            <small id="trip-closes-error" class="field-error">Enter when booking closes.</small>
+          }
+          @if (form.touched && form.hasError('bookingCloseNotAfterOpen')) {
+            <small id="trip-window-error" class="field-error">
+              Booking must open before it closes.
+            </small>
+          }
+          @if (form.touched && form.hasError('bookingClosesAfterDeparture')) {
+            <small id="trip-close-departure-error" class="field-error">
+              Booking must close on or before departure.
+            </small>
+          }
+        </label>
+      </div>
+
+      @if (actionError) {
+        <div class="operator-alert operator-alert-danger" role="alert">
+          <strong>{{ actionError.title }}</strong>
+          <span>{{ actionError.message }}</span>
+        </div>
+      }
+
+      <div class="operator-page-actions">
+        <button type="submit" class="btn btn-primary" [disabled]="submitting">
+          {{ submitting ? 'Creating trip…' : 'Create trip' }}
+        </button>
+        @if (context.selectedOperatorId(); as operatorId) {
+          <a class="btn" [routerLink]="['/operator', operatorId, 'trips']">Cancel</a>
+        }
+      </div>
+    </form>
+  }
+</section>

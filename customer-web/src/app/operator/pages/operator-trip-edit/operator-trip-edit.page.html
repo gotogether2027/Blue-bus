@@ -1,0 +1,151 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    @if (trip; as currentTrip) {
+      <a class="back" [routerLink]="['/operator', operatorId, 'trips', currentTrip.id]">
+        ← Back to trip detail
+      </a>
+    } @else {
+      <a class="back" [routerLink]="['/operator', operatorId, 'trips']">← Back to trips</a>
+    }
+  }
+
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Trip management</p>
+      <h1>Edit commercial terms</h1>
+      <p class="muted">
+        Only base fare and booking-window fields can be patched. Bus, route, and schedule stay
+        immutable.
+      </p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading trip form"></div>
+  } @else if (pageError) {
+    <app-empty-state [title]="pageError.title" [message]="pageError.message">
+      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (trip; as currentTrip) {
+      <section class="card">
+        <h2>Immutable trip identity</h2>
+        <p class="muted">These values cannot be changed after the trip is created.</p>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Bus</dt>
+            <dd>{{ busSummary(bus ?? undefined, currentTrip.busId) }}</dd>
+          </div>
+          <div>
+            <dt>Route</dt>
+            <dd>{{ routeSummary(routeDetail ?? undefined, currentTrip.routeId) }}</dd>
+          </div>
+          <div>
+            <dt>Service date</dt>
+            <dd>{{ currentTrip.serviceDate }}</dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd>{{ currentTrip.status }}</dd>
+          </div>
+          <div>
+            <dt>Time zone</dt>
+            <dd>{{ currentTrip.timeZone }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <form class="card operator-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+        <div>
+          <h2>Permitted commercial fields</h2>
+          <p class="muted">
+            The backend accepts only baseFare, bookingOpensAt, and bookingClosesAt, and only while
+            the trip is DRAFT or SCHEDULED.
+          </p>
+        </div>
+
+        <div class="operator-form-grid">
+          <label class="field">
+            <span>Base fare</span>
+            <input
+              type="number"
+              formControlName="baseFare"
+              min="0"
+              step="0.01"
+              [attr.aria-invalid]="form.controls.baseFare.touched && form.controls.baseFare.invalid"
+              aria-describedby="edit-fare-error"
+            />
+            @if (form.controls.baseFare.touched && form.controls.baseFare.invalid) {
+              <small id="edit-fare-error" class="field-error">Enter a non-negative base fare.</small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Booking opens</span>
+            <input
+              type="datetime-local"
+              formControlName="bookingOpensAt"
+              step="60"
+              [attr.aria-invalid]="
+                form.controls.bookingOpensAt.touched && form.controls.bookingOpensAt.invalid
+              "
+              aria-describedby="edit-opens-error"
+            />
+            @if (form.controls.bookingOpensAt.touched && form.controls.bookingOpensAt.invalid) {
+              <small id="edit-opens-error" class="field-error">Enter when booking opens.</small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Booking closes</span>
+            <input
+              type="datetime-local"
+              formControlName="bookingClosesAt"
+              step="60"
+              [attr.aria-invalid]="
+                (form.controls.bookingClosesAt.touched || form.touched) &&
+                (form.controls.bookingClosesAt.invalid ||
+                  form.hasError('bookingCloseNotAfterOpen') ||
+                  form.hasError('bookingClosesAfterDeparture'))
+              "
+              aria-describedby="edit-closes-error edit-window-error"
+            />
+            @if (form.controls.bookingClosesAt.touched && form.controls.bookingClosesAt.invalid) {
+              <small id="edit-closes-error" class="field-error">Enter when booking closes.</small>
+            }
+            @if (form.touched && form.hasError('bookingCloseNotAfterOpen')) {
+              <small id="edit-window-error" class="field-error">
+                Booking must open before it closes.
+              </small>
+            }
+            @if (form.touched && form.hasError('bookingClosesAfterDeparture')) {
+              <small id="edit-close-departure-error" class="field-error">
+                Booking must close on or before departure.
+              </small>
+            }
+          </label>
+        </div>
+
+        @if (actionError) {
+          <div class="operator-alert operator-alert-danger" role="alert">
+            <strong>{{ actionError.title }}</strong>
+            <span>{{ actionError.message }}</span>
+          </div>
+        }
+
+        <div class="operator-page-actions">
+          <button type="submit" class="btn btn-primary" [disabled]="submitting">
+            {{ submitting ? 'Saving changes…' : 'Save commercial terms' }}
+          </button>
+          @if (context.selectedOperatorId(); as operatorId) {
+            <a class="btn" [routerLink]="['/operator', operatorId, 'trips', currentTrip.id]">
+              Cancel
+            </a>
+          }
+        </div>
+      </form>
+    }
+  }
+</section>

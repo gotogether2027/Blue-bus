@@ -3,9 +3,27 @@
     <div>
       <p class="eyebrow">Schedule</p>
       <h1>Trips</h1>
-      <p class="muted">Trips are ordered by their scheduled departure from the backend.</p>
+      <p class="muted">
+        {{ context.canManageOperator()
+          ? 'Review trips, create drafts, and apply commercial or lifecycle changes the operator APIs allow.'
+          : 'Review trip information. Your operator staff access is read-only.' }}
+      </p>
     </div>
+    @if (context.canManageOperator()) {
+      <a
+        class="btn btn-primary"
+        [routerLink]="['/operator', selectedOperatorId, 'trips', 'new']"
+      >
+        Create trip
+      </a>
+    }
   </header>
+
+  @if (writeAccessDenied) {
+    <div class="operator-alert operator-alert-danger" role="alert">
+      Operator admin access is required to manage trips.
+    </div>
+  }
 
   @if (loading) {
     <div class="stack" aria-label="Loading trips">
@@ -21,23 +39,71 @@
   } @else if (trips.length === 0) {
     <app-empty-state
       title="No trips"
-      message="No trips are available in this operator workspace."
-    />
+      message="No trips match this operator workspace and the selected filters."
+    >
+      @if (context.canManageOperator()) {
+        <a
+          class="btn btn-primary"
+          [routerLink]="['/operator', selectedOperatorId, 'trips', 'new']"
+        >
+          Create the first trip
+        </a>
+      }
+    </app-empty-state>
   } @else {
-    @if (context.selectedOperatorId(); as operatorId) {
+    <section class="card operator-filter-bar operator-filter-bar-trips" aria-label="Filter trips">
+      <label class="field">
+        <span>Search trips</span>
+        <input
+          type="search"
+          [(ngModel)]="searchQuery"
+          placeholder="Bus, route, status, or trip reference"
+        />
+      </label>
+      <label class="field">
+        <span>Service date</span>
+        <input
+          type="date"
+          [(ngModel)]="serviceDateFilter"
+          (ngModelChange)="load()"
+        />
+      </label>
+      <label class="field">
+        <span>Status</span>
+        <select [(ngModel)]="statusFilter" (ngModelChange)="load()">
+          <option value="ALL">All statuses</option>
+          @for (status of statusOptions; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </label>
+    </section>
+
+    @if (filteredTrips.length === 0) {
+      <app-empty-state
+        title="No matching trips"
+        message="Change the search text, service date, or status filter to see more trips."
+      />
+    } @else {
       <div class="stack">
-        @for (trip of trips; track trip.id) {
-          <a
-            class="card operator-trip-row"
-            [routerLink]="['/operator', operatorId, 'trips', trip.id]"
-          >
+        @for (trip of filteredTrips; track trip.id) {
+          <article class="card operator-trip-row">
             <div>
               <div class="operator-badge-row">
                 <app-status-badge [label]="trip.status" [tone]="statusTone(trip.status)" />
                 <span class="muted">Trip {{ trip.id }}</span>
               </div>
               <h2>{{ busLabel(trip.busId) }}</h2>
-              <p class="muted">Route reference {{ trip.routeId }}</p>
+              <p class="muted">{{ routeLabel(trip.routeId) }}</p>
+              <div class="operator-page-actions">
+                <a
+                  class="btn"
+                  [attr.aria-label]="'View trip ' + trip.id"
+                  [routerLink]="['/operator', selectedOperatorId, 'trips', trip.id]"
+                >
+                  View trip
+                </a>
+              </div>
             </div>
             <div class="operator-trip-times">
               <span>
@@ -56,8 +122,16 @@
                 <small>Base fare</small>
                 <strong>{{ formatMoney(trip.baseFare) }}</strong>
               </span>
+              <span>
+                <small>Booking window</small>
+                <strong>
+                  {{ formatInstant(trip.bookingOpensAt, trip.timeZone) }}
+                  →
+                  {{ formatInstant(trip.bookingClosesAt, trip.timeZone) }}
+                </strong>
+              </span>
             </div>
-          </a>
+          </article>
         }
       </div>
     }

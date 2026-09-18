@@ -159,6 +159,9 @@ input, select {
   display: grid; grid-template-columns: minmax(220px, 2fr) minmax(180px, 1fr); gap: 1rem;
   align-items: end;
 }
+.operator-filter-bar-trips {
+  grid-template-columns: minmax(200px, 2fr) minmax(160px, 0.9fr) minmax(170px, 0.9fr);
+}
 .operator-action-card { display: grid; gap: 1rem; }
 .field-hint { color: var(--bb-muted); line-height: 1.35; }
 .operator-form input.ng-invalid.ng-touched,

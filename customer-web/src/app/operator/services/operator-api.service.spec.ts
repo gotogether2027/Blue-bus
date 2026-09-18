@@ -177,6 +177,52 @@ describe('OperatorApiService', () => {
     request.flush([operatorTripFixture()]);
   });
 
+  it('creates, patches, schedules, and cancels operator trips with encoded path IDs', () => {
+    const created = operatorTripFixture({ status: 'DRAFT' });
+    service
+      .createTrip('operator-1', {
+        busId: 'bus-1',
+        routeId: 'route-1',
+        scheduledDepartureAt: '2026-12-18T01:30:00.000Z',
+        scheduledArrivalAt: '2026-12-18T07:30:00.000Z',
+        baseFare: 1299,
+        bookingOpensAt: '2026-09-18T00:00:00.000Z',
+        bookingClosesAt: '2026-12-18T00:30:00.000Z',
+        timeZone: 'Asia/Kolkata'
+      })
+      .subscribe((result) => expect(result.status).toBe('DRAFT'));
+    const create = http.expectOne(`${environment.apiBaseUrl}/operator/operator-1/trips`);
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body.busId).toBe('bus-1');
+    create.flush(created);
+
+    service
+      .updateTrip('operator-1', 'trip/1', { baseFare: 1499 })
+      .subscribe((result) => expect(result.baseFare).toBe(1499));
+    const patch = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1`
+    );
+    expect(patch.request.method).toBe('PATCH');
+    expect(patch.request.body).toEqual({ baseFare: 1499 });
+    patch.flush(operatorTripFixture({ baseFare: 1499 }));
+
+    service.scheduleTrip('operator-1', 'trip/1').subscribe();
+    const schedule = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/schedule`
+    );
+    expect(schedule.request.method).toBe('POST');
+    expect(schedule.request.body).toBeNull();
+    schedule.flush(operatorTripFixture());
+
+    service.cancelTrip('operator-1', 'trip/1').subscribe();
+    const cancel = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/cancel`
+    );
+    expect(cancel.request.method).toBe('POST');
+    expect(cancel.request.body).toBeNull();
+    cancel.flush(operatorTripFixture({ status: 'CANCELLED' }));
+  });
+
   it('loads trip bookings and booking detail from the trip namespace', () => {
     service.listTripBookings('operator-1', 'trip-1').subscribe((result) => {
       expect(result[0].bookingReference).toBe('BB-1001');

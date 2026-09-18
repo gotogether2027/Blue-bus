@@ -11,6 +11,7 @@ import {
   operatorBookingFixture,
   operatorBusFixture,
   operatorBusTypeFixture,
+  operatorRouteFixture,
   operatorSeatLayoutFixture,
   operatorTripFixture
 } from '../../../testing/operator-fixtures';
@@ -95,11 +96,12 @@ describe('operator resource pages', () => {
     fixture.detectChanges();
     http.expectOne(`${base}/trips`).flush([operatorTripFixture()]);
     http.expectOne(`${base}/buses`).flush([operatorBusFixture()]);
+    http.expectOne(`${base}/routes`).flush([operatorRouteFixture()]);
     fixture.detectChanges();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Coastal Sleeper');
-    expect(text).toContain('route-1');
+    expect(text).toContain('HYD-VJA');
     expect(text).toContain('SCHEDULED');
   });
 

@@ -12,9 +12,12 @@ export function operatorStatusTone(status: string | null | undefined): StatusTon
     case 'INITIATED':
     case 'MAINTENANCE':
     case 'REFUND_PENDING':
+    case 'DRAFT':
+    case 'CLOSED':
       return 'warn';
     case 'SCHEDULED':
     case 'ON_SALE':
+    case 'DEPARTED':
     case 'OPERATOR_ADMIN':
     case 'OPERATOR_STAFF':
       return 'info';

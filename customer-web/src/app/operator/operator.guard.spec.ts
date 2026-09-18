@@ -121,6 +121,17 @@ describe('operatorMembershipGuard', () => {
     );
   });
 
+  it('redirects operator staff away from trip mutation routes', () => {
+    membershipFor.and.returnValue(operatorMembershipFixture({ role: 'OPERATOR_STAFF' }));
+    const router = TestBed.inject(Router);
+
+    expect(runAdminGuard('operator-1', '/operator/operator-1/trips/new')).toEqual(
+      router.createUrlTree(['/operator', 'operator-1', 'trips'], {
+        queryParams: { writeAccessDenied: 'true' }
+      })
+    );
+  });
+
   async function runGuard(operatorId: string, url: string): Promise<boolean | UrlTree> {
     const result = TestBed.runInInjectionContext(() =>
       operatorMembershipGuard(

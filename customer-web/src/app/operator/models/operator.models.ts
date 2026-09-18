@@ -231,6 +231,23 @@ export interface OperatorTripFilters {
   status?: TripStatus;
 }
 
+export interface CreateOperatorTripRequest {
+  busId: string;
+  routeId: string;
+  scheduledDepartureAt: string;
+  scheduledArrivalAt: string;
+  baseFare: number;
+  bookingOpensAt: string;
+  bookingClosesAt: string;
+  timeZone?: string;
+}
+
+export interface UpdateOperatorTripRequest {
+  baseFare?: number;
+  bookingOpensAt?: string;
+  bookingClosesAt?: string;
+}
+
 export interface OperatorBookingItem {
   bookingItemId: string;
   passengerId: string | null;

@@ -14,7 +14,9 @@ import { OperatorRouteEditPageComponent } from './pages/operator-route-edit/oper
 import { OperatorRouteStopsPageComponent } from './pages/operator-route-stops/operator-route-stops.page';
 import { OperatorRoutesPageComponent } from './pages/operator-routes/operator-routes.page';
 import { OperatorShellComponent } from './pages/operator-shell/operator-shell.page';
+import { OperatorTripCreatePageComponent } from './pages/operator-trip-create/operator-trip-create.page';
 import { OperatorTripDetailPageComponent } from './pages/operator-trip-detail/operator-trip-detail.page';
+import { OperatorTripEditPageComponent } from './pages/operator-trip-edit/operator-trip-edit.page';
 import { OperatorTripsPageComponent } from './pages/operator-trips/operator-trips.page';
 
 export const OPERATOR_ROUTES: Routes = [
@@ -93,6 +95,18 @@ export const OPERATOR_ROUTES: Routes = [
         pathMatch: 'full',
         component: OperatorTripsPageComponent,
         title: 'Operator trips · BLUE BUS'
+      },
+      {
+        path: 'trips/new',
+        component: OperatorTripCreatePageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Create trip · BLUE BUS'
+      },
+      {
+        path: 'trips/:tripId/edit',
+        component: OperatorTripEditPageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Edit trip commercial terms · BLUE BUS'
       },
       {
         path: 'trips/:tripId/bookings/:bookingId',

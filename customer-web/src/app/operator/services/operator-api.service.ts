@@ -7,6 +7,7 @@ import {
   CreateOperatorRoutePointRequest,
   CreateOperatorRouteRequest,
   CreateOperatorRouteStopRequest,
+  CreateOperatorTripRequest,
   OperatorBooking,
   OperatorBus,
   OperatorBusType,
@@ -20,6 +21,7 @@ import {
   OperatorTrip,
   OperatorTripFilters,
   UpdateOperatorBusRequest,
+  UpdateOperatorTripRequest,
   UpdateOperatorRoutePointRequest,
   UpdateOperatorRouteRequest,
   UpdateOperatorRouteStopRequest
@@ -216,6 +218,38 @@ export class OperatorApiService {
   getTrip(operatorId: string, tripId: string): Observable<OperatorTrip> {
     return this.http.get<OperatorTrip>(
       `${this.operatorBase(operatorId)}/trips/${encodeURIComponent(tripId)}`
+    );
+  }
+
+  createTrip(
+    operatorId: string,
+    request: CreateOperatorTripRequest
+  ): Observable<OperatorTrip> {
+    return this.http.post<OperatorTrip>(`${this.operatorBase(operatorId)}/trips`, request);
+  }
+
+  updateTrip(
+    operatorId: string,
+    tripId: string,
+    request: UpdateOperatorTripRequest
+  ): Observable<OperatorTrip> {
+    return this.http.patch<OperatorTrip>(
+      `${this.operatorBase(operatorId)}/trips/${encodeURIComponent(tripId)}`,
+      request
+    );
+  }
+
+  scheduleTrip(operatorId: string, tripId: string): Observable<OperatorTrip> {
+    return this.http.post<OperatorTrip>(
+      `${this.operatorBase(operatorId)}/trips/${encodeURIComponent(tripId)}/schedule`,
+      null
+    );
+  }
+
+  cancelTrip(operatorId: string, tripId: string): Observable<OperatorTrip> {
+    return this.http.post<OperatorTrip>(
+      `${this.operatorBase(operatorId)}/trips/${encodeURIComponent(tripId)}/cancel`,
+      null
     );
   }
 
