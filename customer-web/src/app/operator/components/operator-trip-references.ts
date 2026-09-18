@@ -40,6 +40,10 @@ export function canEditTripCommercialTerms(status: TripStatus): boolean {
   return status === 'DRAFT' || status === 'SCHEDULED';
 }
 
+export function canMutateTripInventory(status: TripStatus): boolean {
+  return status === 'DRAFT' || status === 'SCHEDULED' || status === 'ON_SALE';
+}
+
 export function busSummary(bus: OperatorBus | undefined, busId: string): string {
   if (!bus) {
     return busId;

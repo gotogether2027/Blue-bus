@@ -223,6 +223,45 @@ describe('OperatorApiService', () => {
     cancel.flush(operatorTripFixture({ status: 'CANCELLED' }));
   });
 
+  it('reads and mutates operator trip inventory with encoded path IDs', () => {
+    const seat = operatorTripFixture().seatInventory[0];
+    service.listTripInventory('operator-1', 'trip/1').subscribe((result) => {
+      expect(result).toEqual([seat]);
+    });
+    const list = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/inventory`
+    );
+    expect(list.request.method).toBe('GET');
+    list.flush([seat]);
+
+    service.getTripInventory('operator-1', 'trip/1', 'inv/1').subscribe((result) => {
+      expect(result.id).toBe(seat.id);
+    });
+    const detail = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/inventory/inv%2F1`
+    );
+    expect(detail.request.method).toBe('GET');
+    detail.flush(seat);
+
+    service
+      .blockTripSeat('operator-1', 'trip/1', 'inv/1', { reason: 'Broken recliner' })
+      .subscribe((result) => expect(result.physicalStatus).toBe('BLOCKED'));
+    const block = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/inventory/inv%2F1/block`
+    );
+    expect(block.request.method).toBe('POST');
+    expect(block.request.body).toEqual({ reason: 'Broken recliner' });
+    block.flush({ ...seat, physicalStatus: 'BLOCKED', blockReason: 'Broken recliner' });
+
+    service.unblockTripSeat('operator-1', 'trip/1', 'inv/1').subscribe();
+    const unblock = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/inventory/inv%2F1/unblock`
+    );
+    expect(unblock.request.method).toBe('POST');
+    expect(unblock.request.body).toBeNull();
+    unblock.flush({ ...seat, physicalStatus: 'AVAILABLE', blockReason: null });
+  });
+
   it('loads trip bookings and booking detail from the trip namespace', () => {
     service.listTripBookings('operator-1', 'trip-1').subscribe((result) => {
       expect(result[0].bookingReference).toBe('BB-1001');

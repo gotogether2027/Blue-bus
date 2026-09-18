@@ -1,0 +1,264 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    @if (trip; as currentTrip) {
+      <a class="back" [routerLink]="['/operator', operatorId, 'trips', currentTrip.id]">
+        ← Back to trip detail
+      </a>
+    } @else {
+      <a class="back" [routerLink]="['/operator', operatorId, 'trips']">← Back to trips</a>
+    }
+  }
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading trip inventory"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (trip; as tripDetail) {
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Physical inventory</p>
+          <h1>Trip seats</h1>
+          <p class="muted">
+            {{ busLabel() }} · {{ routeLabel() }} · Trip {{ tripDetail.id }}
+          </p>
+        </div>
+        <div class="operator-page-actions">
+          <app-status-badge [label]="tripDetail.status" [tone]="statusTone(tripDetail.status)" />
+        </div>
+      </header>
+
+      <div class="operator-alert operator-alert-info" role="note">
+        Physical seat status and passenger allocation are separate. A seat can be booked for one
+        journey segment while remaining available for another. This screen shows physical
+        AVAILABLE or BLOCKED state only; it does not list holds or bookings.
+      </div>
+
+      @if (successMessage) {
+        <div class="operator-alert operator-alert-success" role="status">
+          {{ successMessage }}
+        </div>
+      }
+
+      @if (actionError) {
+        <div class="operator-alert operator-alert-danger" role="alert">
+          <strong>{{ actionError.title }}</strong>
+          <span>{{ actionError.message }}</span>
+        </div>
+      }
+
+      @if (context.canManageOperator() && !canMutateTripInventory(tripDetail.status)) {
+        <div class="operator-alert operator-alert-info" role="note">
+          Physical seat changes are allowed only while the trip is DRAFT, SCHEDULED, or ON_SALE.
+          The current status is {{ tripDetail.status }}.
+        </div>
+      }
+
+      @if (!context.canManageOperator()) {
+        <div class="operator-alert operator-alert-info" role="note">
+          Your OPERATOR_STAFF membership provides read-only inventory access.
+        </div>
+      }
+
+      <section class="operator-metric-grid">
+        <article class="card operator-metric-card">
+          <small>Seats</small>
+          <strong>{{ inventory.length }}</strong>
+        </article>
+        <article class="card operator-metric-card">
+          <small>Physically available</small>
+          <strong>{{ availableCount }}</strong>
+        </article>
+        <article class="card operator-metric-card">
+          <small>Physically blocked</small>
+          <strong>{{ blockedCount }}</strong>
+        </article>
+      </section>
+
+      @if (inventory.length === 0) {
+        <app-empty-state
+          title="No seat inventory"
+          message="This trip has no physical seat inventory snapshot."
+        />
+      } @else {
+        <section class="card operator-filter-bar" aria-label="Filter seats">
+          <label class="field">
+            <span>Search seats</span>
+            <input
+              type="search"
+              [(ngModel)]="searchQuery"
+              placeholder="Seat number, type, or reason"
+            />
+          </label>
+          <label class="field">
+            <span>Physical status</span>
+            <select [(ngModel)]="statusFilter">
+              <option value="ALL">All physical statuses</option>
+              @for (status of physicalStatuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+          </label>
+        </section>
+
+        @if (filteredInventory.length === 0) {
+          <app-empty-state
+            title="No matching seats"
+            message="Change the search text or physical status filter to see more seats."
+          />
+        } @else {
+          @for (deck of groupedInventory; track deck.deckNumber) {
+            <section class="card operator-inventory-deck">
+              <div class="operator-section-head">
+                <div>
+                  <p class="eyebrow">Layout snapshot</p>
+                  <h2>Deck {{ deck.deckNumber }}</h2>
+                </div>
+                <span class="muted">Grouped by the stored row and column numbers</span>
+              </div>
+              @for (row of deck.rows; track row.rowNumber) {
+                <div class="operator-inventory-row">
+                  <h3>Row {{ row.rowNumber }}</h3>
+                  <div class="operator-seat-grid">
+                    @for (seat of row.seats; track seat.id) {
+                      <article
+                        class="operator-seat-card"
+                        [class.operator-seat-card-blocked]="seat.physicalStatus === 'BLOCKED'"
+                      >
+                        <div class="operator-section-head">
+                          <span>
+                            <strong>{{ seat.seatNumber }}</strong>
+                            <small>{{ seat.seatType }}</small>
+                          </span>
+                          <app-status-badge
+                            [label]="seat.physicalStatus"
+                            [tone]="statusTone(seat.physicalStatus)"
+                          />
+                        </div>
+                        <dl class="operator-detail-list operator-detail-list-compact">
+                          <div>
+                            <dt>Deck / row / column</dt>
+                            <dd>{{ seat.deckNumber }} / {{ seat.rowNumber }} / {{ seat.columnNumber }}</dd>
+                          </div>
+                          @if (seat.blockReason) {
+                            <div>
+                              <dt>Block reason</dt>
+                              <dd>{{ seat.blockReason }}</dd>
+                            </div>
+                          } @else if (seat.physicalStatus === 'AVAILABLE') {
+                            <div>
+                              <dt>Physical use</dt>
+                              <dd>
+                                This seat can be used unless a journey segment already has a hold or
+                                booking.
+                              </dd>
+                            </div>
+                          }
+                        </dl>
+                        @if (canMutate()) {
+                          <div class="operator-page-actions">
+                            @if (seat.physicalStatus !== 'BLOCKED') {
+                              <button
+                                type="button"
+                                class="btn btn-danger"
+                                [attr.aria-label]="'Block seat ' + seat.seatNumber"
+                                (click)="requestBlock(seat)"
+                              >
+                                Block seat
+                              </button>
+                            }
+                            @if (seat.physicalStatus !== 'AVAILABLE') {
+                              <button
+                                type="button"
+                                class="btn"
+                                [attr.aria-label]="'Unblock seat ' + seat.seatNumber"
+                                (click)="requestUnblock(seat)"
+                              >
+                                Unblock seat
+                              </button>
+                            }
+                          </div>
+                        }
+                      </article>
+                    }
+                  </div>
+                </div>
+              }
+            </section>
+          }
+        }
+      }
+    }
+  }
+</section>
+
+@if (pendingAction; as action) {
+  @if (pendingSeat; as seat) {
+    <div class="operator-dialog-backdrop" (click)="cancelPending()">
+      <section
+        class="card operator-dialog"
+        role="dialog"
+        aria-modal="true"
+        [attr.aria-busy]="submitting"
+        aria-labelledby="inventory-dialog-title"
+        aria-describedby="inventory-dialog-message"
+        (click)="$event.stopPropagation()"
+      >
+        <div>
+          <p class="eyebrow">Confirm inventory change</p>
+          <h2 id="inventory-dialog-title">
+            {{ action === 'block' ? 'Block seat ' + seat.seatNumber : 'Unblock seat ' + seat.seatNumber }}
+          </h2>
+          <p id="inventory-dialog-message">
+            @if (action === 'block') {
+              Blocking a physical seat prevents new holds and bookings on every journey segment.
+              Existing passenger allocations are not cancelled.
+            } @else {
+              Unblocking restores physical availability for future allocations. Existing holds and
+              bookings are not released.
+            }
+          </p>
+        </div>
+        @if (action === 'block') {
+          <label class="field">
+            <span>Block reason</span>
+            <textarea
+              [(ngModel)]="blockReason"
+              maxlength="255"
+              rows="3"
+              [attr.aria-invalid]="reasonInvalid"
+              aria-describedby="block-reason-help block-reason-error"
+              (blur)="reasonTouched = true"
+            ></textarea>
+            <small id="block-reason-help" class="field-hint">
+              Required. Maximum 255 characters. Re-blocking an already blocked seat keeps the
+              original reason.
+            </small>
+            @if (reasonInvalid) {
+              <small id="block-reason-error" class="field-error">Enter a block reason.</small>
+            }
+          </label>
+        }
+        <div class="operator-page-actions">
+          <button type="button" class="btn" [disabled]="submitting" (click)="cancelPending()">
+            Keep seat
+          </button>
+          <button
+            type="button"
+            class="btn"
+            [class.btn-danger]="action === 'block'"
+            [class.btn-primary]="action === 'unblock'"
+            [disabled]="submitting"
+            (click)="confirmPending()"
+          >
+            {{ submitting ? 'Applying change…' : action === 'block' ? 'Block seat' : 'Unblock seat' }}
+          </button>
+        </div>
+      </section>
+    </div>
+  }
+}

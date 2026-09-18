@@ -36,6 +36,12 @@
           >
             Bookings
           </a>
+          <a
+            class="btn"
+            [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'inventory']"
+          >
+            Inventory
+          </a>
         }
       </div>
     </header>
@@ -187,9 +193,19 @@
         <span class="muted">{{ tripDetail.seatInventory.length }} seats</span>
       </div>
       <p class="muted">
-        This snapshot is created with the trip. Operator inventory mutation is not part of this
-        trip-management screen.
+        This is the trip's physical seat snapshot. Block and unblock seats from the inventory
+        page. Physical status is not the same as a hold or booking.
       </p>
+      @if (context.selectedOperatorId(); as operatorId) {
+        <div class="operator-page-actions">
+          <a
+            class="btn"
+            [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'inventory']"
+          >
+            Open inventory
+          </a>
+        </div>
+      }
       @if (tripDetail.seatInventory.length === 0) {
         <p class="muted">No seat inventory snapshot is available.</p>
       } @else {

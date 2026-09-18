@@ -20,6 +20,8 @@ import {
   OperatorSeatLayout,
   OperatorTrip,
   OperatorTripFilters,
+  OperatorTripSeatInventory,
+  BlockOperatorTripSeatRequest,
   UpdateOperatorBusRequest,
   UpdateOperatorTripRequest,
   UpdateOperatorRoutePointRequest,
@@ -253,6 +255,46 @@ export class OperatorApiService {
     );
   }
 
+  listTripInventory(
+    operatorId: string,
+    tripId: string
+  ): Observable<OperatorTripSeatInventory[]> {
+    return this.http.get<OperatorTripSeatInventory[]>(this.inventoryBase(operatorId, tripId));
+  }
+
+  getTripInventory(
+    operatorId: string,
+    tripId: string,
+    inventoryId: string
+  ): Observable<OperatorTripSeatInventory> {
+    return this.http.get<OperatorTripSeatInventory>(
+      `${this.inventoryBase(operatorId, tripId)}/${encodeURIComponent(inventoryId)}`
+    );
+  }
+
+  blockTripSeat(
+    operatorId: string,
+    tripId: string,
+    inventoryId: string,
+    request: BlockOperatorTripSeatRequest
+  ): Observable<OperatorTripSeatInventory> {
+    return this.http.post<OperatorTripSeatInventory>(
+      `${this.inventoryBase(operatorId, tripId)}/${encodeURIComponent(inventoryId)}/block`,
+      request
+    );
+  }
+
+  unblockTripSeat(
+    operatorId: string,
+    tripId: string,
+    inventoryId: string
+  ): Observable<OperatorTripSeatInventory> {
+    return this.http.post<OperatorTripSeatInventory>(
+      `${this.inventoryBase(operatorId, tripId)}/${encodeURIComponent(inventoryId)}/unblock`,
+      null
+    );
+  }
+
   listTripBookings(operatorId: string, tripId: string): Observable<OperatorBooking[]> {
     return this.http.get<OperatorBooking[]>(
       `${this.operatorBase(operatorId)}/trips/${encodeURIComponent(tripId)}/bookings`
@@ -271,6 +313,10 @@ export class OperatorApiService {
 
   private operatorBase(operatorId: string): string {
     return `${this.base}/operator/${encodeURIComponent(operatorId)}`;
+  }
+
+  private inventoryBase(operatorId: string, tripId: string): string {
+    return `${this.operatorBase(operatorId)}/trips/${encodeURIComponent(tripId)}/inventory`;
   }
 
   private changeBusLifecycle(

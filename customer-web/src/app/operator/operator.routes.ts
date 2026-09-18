@@ -17,6 +17,7 @@ import { OperatorShellComponent } from './pages/operator-shell/operator-shell.pa
 import { OperatorTripCreatePageComponent } from './pages/operator-trip-create/operator-trip-create.page';
 import { OperatorTripDetailPageComponent } from './pages/operator-trip-detail/operator-trip-detail.page';
 import { OperatorTripEditPageComponent } from './pages/operator-trip-edit/operator-trip-edit.page';
+import { OperatorTripInventoryPageComponent } from './pages/operator-trip-inventory/operator-trip-inventory.page';
 import { OperatorTripsPageComponent } from './pages/operator-trips/operator-trips.page';
 
 export const OPERATOR_ROUTES: Routes = [
@@ -117,6 +118,11 @@ export const OPERATOR_ROUTES: Routes = [
         path: 'trips/:tripId/bookings',
         component: OperatorBookingsPageComponent,
         title: 'Trip bookings · BLUE BUS'
+      },
+      {
+        path: 'trips/:tripId/inventory',
+        component: OperatorTripInventoryPageComponent,
+        title: 'Trip inventory · BLUE BUS'
       },
       {
         path: 'trips/:tripId',

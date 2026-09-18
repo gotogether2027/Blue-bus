@@ -248,6 +248,10 @@ export interface UpdateOperatorTripRequest {
   bookingClosesAt?: string;
 }
 
+export interface BlockOperatorTripSeatRequest {
+  reason: string;
+}
+
 export interface OperatorBookingItem {
   bookingItemId: string;
   passengerId: string | null;

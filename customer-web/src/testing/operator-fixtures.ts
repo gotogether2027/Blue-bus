@@ -8,7 +8,8 @@ import {
   OperatorRoutePoint,
   OperatorRouteStop,
   OperatorSeatLayout,
-  OperatorTrip
+  OperatorTrip,
+  OperatorTripSeatInventory
 } from '../app/operator/models/operator.models';
 
 export const operatorMembershipFixture = (
@@ -133,6 +134,24 @@ export const operatorRouteFixture = (
   ...overrides
 });
 
+export const operatorTripSeatInventoryFixture = (
+  overrides: Partial<OperatorTripSeatInventory> = {}
+): OperatorTripSeatInventory => ({
+  id: 'inventory-1',
+  tripId: 'trip-1',
+  layoutSeatId: 'layout-seat-1',
+  seatLayoutId: 'layout-1',
+  seatLayoutVersion: 1,
+  seatNumber: 'U1',
+  seatType: 'SLEEPER',
+  deckNumber: 1,
+  rowNumber: 1,
+  columnNumber: 1,
+  physicalStatus: 'AVAILABLE',
+  blockReason: null,
+  ...overrides
+});
+
 export const operatorTripFixture = (
   overrides: Partial<OperatorTrip> = {}
 ): OperatorTrip => ({
@@ -190,20 +209,7 @@ export const operatorTripFixture = (
     }
   ],
   seatInventory: [
-    {
-      id: 'inventory-1',
-      tripId: 'trip-1',
-      layoutSeatId: 'layout-seat-1',
-      seatLayoutId: 'layout-1',
-      seatLayoutVersion: 1,
-      seatNumber: 'U1',
-      seatType: 'SLEEPER',
-      deckNumber: 1,
-      rowNumber: 1,
-      columnNumber: 1,
-      physicalStatus: 'AVAILABLE',
-      blockReason: null
-    }
+    operatorTripSeatInventoryFixture()
   ],
   ...overrides
 });

@@ -232,6 +232,10 @@ input, select {
 .operator-seat-card {
   display: grid; gap: 0.35rem; border: 1px solid var(--bb-line); border-radius: 10px; padding: 0.75rem;
 }
+.operator-seat-card-blocked { border-color: #f7b7b2; background: #fff8f7; }
+.operator-inventory-deck { display: grid; gap: 1.15rem; }
+.operator-inventory-row { display: grid; gap: 0.75rem; }
+.operator-inventory-row > h3 { margin: 0; font-size: 0.95rem; color: var(--bb-muted); }
 .operator-manifest { display: grid; }
 .operator-manifest article {
   display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(100px, 0.7fr) auto;
