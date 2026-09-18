@@ -60,6 +60,43 @@
       </article>
     </div>
 
+    <section class="card" aria-labelledby="operational-alerts-heading">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Operational signals</p>
+          <h2 id="operational-alerts-heading">Operational alerts</h2>
+          <p class="muted">
+            These are operational signals derived from the current operator bus, route, and trip
+            lists. They are not persisted notifications. There is no operator notification API.
+          </p>
+        </div>
+      </div>
+      @if (alerts.length === 0) {
+        <p class="muted">No operational alerts from the current operator lists.</p>
+      } @else {
+        <ul class="operator-alert-list">
+          @for (alert of alerts; track alert.kind + ':' + (alert.tripId ?? '')) {
+            <li
+              class="operator-alert operator-alert-item"
+              [class.operator-alert-warn]="alert.severity === 'WARNING'"
+              [class.operator-alert-info]="alert.severity === 'INFO'"
+            >
+              <div class="operator-badge-row">
+                <app-status-badge [label]="alert.severity" [tone]="alertTone(alert.severity)" />
+                <span>{{ alert.title }}</span>
+              </div>
+              <p>{{ alert.message }}</p>
+              <div class="operator-page-actions">
+                @for (link of alert.links; track link.label) {
+                  <a class="btn" [routerLink]="link.commands">{{ link.label }}</a>
+                }
+              </div>
+            </li>
+          }
+        </ul>
+      }
+    </section>
+
     <div class="operator-content-grid">
       <section class="card">
         <div class="operator-section-head">

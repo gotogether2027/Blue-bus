@@ -61,6 +61,12 @@ describe('operator operations dashboard', () => {
       requestList.some((request) => request.request.url.includes('/inventory'))
     ).toBeFalse();
     expect(
+      requestList.some((request) => request.request.url.includes('/notifications'))
+    ).toBeFalse();
+    expect(
+      requestList.some((request) => request.request.url.includes('/outbox'))
+    ).toBeFalse();
+    expect(
       requestList.some((request) => !request.request.url.startsWith(`${base}/operator-1`))
     ).toBeFalse();
 
@@ -214,6 +220,131 @@ describe('operator operations dashboard', () => {
     expect(hrefs).toContain('/operator/operator-1/trips/trip-1/bookings');
   });
 
+  it('derives a blocked-seat operational alert from nested trip inventory', async () => {
+    const setup = await configure();
+    const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
+    fixture.detectChanges();
+    flushDashboard(setup.http, 'operator-1', {
+      buses: [operatorBusFixture()],
+      routes: [operatorRouteFixture()],
+      trips: [
+        futureTrip({
+          id: 'trip-1',
+          seatInventory: [
+            operatorTripSeatInventoryFixture(),
+            operatorTripSeatInventoryFixture({
+              id: 'inventory-2',
+              seatNumber: 'U2',
+              physicalStatus: 'BLOCKED'
+            }),
+            operatorTripSeatInventoryFixture({
+              id: 'inventory-3',
+              seatNumber: 'U3',
+              physicalStatus: 'BLOCKED'
+            })
+          ]
+        })
+      ]
+    });
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Operational alerts');
+    expect(text).toContain('not persisted notifications');
+    expect(text).toContain('WARNING');
+    expect(text).toContain('2 physical seats are blocked on the upcoming Coastal Sleeper trip.');
+    expect(text).not.toContain('CRITICAL');
+    expect(linkHrefs(fixture.nativeElement)).toContain('/operator/operator-1/trips/trip-1');
+    expect(linkHrefs(fixture.nativeElement)).toContain(
+      '/operator/operator-1/trips/trip-1/inventory'
+    );
+    setup.http.expectNone((request) => request.url.includes('/notifications'));
+    setup.http.expectNone((request) => request.url.includes('/outbox'));
+    setup.http.expectNone((request) => request.url.includes('/bookings'));
+    setup.http.expectNone((request) => request.url.includes('/inventory'));
+  });
+
+  it('derives a cancelled future-trip alert with a trip detail link', async () => {
+    const setup = await configure();
+    const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
+    fixture.detectChanges();
+    flushDashboard(setup.http, 'operator-1', {
+      buses: [operatorBusFixture()],
+      routes: [operatorRouteFixture()],
+      trips: [futureTrip({ id: 'trip-cancelled', status: 'CANCELLED' })]
+    });
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('The Coastal Sleeper trip with a future departure is cancelled.');
+    expect(text).toContain('No upcoming trips are listed for this operator.');
+    expect(linkHrefs(fixture.nativeElement)).toContain(
+      '/operator/operator-1/trips/trip-cancelled'
+    );
+  });
+
+  it('shows an informational empty-schedule signal without inventing notifications', async () => {
+    const setup = await configure();
+    const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
+    fixture.detectChanges();
+    flushDashboard(setup.http, 'operator-1', {
+      buses: [operatorBusFixture()],
+      routes: [operatorRouteFixture()],
+      trips: []
+    });
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('INFO');
+    expect(text).toContain('No upcoming trips are listed for this operator.');
+    expect(text).not.toContain('WARNING');
+    expect(text).not.toContain('unread');
+    expect(text).not.toContain('email sent');
+    expect(text).not.toContain('SMS sent');
+    expect(text).not.toContain('WhatsApp');
+    expect(linkHrefs(fixture.nativeElement)).toContain('/operator/operator-1/trips');
+  });
+
+  it('does not show false alerts for a healthy upcoming trip', async () => {
+    const setup = await configure();
+    const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
+    fixture.detectChanges();
+    flushDashboard(setup.http, 'operator-1', {
+      buses: [operatorBusFixture()],
+      routes: [operatorRouteFixture()],
+      trips: [futureTrip()]
+    });
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('No operational alerts from the current operator lists.');
+    expect(text).not.toContain('physical seat is blocked');
+    expect(text).not.toContain('future departure is cancelled');
+    expect(fixture.componentInstance.alerts).toEqual([]);
+  });
+
+  it('lets operator staff view the same derived alerts without write actions', async () => {
+    const setup = await configure(false);
+    const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
+    fixture.detectChanges();
+    flushDashboard(setup.http, 'operator-1', {
+      buses: [operatorBusFixture()],
+      routes: [operatorRouteFixture()],
+      trips: [
+        futureTrip({
+          seatInventory: [operatorTripSeatInventoryFixture({ physicalStatus: 'BLOCKED' })]
+        })
+      ]
+    });
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Operator staff');
+    expect(text).toContain('1 physical seat is blocked on the upcoming Coastal Sleeper trip.');
+    expect(text).not.toContain('Create bus');
+    expect((fixture.nativeElement as HTMLElement).querySelector('form')).toBeNull();
+  });
+
   it('exposes quick-action links to existing operator areas', async () => {
     const setup = await configure();
     const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
@@ -330,6 +461,7 @@ describe('operator operations dashboard', () => {
 
     setup.http.expectNone(() => true);
     expect(fixture.componentInstance.operator).toBeNull();
+    expect(fixture.componentInstance.alerts).toEqual([]);
     expect(pageText(fixture.nativeElement)).toContain("You don't have access to this operator.");
   });
 
@@ -351,6 +483,7 @@ describe('operator operations dashboard', () => {
     expect(fixture.componentInstance.buses).toEqual([]);
     expect(fixture.componentInstance.trips).toEqual([]);
     expect(fixture.componentInstance.upcoming).toEqual([]);
+    expect(fixture.componentInstance.alerts).toEqual([]);
     expect(fixture.componentInstance.activeBuses).toBe(0);
 
     flushDashboard(setup.http, 'operator-2', {
@@ -385,6 +518,7 @@ describe('operator operations dashboard', () => {
     first.routes.flush([operatorRouteFixture()]);
     first.trips.flush([futureTrip()]);
     expect(pageText(fixture.nativeElement)).not.toContain('Coastal Travels');
+    expect(fixture.componentInstance.alerts).toEqual([]);
 
     flushDashboard(setup.http, 'operator-2', {
       profile: operatorProfileFixture({

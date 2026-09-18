@@ -13,6 +13,10 @@ import {
   tripsOnServiceDate,
   upcomingTrips
 } from '../../components/operator-dashboard-summary';
+import {
+  OperatorOperationalAlert,
+  buildOperationalAlerts
+} from '../../components/operator-operational-alerts';
 import { operatorRoleLabel, operatorStatusTone } from '../../components/operator-status';
 import { busSummary, routeSummary } from '../../components/operator-trip-references';
 import {
@@ -48,6 +52,7 @@ export class OperatorDashboardPageComponent implements OnInit {
   todayTrips: OperatorTrip[] = [];
   upcoming: OperatorTrip[] = [];
   upcomingPreview: OperatorTrip[] = [];
+  alerts: OperatorOperationalAlert[] = [];
   activeBuses = 0;
   activeRoutes = 0;
   readonly formatDate = formatDate;
@@ -55,6 +60,10 @@ export class OperatorDashboardPageComponent implements OnInit {
   readonly formatMoney = formatMoney;
   readonly roleLabel = operatorRoleLabel;
   readonly statusTone = operatorStatusTone;
+
+  alertTone(severity: OperatorOperationalAlert['severity']): 'warn' | 'info' {
+    return severity === 'WARNING' ? 'warn' : 'info';
+  }
 
   get selectedOperatorId(): string {
     return this.context.selectedOperatorId() ?? '';
@@ -107,6 +116,12 @@ export class OperatorDashboardPageComponent implements OnInit {
         );
         this.upcoming = upcomingTrips(this.trips, operatorId);
         this.upcomingPreview = this.upcoming.slice(0, 5);
+        this.alerts = buildOperationalAlerts(
+          operatorId,
+          this.buses,
+          this.routes,
+          this.trips
+        );
         this.loading = false;
       },
       error: (error: unknown) => {
@@ -149,6 +164,7 @@ export class OperatorDashboardPageComponent implements OnInit {
     this.todayTrips = [];
     this.upcoming = [];
     this.upcomingPreview = [];
+    this.alerts = [];
     this.activeBuses = 0;
     this.activeRoutes = 0;
   }

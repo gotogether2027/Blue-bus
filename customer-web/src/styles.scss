@@ -153,6 +153,10 @@ input, select {
 .operator-alert-danger { color: var(--bb-danger); background: #fde8e6; border: 1px solid #f7b7b2; }
 .operator-alert-success { color: #087443; background: #e8f6ee; border: 1px solid #a6dfbd; }
 .operator-alert-info { color: var(--bb-info); background: #e7f0fb; border: 1px solid #b7d0ef; }
+.operator-alert-warn { color: var(--bb-warn); background: #fef4e6; border: 1px solid #f5c77e; }
+.operator-alert-list { display: grid; gap: 0.75rem; margin: 0; padding: 0; list-style: none; }
+.operator-alert-item { display: grid; gap: 0.45rem; align-content: start; }
+.operator-alert-item p { margin: 0; font-weight: 500; }
 .operator-form { display: grid; gap: 1.25rem; }
 .operator-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .operator-filter-bar {
