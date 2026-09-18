@@ -24,6 +24,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -449,5 +450,115 @@ class OperatorPortalAuthorizationPostgresIntegrationTest {
         assertThat(list.get(0).get("operatorId").asText()).isEqualTo(member.operator().getId().toString());
         assertThat(body).doesNotContain(other.operator().getId().toString());
         assertThat(body).doesNotContain(other.user().getId().toString());
+    }
+
+    @Test
+    void forgedOperatorJwtWithoutMembershipCannotAccessOperatorNamespace() throws Exception {
+        IssuedOperatorMember member = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser forged = tokens.issuePlatformUser(
+                RoleCode.CUSTOMER, List.of("OPERATOR_ADMIN", "OPERATOR_STAFF"), UserStatus.ACTIVE);
+        UUID operatorId = member.operator().getId();
+        String[] secrets = {
+                member.operator().getLegalName(),
+                member.operator().getDisplayName(),
+                member.user().getEmail(),
+                member.user().getId().toString()
+        };
+
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}", operatorId).with(bearer(forged.accessToken())),
+                secrets);
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}/trips", operatorId).with(bearer(forged.accessToken())),
+                secrets);
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}/buses", operatorId).with(bearer(forged.accessToken())),
+                secrets);
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}/members", operatorId).with(bearer(forged.accessToken())),
+                secrets);
+        expectHiddenOperatorNotFound(
+                patch("/api/v1/operator/{id}", operatorId)
+                        .with(bearer(forged.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"supportEmail":"forged@example.test"}
+                                """),
+                secrets);
+
+        mockMvc.perform(get("/api/v1/auth/operator-memberships").with(bearer(forged.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get("/api/v1/operator/{id}", operatorId).with(bearer(member.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.displayName").value(member.operator().getDisplayName()));
+    }
+
+    @Test
+    void inactiveMembershipCannotAccessOperatorNamespaceEvenWithValidJwtAndLoginStillSucceeds()
+            throws Exception {
+        IssuedOperatorMember member = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        UUID operatorId = member.operator().getId();
+        OperatorUser membership = operatorUserRepository
+                .findByOperatorIdAndUserId(operatorId, member.user().getId())
+                .orElseThrow();
+        membership.deactivate();
+        operatorUserRepository.saveAndFlush(membership);
+
+        String[] secrets = {
+                member.operator().getLegalName(),
+                member.operator().getDisplayName(),
+                member.user().getEmail()
+        };
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}", operatorId).with(bearer(member.accessToken())),
+                secrets);
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}/trips", operatorId).with(bearer(member.accessToken())),
+                secrets);
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}/buses", operatorId).with(bearer(member.accessToken())),
+                secrets);
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}/members", operatorId).with(bearer(member.accessToken())),
+                secrets);
+
+        mockMvc.perform(get("/api/v1/auth/operator-memberships").with(bearer(member.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"%s"}
+                                """.formatted(member.user().getEmail(), TestAccessTokenFactory.PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").isNotEmpty())
+                .andReturn();
+        String loginToken = objectMapper.readTree(login.getResponse().getContentAsString())
+                .get("accessToken")
+                .asText();
+        expectHiddenOperatorNotFound(
+                get("/api/v1/operator/{id}", operatorId).with(bearer(loginToken)),
+                secrets);
+        mockMvc.perform(get("/api/v1/auth/operator-memberships").with(bearer(loginToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    private void expectHiddenOperatorNotFound(
+            org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request,
+            String... secrets) throws Exception {
+        MvcResult result = mockMvc.perform(request)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.message").value("Resource was not found."))
+                .andReturn();
+        String raw = result.getResponse().getContentAsString();
+        for (String secret : secrets) {
+            assertThat(raw).doesNotContain(secret);
+        }
     }
 }

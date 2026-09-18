@@ -320,6 +320,115 @@ class CustomerBookingReadsPostgresIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void otherCustomerCannotAccessCancelOrRefundAnotherCustomersResources() throws Exception {
+        CreatedBooking booking = createPendingBooking(1);
+        PaymentAttempt attempt = saveAttempt(booking, "idor", Instant.now());
+        attempt.markSucceeded(
+                "order-" + attempt.getId(),
+                "pay-" + attempt.getId(),
+                "captured",
+                bookingAmount(booking),
+                Instant.now(),
+                Instant.now(),
+                PaymentDisposition.APPLIED_TO_BOOKING,
+                null);
+        paymentAttemptRepository.saveAndFlush(attempt);
+        bookingLifecycleService.confirmPendingPayment(booking.bookingId());
+        Refund refund = saveRefund(
+                attempt, booking, "idor", bookingAmount(booking), Instant.now());
+
+        Booking persisted = bookingRepository.findById(booking.bookingId()).orElseThrow();
+        String otherToken = testAccessTokenFactory.issueCustomer().accessToken();
+        String[] secrets = {
+                persisted.getUserId().toString(),
+                CUSTOMER_EMAIL,
+                refund.getId().toString(),
+                "pay-" + attempt.getId()
+        };
+        long refundsBefore = refundRepository.count();
+        long cancellationsBefore = cancellationRepository.count();
+        long paymentsBefore = paymentAttemptRepository.count();
+
+        expectHiddenNotFound(
+                mockMvc.perform(get("/api/v1/bookings/{id}", booking.bookingId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                        .andReturn(),
+                "Booking was not found.",
+                secrets);
+        expectHiddenNotFound(
+                mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.bookingId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"IDOR\"}"))
+                        .andReturn(),
+                "Booking was not found.",
+                secrets);
+        expectHiddenNotFound(
+                mockMvc.perform(get("/api/v1/bookings/{id}/payments", booking.bookingId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                        .andReturn(),
+                "Booking was not found.",
+                secrets);
+        expectHiddenNotFound(
+                mockMvc.perform(get("/api/v1/payments/{id}", attempt.getId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                        .andReturn(),
+                "Payment attempt was not found.",
+                secrets);
+        expectHiddenNotFound(
+                mockMvc.perform(post("/api/v1/payments/{id}/checkout", attempt.getId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("""
+                                        {
+                                          "razorpayOrderId":"order_idor",
+                                          "razorpayPaymentId":"pay_idor",
+                                          "razorpaySignature":"sig_idor"
+                                        }
+                                        """))
+                        .andReturn(),
+                "Payment attempt was not found.",
+                secrets);
+        expectHiddenNotFound(
+                mockMvc.perform(post("/api/v1/payments/{id}/refunds", attempt.getId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken)
+                                .header("Idempotency-Key", "idor-refund")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"reason\":\"IDOR\"}"))
+                        .andReturn(),
+                "Payment attempt was not found.",
+                secrets);
+        expectHiddenNotFound(
+                mockMvc.perform(get("/api/v1/bookings/{id}/refunds", booking.bookingId())
+                                .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                        .andReturn(),
+                "Booking was not found.",
+                secrets);
+
+        assertThat(refundRepository.count()).isEqualTo(refundsBefore);
+        assertThat(cancellationRepository.count()).isEqualTo(cancellationsBefore);
+        assertThat(paymentAttemptRepository.count()).isEqualTo(paymentsBefore);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getUserId())
+                .isEqualTo(persisted.getUserId());
+        mockMvc.perform(get("/api/v1/bookings/{id}/refunds", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].refundId").value(refund.getId().toString()));
+    }
+
+    private void expectHiddenNotFound(MvcResult result, String message, String... secrets) throws Exception {
+        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+        JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
+        assertThat(body.get("status").asInt()).isEqualTo(404);
+        assertThat(body.get("message").asText()).isEqualTo(message);
+        String raw = result.getResponse().getContentAsString();
+        for (String secret : secrets) {
+            assertThat(raw).doesNotContain(secret);
+        }
+    }
+
     private PaymentAttempt saveAttempt(CreatedBooking booking, String suffix, Instant createdAt) {
         Booking persisted = bookingRepository.findById(booking.bookingId()).orElseThrow();
         PaymentAttempt attempt = new PaymentAttempt(
