@@ -1,0 +1,209 @@
+<section class="page operator-page">
+  @if (loading) {
+    <div class="operator-metric-grid" aria-label="Loading operator reports">
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+    </div>
+    <div class="skeleton card operator-large-skeleton"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (context.selectedOperatorId(); as operatorId) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Operational insights</p>
+        <h1>Reports</h1>
+        <p class="muted">
+          There is no operator reporting API. This page summarizes the operator bus, route, and trip
+          lists already returned by existing read APIs.
+        </p>
+      </div>
+      @if (context.currentMembership(); as membership) {
+        <app-status-badge
+          [label]="roleLabel(membership.role)"
+          [tone]="statusTone(membership.role)"
+        />
+      }
+    </header>
+
+    <section class="card operator-filter-bar" aria-label="Trip activity service date">
+      <label class="field">
+        <span>Service date</span>
+        <input
+          type="date"
+          [(ngModel)]="serviceDateFilter"
+          (change)="load()"
+          aria-describedby="report-date-scope"
+        />
+      </label>
+      <p id="report-date-scope" class="field-hint">
+        Trip activity based on service date. The operator trip list API accepts an optional
+        <code>serviceDate</code> filter. Leave blank to use every trip returned for this operator.
+        This date does not apply to buses, routes, bookings, or payments.
+      </p>
+    </section>
+
+    <h2 class="visually-hidden">Current fleet</h2>
+    <div class="operator-metric-grid" aria-label="Current fleet">
+      <article class="card operator-metric-card">
+        <span class="muted">Active buses</span>
+        <strong>{{ activeBuses }}</strong>
+        <small>Current fleet. Not filtered by service date.</small>
+        <a [routerLink]="['/operator', operatorId, 'buses']">View fleet</a>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Active routes</span>
+        <strong>{{ activeRoutes }}</strong>
+        <small>Current network. Not filtered by service date.</small>
+        <a [routerLink]="['/operator', operatorId, 'routes']">View routes</a>
+      </article>
+    </div>
+
+    <h2 class="visually-hidden">Trip activity</h2>
+    <div class="operator-metric-grid" aria-label="Trip activity">
+      <article class="card operator-metric-card">
+        <span class="muted">Listed trips</span>
+        <strong>{{ trips.length }}</strong>
+        <small>From the operator trip list.</small>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Scheduled trips</span>
+        <strong>{{ scheduledTrips }}</strong>
+        <small>Status SCHEDULED in the loaded trip list.</small>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Completed trips</span>
+        <strong>{{ completedTrips }}</strong>
+        <small>Status COMPLETED in the loaded trip list.</small>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Cancelled trips</span>
+        <strong>{{ cancelledTrips }}</strong>
+        <small>Status CANCELLED in the loaded trip list.</small>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Upcoming trips</span>
+        <strong>{{ upcomingTripCount }}</strong>
+        <small>Future departures excluding cancelled, departed, and completed.</small>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Physical available seats</span>
+        <strong>{{ listedPhysicalAvailable }}</strong>
+        <small>AVAILABLE seats on listed trips. Not passenger occupancy.</small>
+      </article>
+      <article class="card operator-metric-card">
+        <span class="muted">Physical blocked seats</span>
+        <strong>{{ listedPhysicalBlocked }}</strong>
+        <small>BLOCKED seats on listed trips. Not booked or occupied.</small>
+      </article>
+    </div>
+
+    <div class="operator-content-grid">
+      <section class="card">
+        <div class="operator-section-head">
+          <div>
+            <p class="eyebrow">Financial</p>
+            <h2>Financial reporting</h2>
+          </div>
+        </div>
+        <p class="muted">Not available in operator reporting.</p>
+        <p class="muted">
+          Existing operator APIs do not expose collected fares, payouts, or payment outcomes.
+          Trip base fare is a commercial setting, not collected money, so it is not totaled here.
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="operator-section-head">
+          <div>
+            <p class="eyebrow">Bookings</p>
+            <h2>Passenger and booking totals</h2>
+          </div>
+        </div>
+        <p class="muted">Not available in operator reporting.</p>
+        <p class="muted">
+          Bookings are trip-scoped. There is no operator-wide booking aggregate API, so this page
+          does not manufacture a booking or passenger count. Open a trip to review its bookings.
+        </p>
+        <div class="operator-page-actions">
+          <a class="btn" [routerLink]="['/operator', operatorId, 'trips']">Open trips</a>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Trip activity</p>
+          <h2>Listed trips</h2>
+          <p class="muted">
+            Physical seat counts come from nested trip-list inventory. Available and blocked are
+            physical inventory states, not passenger occupancy.
+          </p>
+        </div>
+        <a [routerLink]="['/operator', operatorId, 'trips']">All trips</a>
+      </div>
+      @if (trips.length === 0) {
+        <app-empty-state
+          title="No trips"
+          message="No trips were returned for this operator and service-date filter."
+        />
+      } @else {
+        <div class="operator-table-wrap">
+          <table class="operator-data-table">
+            <caption class="visually-hidden">
+              Operator trips with physical seat inventory from the trip list
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Service date</th>
+                <th scope="col">Departure</th>
+                <th scope="col">Arrival</th>
+                <th scope="col">Bus</th>
+                <th scope="col">Route</th>
+                <th scope="col">Status</th>
+                <th scope="col">Base fare</th>
+                <th scope="col">Physical available seats</th>
+                <th scope="col">Physical blocked seats</th>
+                <th scope="col">Trip</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (trip of trips; track trip.id) {
+                @let seats = physicalSeats(trip.seatInventory);
+                <tr>
+                  <th scope="row">{{ formatDate(trip.serviceDate) }}</th>
+                  <td>{{ formatInstant(trip.scheduledDepartureAt, trip.timeZone) }}</td>
+                  <td>{{ formatInstant(trip.scheduledArrivalAt, trip.timeZone) }}</td>
+                  <td>{{ busLabel(trip.busId) }}</td>
+                  <td>{{ routeLabel(trip.routeId) }}</td>
+                  <td>
+                    <app-status-badge [label]="trip.status" [tone]="statusTone(trip.status)" />
+                  </td>
+                  <td>{{ formatMoney(trip.baseFare) }}</td>
+                  <td>{{ seats.available }}</td>
+                  <td>{{ seats.blocked }}</td>
+                  <td>
+                    <a
+                      [routerLink]="['/operator', operatorId, 'trips', trip.id]"
+                      [attr.aria-label]="'View trip on ' + trip.serviceDate"
+                    >
+                      View trip
+                    </a>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+    }
+  }
+</section>

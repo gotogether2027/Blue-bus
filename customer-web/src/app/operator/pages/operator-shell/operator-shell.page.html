@@ -49,6 +49,12 @@
           Trips
         </a>
         <a
+          [routerLink]="['/operator', membership.operatorId, 'reports']"
+          routerLinkActive="active"
+        >
+          Reports
+        </a>
+        <a
           [routerLink]="['/operator', membership.operatorId, 'members']"
           routerLinkActive="active"
         >

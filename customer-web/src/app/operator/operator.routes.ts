@@ -9,6 +9,7 @@ import { OperatorBusEditPageComponent } from './pages/operator-bus-edit/operator
 import { OperatorBusesPageComponent } from './pages/operator-buses/operator-buses.page';
 import { OperatorDashboardPageComponent } from './pages/operator-dashboard/operator-dashboard.page';
 import { OperatorMembersPageComponent } from './pages/operator-members/operator-members.page';
+import { OperatorReportsPageComponent } from './pages/operator-reports/operator-reports.page';
 import { OperatorRouteCreatePageComponent } from './pages/operator-route-create/operator-route-create.page';
 import { OperatorRouteDetailPageComponent } from './pages/operator-route-detail/operator-route-detail.page';
 import { OperatorRouteEditPageComponent } from './pages/operator-route-edit/operator-route-edit.page';
@@ -52,6 +53,12 @@ export const OPERATOR_ROUTES: Routes = [
         pathMatch: 'full',
         component: OperatorSettingsPageComponent,
         title: 'Operator settings · BLUE BUS'
+      },
+      {
+        path: 'reports',
+        pathMatch: 'full',
+        component: OperatorReportsPageComponent,
+        title: 'Operator reports · BLUE BUS'
       },
       {
         path: 'buses',
