@@ -1,5 +1,7 @@
 package in.bluebustickets.bluebus.foundation.demodata;
 
+import in.bluebustickets.bluebus.identity.repository.UserRepository;
+import in.bluebustickets.bluebus.operator.repository.OperatorUserRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -37,11 +39,16 @@ class DemoDataBootstrapDisabledPostgresIntegrationTest {
 
     @Autowired private ApplicationContext applicationContext;
     @Autowired private MockMvc mockMvc;
+    @Autowired private UserRepository userRepository;
+    @Autowired private OperatorUserRepository operatorUserRepository;
 
     @Test
     void demoBootstrapIsDisabledByDefaultAndCreatesNoCatalog() throws Exception {
         assertThat(applicationContext.getBeanNamesForType(DemoDataBootstrap.class)).isEmpty();
         assertThat(applicationContext.getBeanNamesForType(DemoDataService.class)).isEmpty();
+        assertThat(userRepository.findByEmailIgnoreCase(DemoDataCatalog.DEFAULT_CUSTOMER_EMAIL)).isEmpty();
+        assertThat(userRepository.findByEmailIgnoreCase(DemoDataCatalog.DEFAULT_OPERATOR_EMAIL)).isEmpty();
+        assertThat(operatorUserRepository.count()).isZero();
         mockMvc.perform(get("/api/v1/locations").param("city", DemoDataCatalog.HYDERABAD_CITY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));

@@ -137,6 +137,17 @@ Open http://localhost:4200. The Angular dev server proxies `/api` to `http://loc
 
 The account is `ACTIVE` with the `CUSTOMER` role only. No platform admin is created.
 
+### Demo operator login
+
+The same opt-in bootstrap also creates an operator portal user. Password is the same `DEMO_CUSTOMER_PASSWORD` value (never committed).
+
+1. Open http://localhost:4200/login
+2. Email: `demo.operator@example.test`
+3. Password: the same local value you set in `DEMO_CUSTOMER_PASSWORD`
+4. Open http://localhost:4200/operator
+
+The account is `ACTIVE` with `OPERATOR_ADMIN` membership for **BLUE BUS Local Demo Operator** only. It has no `SUPER_ADMIN` or platform `ADMIN` privileges.
+
 ### Search Hyderabad → Vijayawada
 
 1. On the home page, choose **Hyderabad** as origin and **Vijayawada** as destination. The demo locality label is `BLUE BUS local demo`.

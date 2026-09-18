@@ -31,4 +31,6 @@ The backend can seed a local-only catalog. See the root `README.md` section **Lo
 4. Search **Hyderabad → Vijayawada** on **2099-01-15**
 5. Expected: one Demo Express trip with 4 seats; hold → passengers → booking works through `PENDING_PAYMENT`
 
+Operator portal: sign in at `/login` with `demo.operator@example.test` and the same `DEMO_CUSTOMER_PASSWORD`, then open `/operator`. The user is `OPERATOR_ADMIN` for **BLUE BUS Local Demo Operator** only.
+
 Razorpay browser checkout requires valid Razorpay test credentials on the backend. Without them, payment initiation stays unconfigured. There is no fake payment success.

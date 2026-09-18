@@ -33,6 +33,9 @@ public final class DemoDataCatalog {
     public static final String DEFAULT_CUSTOMER_EMAIL = "demo.customer@example.test";
     public static final String CUSTOMER_FIRST_NAME = "Demo";
     public static final String CUSTOMER_LAST_NAME = "Customer";
+    public static final String DEFAULT_OPERATOR_EMAIL = "demo.operator@example.test";
+    public static final String OPERATOR_FIRST_NAME = "Demo";
+    public static final String OPERATOR_LAST_NAME = "Operator";
 
     public static final String TIME_ZONE = "Asia/Kolkata";
     public static final Instant DEPARTURE_AT = Instant.parse("2099-01-15T12:30:00Z");

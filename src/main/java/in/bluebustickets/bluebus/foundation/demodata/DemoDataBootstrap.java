@@ -30,10 +30,11 @@ public class DemoDataBootstrap implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         demoDataService.ensureDemoData();
         LOGGER.info(
-                "BLUE BUS local demo data is ready. Search {} -> {} on {}. Demo customer email: {}",
+                "BLUE BUS local demo data is ready. Search {} -> {} on {}. Demo customer email: {}. Demo operator email: {}",
                 DemoDataCatalog.HYDERABAD_CITY,
                 DemoDataCatalog.VIJAYAWADA_CITY,
                 DemoDataCatalog.SERVICE_DATE,
-                properties.requireCustomerEmail());
+                properties.requireCustomerEmail(),
+                DemoDataCatalog.DEFAULT_OPERATOR_EMAIL);
     }
 }

@@ -22,7 +22,9 @@ import in.bluebustickets.bluebus.identity.repository.RoleRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
 import in.bluebustickets.bluebus.operator.domain.Operator;
+import in.bluebustickets.bluebus.operator.domain.OperatorUser;
 import in.bluebustickets.bluebus.operator.repository.OperatorRepository;
+import in.bluebustickets.bluebus.operator.repository.OperatorUserRepository;
 import in.bluebustickets.bluebus.scheduling.application.TripSaleability;
 import in.bluebustickets.bluebus.scheduling.domain.Location;
 import in.bluebustickets.bluebus.scheduling.domain.PointType;
@@ -80,6 +82,7 @@ public class DemoDataService {
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
+    private final OperatorUserRepository operatorUserRepository;
 
     public DemoDataService(
             DemoDataProperties properties,
@@ -100,7 +103,8 @@ public class DemoDataService {
             TripSeatInventoryRepository tripSeatInventoryRepository,
             UserRepository userRepository,
             RoleRepository roleRepository,
-            UserRoleRepository userRoleRepository) {
+            UserRoleRepository userRoleRepository,
+            OperatorUserRepository operatorUserRepository) {
         this.properties = properties;
         this.clock = clock;
         this.passwordEncoder = passwordEncoder;
@@ -120,6 +124,7 @@ public class DemoDataService {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
+        this.operatorUserRepository = operatorUserRepository;
     }
 
     @Transactional
@@ -138,6 +143,7 @@ public class DemoDataService {
         Route route = route(operator, hyderabad, suryapet, vijayawada);
         Trip trip = trip(bus, route);
         customer();
+        operatorAdmin(operator);
         if (!TripSaleability.isSaleableNow(trip, clock.instant())) {
             throw new IllegalStateException("Demo trip is not saleable under existing TripSaleability rules.");
         }
@@ -342,6 +348,33 @@ public class DemoDataService {
         if (!userRoleRepository.existsByUser_IdAndRole_Id(user.getId(), customerRole.getId())) {
             userRoleRepository.saveAndFlush(new UserRole(user, customerRole));
         }
+    }
+
+    private void operatorAdmin(Operator operator) {
+        String email = DemoDataCatalog.DEFAULT_OPERATOR_EMAIL;
+        String password = properties.requireCustomerPassword();
+        Role operatorAdminRole = roleRepository.findByCode(RoleCode.OPERATOR_ADMIN)
+                .orElseThrow(() -> new IllegalStateException("OPERATOR_ADMIN role is not seeded"));
+        User user = userRepository.findByEmailIgnoreCase(email).orElseGet(() -> {
+            User created = new User(
+                    email,
+                    null,
+                    DemoDataCatalog.OPERATOR_FIRST_NAME,
+                    DemoDataCatalog.OPERATOR_LAST_NAME);
+            created.setPasswordHash(passwordEncoder.encode(password));
+            created.setStatus(UserStatus.ACTIVE);
+            return userRepository.saveAndFlush(created);
+        });
+        user.setStatus(UserStatus.ACTIVE);
+        if (user.getPasswordHash() == null || user.getPasswordHash().isBlank()) {
+            user.setPasswordHash(passwordEncoder.encode(password));
+        }
+        OperatorUser membership = operatorUserRepository
+                .findByOperatorIdAndUserId(operator.getId(), user.getId())
+                .orElseGet(() -> operatorUserRepository.saveAndFlush(
+                        new OperatorUser(operator, user, operatorAdminRole)));
+        membership.assignRole(operatorAdminRole);
+        membership.activate();
     }
 
     private static Instant offsetFrom(Instant base, Integer offsetMinutes) {

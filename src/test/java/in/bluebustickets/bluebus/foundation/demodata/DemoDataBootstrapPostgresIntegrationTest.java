@@ -4,8 +4,14 @@ import java.util.UUID;
 
 import in.bluebustickets.bluebus.identity.domain.RoleCode;
 import in.bluebustickets.bluebus.identity.domain.User;
+import in.bluebustickets.bluebus.identity.domain.UserStatus;
 import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
+import in.bluebustickets.bluebus.operator.domain.Operator;
+import in.bluebustickets.bluebus.operator.domain.OperatorUser;
+import in.bluebustickets.bluebus.operator.domain.OperatorUserStatus;
+import in.bluebustickets.bluebus.operator.repository.OperatorRepository;
+import in.bluebustickets.bluebus.operator.repository.OperatorUserRepository;
 import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
 import in.bluebustickets.bluebus.scheduling.repository.LocationRepository;
 import in.bluebustickets.bluebus.scheduling.repository.TripRepository;
@@ -65,6 +71,8 @@ class DemoDataBootstrapPostgresIntegrationTest {
     @Autowired private TripSeatInventoryRepository tripSeatInventoryRepository;
     @Autowired private UserRepository userRepository;
     @Autowired private UserRoleRepository userRoleRepository;
+    @Autowired private OperatorRepository operatorRepository;
+    @Autowired private OperatorUserRepository operatorUserRepository;
     @Autowired private PaymentAttemptRepository paymentAttemptRepository;
 
     @Test
@@ -108,7 +116,7 @@ class DemoDataBootstrapPostgresIntegrationTest {
                 .andReturn();
         UUID seatId = availableSeatId(objectMapper.readTree(availability.getResponse().getContentAsString()));
 
-        String accessToken = loginDemoCustomer();
+        String accessToken = login(DemoDataCatalog.DEFAULT_CUSTOMER_EMAIL);
         MvcResult holdCreated = mockMvc.perform(post("/api/v1/trips/{tripId}/holds", tripId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -161,12 +169,44 @@ class DemoDataBootstrapPostgresIntegrationTest {
                 .containsExactly(RoleCode.CUSTOMER);
     }
 
-    private String loginDemoCustomer() throws Exception {
+    @Test
+    void seedsActiveOperatorAdminMembershipIdempotentlyWithoutPlatformAdminRoles() throws Exception {
+        long userCount = userRepository.count();
+        long membershipCount = operatorUserRepository.count();
+        demoDataService.ensureDemoData();
+        demoDataService.ensureDemoData();
+        assertThat(userRepository.count()).isEqualTo(userCount);
+        assertThat(operatorUserRepository.count()).isEqualTo(membershipCount);
+
+        User operatorUser = userRepository.findByEmailIgnoreCase(DemoDataCatalog.DEFAULT_OPERATOR_EMAIL).orElseThrow();
+        assertThat(operatorUser.getStatus()).isEqualTo(UserStatus.ACTIVE);
+        assertThat(userRoleRepository.findByUserIdWithRole(operatorUser.getId()))
+                .extracting(role -> role.getRole().getCode())
+                .doesNotContain(RoleCode.SUPER_ADMIN, RoleCode.ADMIN, RoleCode.CUSTOMER);
+
+        Operator operator = operatorRepository.findByLegalNameIgnoreCase(DemoDataCatalog.OPERATOR_LEGAL_NAME).orElseThrow();
+        OperatorUser membership = operatorUserRepository
+                .findByOperatorIdAndUserId(operator.getId(), operatorUser.getId())
+                .orElseThrow();
+        assertThat(membership.getRole().getCode()).isEqualTo(RoleCode.OPERATOR_ADMIN);
+        assertThat(membership.getStatus()).isEqualTo(OperatorUserStatus.ACTIVE);
+
+        String accessToken = login(DemoDataCatalog.DEFAULT_OPERATOR_EMAIL);
+        mockMvc.perform(get("/api/v1/auth/operator-memberships")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].operatorId").value(operator.getId().toString()))
+                .andExpect(jsonPath("$[0].operatorDisplayName").value(DemoDataCatalog.OPERATOR_DISPLAY_NAME))
+                .andExpect(jsonPath("$[0].role").value("OPERATOR_ADMIN"));
+    }
+
+    private String login(String email) throws Exception {
         MvcResult login = mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"email":"%s","password":"%s"}
-                                """.formatted(DemoDataCatalog.DEFAULT_CUSTOMER_EMAIL, DEMO_PASSWORD)))
+                                """.formatted(email, DEMO_PASSWORD)))
                 .andExpect(status().isOk())
                 .andReturn();
         return objectMapper.readTree(login.getResponse().getContentAsString()).get("accessToken").asText();
