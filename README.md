@@ -14,7 +14,7 @@ Implemented:
 - Customer booking: search, seat map, segment-aware holds, bookings, unpaid expiry, tickets
 - Payments: Razorpay Checkout, webhooks, refunds (local may leave `PAYMENT_PROVIDER=UNCONFIGURED`)
 - Operator portal: buses, routes, trips, inventory, bookings/manifest, members, settings, dashboard, reports
-- Production fail-fast under Spring profile `prod` (demo data, core API kill switch, payments, CORS)
+- Production fail-fast when Spring profile `prod` is active or `BLUE_BUS_ENVIRONMENT=production` (demo data, core API kill switch, payments, CORS)
 
 Deferred: Redis, RabbitMQ, Admin SPA, HttpOnly-cookie BFF, PDF/QR ticketing, GST/`trip_fares`, and settlements.
 
@@ -93,12 +93,13 @@ The health endpoint is a liveness probe only: it confirms the application proces
 
 ## Production configuration
 
-Activate fail-fast checks with `SPRING_PROFILES_ACTIVE=prod`. Startup refuses unsafe settings instead of serving a half-configured process.
+Set **both** `SPRING_PROFILES_ACTIVE=prod` and `BLUE_BUS_ENVIRONMENT=production`. The environment marker is the fail-safe if the Spring profile is omitted. Startup refuses unsafe settings instead of serving a half-configured process.
 
 Checklist:
 
 - `SPRING_PROFILES_ACTIVE=prod`
-- `DEMO_DATA_ENABLED=false` (startup fails if demo data is enabled)
+- `BLUE_BUS_ENVIRONMENT=production`
+- `DEMO_DATA_ENABLED=false` (startup fails if demo data is enabled, and also if Razorpay is selected outside production)
 - Core API enabled: `BLUE_BUS_ADMIN_MASTER_DATA_ENABLED` must not be `false`
 - `PAYMENT_PROVIDER=RAZORPAY`
 - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` set (values are never logged)
@@ -112,7 +113,7 @@ See `.env.example` for placeholders. Never commit real secrets.
 
 ## Local E2E demo data
 
-An opt-in Spring Boot bootstrap can seed a small local catalog for browser end-to-end checks of Search → Seats → Hold → Passengers → Booking. It is **disabled by default**. Spring profile `prod` refuses to start if demo data is enabled, so known demo customer/operator-admin credentials cannot be seeded in production.
+An opt-in Spring Boot bootstrap can seed a small local catalog for browser end-to-end checks of Search → Seats → Hold → Passengers → Booking. It is **disabled by default**. Production (`prod` profile or `BLUE_BUS_ENVIRONMENT=production`) refuses to start if demo data is enabled. Demo data is also refused whenever `PAYMENT_PROVIDER=RAZORPAY`, so known demo credentials cannot be seeded next to a real payment provider.
 
 Enable it only in a local shell (do not commit a password):
 

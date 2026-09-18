@@ -7,14 +7,14 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 
 import in.bluebustickets.bluebus.foundation.config.ProductionConfigurationGuard;
 
 /**
  * Starts the local demo catalog only when explicitly enabled.
- * The {@code prod} profile never loads this bean; enabling demo data there fails startup.
+ * The {@code prod} profile never loads this bean. ProductionConfigurationGuard also refuses
+ * demo data when {@code BLUE_BUS_ENVIRONMENT=production} even without that profile.
  */
 @Component
 @Profile("!prod")
@@ -37,7 +37,7 @@ public class DemoDataBootstrap implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        if (environment.acceptsProfiles(Profiles.of(ProductionConfigurationGuard.PROD_PROFILE))) {
+        if (ProductionConfigurationGuard.isProduction(environment)) {
             throw new IllegalStateException(ProductionConfigurationGuard.DEMO_DATA_IN_PROD);
         }
         demoDataService.ensureDemoData();

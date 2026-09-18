@@ -5,6 +5,7 @@ spring:
     banner-mode: "off"
 
 blue-bus:
+  environment: test
   security:
     jwt:
       issuer: test-issuer

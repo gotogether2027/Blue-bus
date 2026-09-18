@@ -46,7 +46,7 @@ class ProductionConfigurationGuardTest {
 
     @Test
     void productionPlusDemoDataFailsFast() {
-        MockEnvironment environment = productionEnvironment();
+        MockEnvironment environment = productionProfileEnvironment();
         environment.setProperty("blue-bus.demo-data.enabled", "true");
 
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
@@ -58,7 +58,7 @@ class ProductionConfigurationGuardTest {
 
     @Test
     void productionPlusDisabledCoreApiFailsFast() {
-        MockEnvironment environment = productionEnvironment();
+        MockEnvironment environment = productionProfileEnvironment();
         environment.setProperty("blue-bus.admin-master-data.enabled", "false");
         environment.setProperty("blue-bus.outbox.processor.enabled", "false");
         environment.setProperty("blue-bus.outbox.enabled", "false");
@@ -70,7 +70,7 @@ class ProductionConfigurationGuardTest {
 
     @Test
     void productionPlusUnconfiguredPaymentsFailsFast() {
-        MockEnvironment environment = productionEnvironment();
+        MockEnvironment environment = productionProfileEnvironment();
         environment.setProperty("blue-bus.payments.default-provider", "UNCONFIGURED");
 
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
@@ -80,7 +80,7 @@ class ProductionConfigurationGuardTest {
 
     @Test
     void productionPlusRazorpayWithoutSecretsFailsFastWithoutLeakingValues() {
-        MockEnvironment environment = productionEnvironment();
+        MockEnvironment environment = productionProfileEnvironment();
         environment.setProperty("blue-bus.payments.default-provider", "RAZORPAY");
         environment.setProperty("blue-bus.payments.razorpay.key-id", "rzp_live_not_a_real_key");
         environment.setProperty("blue-bus.payments.razorpay.key-secret", "");
@@ -95,13 +95,13 @@ class ProductionConfigurationGuardTest {
 
     @Test
     void productionWithRazorpaySecretsAndSameOriginCorsSucceeds() {
-        assertThatCode(() -> ProductionConfigurationGuard.validate(productionEnvironment()))
+        assertThatCode(() -> ProductionConfigurationGuard.validate(productionProfileEnvironment()))
                 .doesNotThrowAnyException();
     }
 
     @Test
     void splitOriginFlagRequiresExplicitAllowList() {
-        MockEnvironment environment = productionEnvironment();
+        MockEnvironment environment = productionProfileEnvironment();
         environment.setProperty("blue-bus.cors.require-allowed-origins", "true");
 
         assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
@@ -111,36 +111,145 @@ class ProductionConfigurationGuardTest {
 
     @Test
     void splitOriginFlagAcceptsIndexedOrigin() {
-        MockEnvironment environment = productionEnvironment();
+        MockEnvironment environment = productionProfileEnvironment();
         environment.setProperty("blue-bus.cors.require-allowed-origins", "true");
         environment.setProperty("blue-bus.cors.allowed-origins[0]", "https://tickets.example.com");
 
         assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
     }
 
+    @Test
+    void environmentMarkerActivatesPaymentGuardsWithoutProdProfile() {
+        MockEnvironment environment = productionMarkerEnvironment();
+        environment.setProperty("blue-bus.payments.default-provider", "UNCONFIGURED");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(ProductionConfigurationGuard.PAYMENTS_UNCONFIGURED_IN_PROD);
+    }
+
+    @Test
+    void environmentMarkerRejectsDemoDataWithoutProdProfile() {
+        MockEnvironment environment = productionMarkerEnvironment();
+        environment.setProperty("blue-bus.demo-data.enabled", "true");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(ProductionConfigurationGuard.DEMO_DATA_IN_PROD)
+                .hasMessageNotContaining("password");
+    }
+
+    @Test
+    void environmentMarkerRejectsDisabledCoreApiWithoutProdProfile() {
+        MockEnvironment environment = productionMarkerEnvironment();
+        environment.setProperty("blue-bus.admin-master-data.enabled", "false");
+        environment.setProperty("blue-bus.outbox.enabled", "false");
+        environment.setProperty("blue-bus.outbox.processor.enabled", "false");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(ProductionConfigurationGuard.API_DISABLED_IN_PROD);
+    }
+
+    @Test
+    void environmentMarkerWithValidRazorpaySucceedsWithoutProdProfile() {
+        assertThatCode(() -> ProductionConfigurationGuard.validate(productionMarkerEnvironment()))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void localEnvironmentPermitsDemoDataWithUnconfiguredPayments() {
+        MockEnvironment environment = unmarkedEnvironment();
+        environment.setProperty("blue-bus.environment", "local");
+        environment.setProperty("blue-bus.demo-data.enabled", "true");
+        environment.setProperty("blue-bus.payments.default-provider", "UNCONFIGURED");
+
+        assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void testEnvironmentPermitsDemoDataWithUnconfiguredPayments() {
+        MockEnvironment environment = localEnvironment();
+        environment.setProperty("blue-bus.environment", "test");
+        environment.setProperty("blue-bus.demo-data.enabled", "true");
+        environment.setProperty("blue-bus.payments.default-provider", "UNCONFIGURED");
+
+        assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void demoDataWithRazorpayFailsOutsideProduction() {
+        MockEnvironment environment = unmarkedEnvironment();
+        environment.setProperty("blue-bus.environment", "local");
+        environment.setProperty("blue-bus.demo-data.enabled", "true");
+        environment.setProperty("blue-bus.payments.default-provider", "RAZORPAY");
+        environment.setProperty("blue-bus.payments.razorpay.key-id", "rzp_test_placeholder");
+        environment.setProperty("blue-bus.payments.razorpay.key-secret", "test-secret-value");
+        environment.setProperty("blue-bus.payments.razorpay.webhook-secret", "test-webhook-value");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(ProductionConfigurationGuard.DEMO_DATA_WITH_RAZORPAY)
+                .hasMessageNotContaining("test-secret-value")
+                .hasMessageNotContaining("test-webhook-value");
+    }
+
+    @Test
+    void defaultEnvironmentRemainsNonProduction() {
+        MockEnvironment environment = unmarkedEnvironment();
+        environment.setProperty("blue-bus.demo-data.enabled", "true");
+        environment.setProperty("blue-bus.payments.default-provider", "UNCONFIGURED");
+
+        assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void prodSpringProfileStillActivatesProductionGuards() {
+        MockEnvironment environment = productionProfileEnvironment();
+        environment.setProperty("blue-bus.environment", "local");
+        environment.setProperty("blue-bus.payments.default-provider", "UNCONFIGURED");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(ProductionConfigurationGuard.PAYMENTS_UNCONFIGURED_IN_PROD);
+    }
+
     private static MockEnvironment localEnvironment() {
-        MockEnvironment environment = new MockEnvironment();
+        MockEnvironment environment = unmarkedEnvironment();
         environment.setActiveProfiles("test");
+        environment.setProperty("blue-bus.environment", "test");
+        return environment;
+    }
+
+    private static MockEnvironment productionProfileEnvironment() {
+        MockEnvironment environment = validRazorpayEnvironment();
+        environment.setActiveProfiles("prod");
+        environment.setProperty("blue-bus.environment", "production");
+        return environment;
+    }
+
+    private static MockEnvironment productionMarkerEnvironment() {
+        MockEnvironment environment = validRazorpayEnvironment();
+        environment.setProperty("blue-bus.environment", "production");
+        return environment;
+    }
+
+    private static MockEnvironment validRazorpayEnvironment() {
+        MockEnvironment environment = unmarkedEnvironment();
+        environment.setProperty("blue-bus.payments.default-provider", "RAZORPAY");
+        environment.setProperty("blue-bus.payments.razorpay.key-id", "rzp_test_placeholder");
+        environment.setProperty("blue-bus.payments.razorpay.key-secret", "test-secret-value");
+        environment.setProperty("blue-bus.payments.razorpay.webhook-secret", "test-webhook-value");
+        return environment;
+    }
+
+    private static MockEnvironment unmarkedEnvironment() {
+        MockEnvironment environment = new MockEnvironment();
         environment.setProperty("blue-bus.admin-master-data.enabled", "true");
         environment.setProperty("blue-bus.outbox.enabled", "true");
         environment.setProperty("blue-bus.outbox.processor.enabled", "false");
         environment.setProperty("blue-bus.demo-data.enabled", "false");
         environment.setProperty("blue-bus.payments.default-provider", "UNCONFIGURED");
-        environment.setProperty("blue-bus.cors.require-allowed-origins", "false");
-        return environment;
-    }
-
-    private static MockEnvironment productionEnvironment() {
-        MockEnvironment environment = new MockEnvironment();
-        environment.setActiveProfiles("prod");
-        environment.setProperty("blue-bus.admin-master-data.enabled", "true");
-        environment.setProperty("blue-bus.outbox.enabled", "true");
-        environment.setProperty("blue-bus.outbox.processor.enabled", "true");
-        environment.setProperty("blue-bus.demo-data.enabled", "false");
-        environment.setProperty("blue-bus.payments.default-provider", "RAZORPAY");
-        environment.setProperty("blue-bus.payments.razorpay.key-id", "rzp_test_placeholder");
-        environment.setProperty("blue-bus.payments.razorpay.key-secret", "test-secret-value");
-        environment.setProperty("blue-bus.payments.razorpay.webhook-secret", "test-webhook-value");
         environment.setProperty("blue-bus.cors.require-allowed-origins", "false");
         return environment;
     }
