@@ -91,6 +91,8 @@ Tests explicitly use the `test` Spring profile. Fast foundation tests disable da
 
 The health endpoint is a liveness probe only: it confirms the application process can serve HTTP. It is not a PostgreSQL readiness check and does not mean the core business API is registered. Browser CORS is an explicit `blue-bus.cors.allowed-origins` allow-list (empty by default; never `*`). Production is same-origin: serve the Angular SPA and `/api/v1` on one public origin so the empty allow-list is correct. Local Angular development uses the `/api` proxy in `customer-web` and does not require CORS. Split-origin hosting must set explicit origins and `BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS=true`.
 
+Public login, register, refresh, search, locations, seat-availability, hold create/cancel, and Razorpay webhook paths have a **per-instance** in-memory IP rate limiter (`blue-bus.rate-limit`). It uses the servlet remote address only (no trusted-proxy / `X-Forwarded-For` handling). Exceeded limits return HTTP 429 with `Retry-After`. This is not cluster-wide; production should also limit at the reverse proxy. Health and authenticated business APIs are not globally limited.
+
 ## Production configuration
 
 Set **both** `SPRING_PROFILES_ACTIVE=prod` and `BLUE_BUS_ENVIRONMENT=production`. The environment marker is the fail-safe if the Spring profile is omitted. Startup refuses unsafe settings instead of serving a half-configured process.
@@ -108,6 +110,7 @@ Checklist:
 - Flyway runs on startup (`spring.jpa.hibernate.ddl-auto=validate`); the database must be reachable
 - CORS/deployment: same-origin (empty allow-list) **or** explicit allowed origins plus `BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS=true`
 - Serve `customer-web` production build and `/api/v1` on the same public origin; do not hard-code a public API hostname in the SPA
+- Reverse proxy / API gateway / WAF rate limits in front of login, register, refresh, holds, and webhooks. The JVM in-process limiter is per instance only; Redis is deferred
 
 See `.env.example` for placeholders. Never commit real secrets.
 

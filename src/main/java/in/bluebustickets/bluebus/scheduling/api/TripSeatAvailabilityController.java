@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Public read-only seat availability for a trip origin/destination pair.
- * Authentication and rate limiting are deferred to a later phase.
+ * Authentication remains optional. Abuse protection is the in-process IP rate limiter.
  */
 @RestController
 @RequestMapping("/api/v1/trips")

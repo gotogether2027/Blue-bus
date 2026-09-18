@@ -56,3 +56,17 @@ blue-bus:
   demo-data:
     # Tests must opt in explicitly. Never seed the shared catalog by default.
     enabled: false
+  rate-limit:
+    enabled: true
+    auth:
+      limit: 10000
+      window-seconds: 60
+    public-api:
+      limit: 10000
+      window-seconds: 60
+    holds:
+      limit: 10000
+      window-seconds: 60
+    webhook:
+      limit: 10000
+      window-seconds: 60

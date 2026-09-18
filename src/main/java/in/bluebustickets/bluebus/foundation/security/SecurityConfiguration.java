@@ -24,6 +24,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import in.bluebustickets.bluebus.foundation.api.error.ApiErrorResponseWriter;
+import in.bluebustickets.bluebus.foundation.ratelimit.RateLimitFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -47,7 +48,8 @@ public class SecurityConfiguration {
             HttpSecurity http,
             ApiErrorResponseWriter apiErrorResponseWriter,
             JwtAuthenticationConverter jwtAuthenticationConverter,
-            ObjectProvider<ActiveUserAuthenticationFilter> activeUserAuthenticationFilter)
+            ObjectProvider<ActiveUserAuthenticationFilter> activeUserAuthenticationFilter,
+            ObjectProvider<RateLimitFilter> rateLimitFilter)
             throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -82,6 +84,10 @@ public class SecurityConfiguration {
                         .accessDeniedHandler((request, response, exception) ->
                                 apiErrorResponseWriter.write(request, response, HttpStatus.FORBIDDEN))
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
+        RateLimitFilter limiter = rateLimitFilter.getIfAvailable();
+        if (limiter != null) {
+            http.addFilterBefore(limiter, BearerTokenAuthenticationFilter.class);
+        }
         ActiveUserAuthenticationFilter activeUserFilter = activeUserAuthenticationFilter.getIfAvailable();
         if (activeUserFilter != null) {
             http.addFilterAfter(activeUserFilter, BearerTokenAuthenticationFilter.class);

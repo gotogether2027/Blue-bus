@@ -107,6 +107,22 @@ blue-bus:
     customer-email: ${DEMO_CUSTOMER_EMAIL:demo.customer@example.test}
     # Required when enabled. Supply via environment — do not commit a password.
     customer-password: ${DEMO_CUSTOMER_PASSWORD:}
+  rate-limit:
+    # Per-instance in-memory fixed windows. Not cluster-wide. Production should also
+    # rate-limit at the reverse proxy / API gateway / WAF. Redis remains deferred.
+    enabled: ${BLUE_BUS_RATE_LIMIT_ENABLED:true}
+    auth:
+      limit: ${BLUE_BUS_RATE_LIMIT_AUTH_LIMIT:20}
+      window-seconds: ${BLUE_BUS_RATE_LIMIT_AUTH_WINDOW_SECONDS:60}
+    public-api:
+      limit: ${BLUE_BUS_RATE_LIMIT_PUBLIC_LIMIT:120}
+      window-seconds: ${BLUE_BUS_RATE_LIMIT_PUBLIC_WINDOW_SECONDS:60}
+    holds:
+      limit: ${BLUE_BUS_RATE_LIMIT_HOLDS_LIMIT:30}
+      window-seconds: ${BLUE_BUS_RATE_LIMIT_HOLDS_WINDOW_SECONDS:60}
+    webhook:
+      limit: ${BLUE_BUS_RATE_LIMIT_WEBHOOK_LIMIT:120}
+      window-seconds: ${BLUE_BUS_RATE_LIMIT_WEBHOOK_WINDOW_SECONDS:60}
 
 logging:
   level:

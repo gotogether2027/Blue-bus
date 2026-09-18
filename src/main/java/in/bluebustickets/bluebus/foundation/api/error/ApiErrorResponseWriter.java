@@ -22,11 +22,17 @@ public class ApiErrorResponseWriter {
 
     public void write(HttpServletRequest request, HttpServletResponse response, HttpStatus status)
             throws IOException {
+        write(request, response, status, "Authentication or authorization is required.");
+    }
+
+    public void write(
+            HttpServletRequest request, HttpServletResponse response, HttpStatus status, String message)
+            throws IOException {
         ApiError error = new ApiError(
                 Instant.now(),
                 status.value(),
                 status.getReasonPhrase(),
-                "Authentication or authorization is required.",
+                message,
                 request.getRequestURI(),
                 List.of());
 

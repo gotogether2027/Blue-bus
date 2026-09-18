@@ -14,6 +14,9 @@
 # public origin. Leave allowed-origins empty. Split hosting must set explicit origins
 # and BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS=true.
 #
+# In-process rate limiting is per instance. Also rate-limit login/register/refresh,
+# holds, and webhooks at the reverse proxy / WAF. Redis remains deferred.
+#
 # Do not put secrets in this file.
 
 blue-bus:
