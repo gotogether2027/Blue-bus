@@ -175,6 +175,9 @@ input, select {
 .operator-filter-bar-trips {
   grid-template-columns: minmax(200px, 2fr) minmax(160px, 0.9fr) minmax(170px, 0.9fr);
 }
+.operator-filter-bar-ops {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
 .operator-action-card { display: grid; gap: 1rem; }
 .field-hint { color: var(--bb-muted); line-height: 1.35; }
 .operator-form input.ng-invalid.ng-touched,

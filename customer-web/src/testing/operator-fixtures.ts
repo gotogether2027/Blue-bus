@@ -332,3 +332,124 @@ export const operatorCancelledMultiPassengerBookingFixture = (
     ],
     ...overrides
   });
+
+export const operatorPendingPaymentBookingFixture = (
+  overrides: Partial<OperatorBooking> = {}
+): OperatorBooking =>
+  operatorBookingFixture({
+    bookingId: 'booking-3',
+    bookingReference: 'BB-3003',
+    status: 'PENDING_PAYMENT',
+    totalAmount: 899,
+    items: [
+      {
+        bookingItemId: 'item-4',
+        passengerId: 'passenger-4',
+        seatNumber: 'U4',
+        seatType: 'SLEEPER',
+        originSequence: 1,
+        destinationSequence: 2,
+        status: 'ACTIVE'
+      }
+    ],
+    passengers: [
+      {
+        passengerId: 'passenger-4',
+        fullName: 'Kiran Shah',
+        age: 26,
+        gender: 'MALE'
+      }
+    ],
+    ...overrides
+  });
+
+export const operatorSharedSeatSegmentBookings = (): OperatorBooking[] => [
+  operatorBookingFixture({
+    bookingId: 'booking-seg-a',
+    bookingReference: 'BB-4001',
+    originSequence: 1,
+    destinationSequence: 2,
+    originTripStopId: 'stop-hyd',
+    destinationTripStopId: 'stop-vja',
+    items: [
+      {
+        bookingItemId: 'item-seg-a',
+        passengerId: 'passenger-seg-a',
+        seatNumber: 'R2',
+        seatType: 'SEATER',
+        originSequence: 1,
+        destinationSequence: 2,
+        status: 'ACTIVE'
+      }
+    ],
+    passengers: [
+      {
+        passengerId: 'passenger-seg-a',
+        fullName: 'Passenger A',
+        age: 34,
+        gender: 'FEMALE'
+      }
+    ],
+    trip: {
+      ...operatorBookingFixture().trip,
+      origin: {
+        ...operatorBookingFixture().trip.origin,
+        tripStopId: 'stop-hyd',
+        locationId: 'location-hyd',
+        sequenceNumber: 1,
+        city: 'Hyderabad'
+      },
+      destination: {
+        ...operatorBookingFixture().trip.destination,
+        tripStopId: 'stop-vja',
+        locationId: 'location-vja',
+        sequenceNumber: 2,
+        city: 'Vijayawada'
+      }
+    }
+  }),
+  operatorBookingFixture({
+    bookingId: 'booking-seg-b',
+    bookingReference: 'BB-4002',
+    originSequence: 2,
+    destinationSequence: 3,
+    originTripStopId: 'stop-vja',
+    destinationTripStopId: 'stop-gnt',
+    items: [
+      {
+        bookingItemId: 'item-seg-b',
+        passengerId: 'passenger-seg-b',
+        seatNumber: 'R2',
+        seatType: 'SEATER',
+        originSequence: 2,
+        destinationSequence: 3,
+        status: 'ACTIVE'
+      }
+    ],
+    passengers: [
+      {
+        passengerId: 'passenger-seg-b',
+        fullName: 'Passenger B',
+        age: 29,
+        gender: 'MALE'
+      }
+    ],
+    trip: {
+      ...operatorBookingFixture().trip,
+      origin: {
+        ...operatorBookingFixture().trip.origin,
+        tripStopId: 'stop-vja',
+        locationId: 'location-vja',
+        sequenceNumber: 2,
+        city: 'Vijayawada'
+      },
+      destination: {
+        ...operatorBookingFixture().trip.destination,
+        tripStopId: 'stop-gnt',
+        locationId: 'location-gnt',
+        sequenceNumber: 3,
+        city: 'Guntur'
+      }
+    }
+  })
+];

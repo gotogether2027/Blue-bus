@@ -1,4 +1,4 @@
-import { BookingStatus } from '../../core/api/models';
+import { BookingItemStatus, BookingStatus } from '../../core/api/models';
 import {
   OperatorBooking,
   OperatorBookingPassenger
@@ -10,8 +10,10 @@ import {
  * GET /api/v1/operator/{operatorId}/trips/{tripId}/bookings/{bookingId}
  *
  * Both return OperatorBookingResponse (list is an array). There is no pagination,
- * query filtering, sorting, payment status, ticket number/status, customer contact,
- * or booking mutation endpoint. Reads are allowed for OPERATOR_ADMIN and OPERATOR_STAFF.
+ * query filtering, sorting, payment status, ticket number/status, QR, check-in,
+ * boarding state, customer contact, or booking mutation endpoint.
+ * Ticket APIs exist only on the customer namespace and must not be called here.
+ * Reads are allowed for OPERATOR_ADMIN and OPERATOR_STAFF.
  */
 export const BOOKING_STATUSES: BookingStatus[] = [
   'INITIATED',
@@ -22,6 +24,30 @@ export const BOOKING_STATUSES: BookingStatus[] = [
   'REFUND_PENDING',
   'REFUNDED'
 ];
+
+export const BOOKING_ITEM_STATUSES: BookingItemStatus[] = [
+  'ACTIVE',
+  'CANCELLED',
+  'REFUNDED',
+  'EXPIRED'
+];
+
+export const OPERATOR_TICKET_UNAVAILABLE_NOTE =
+  'Ticket status is not available in the operator booking data.';
+
+export type OperatorManifestGroupBy = 'seat' | 'segment' | 'bookingStatus';
+
+export interface OperatorStopOption {
+  key: string;
+  sequence: number;
+  label: string;
+}
+
+export interface OperatorManifestGroup {
+  key: string;
+  heading: string;
+  rows: OperatorPassengerManifestRow[];
+}
 
 export interface OperatorPassengerManifestRow {
   key: string;
@@ -97,11 +123,115 @@ export function passengerManifestRows(
       });
     }
   }
-  return rows.sort((left, right) => {
-    const seat = left.seatNumber.localeCompare(right.seatNumber, undefined, { numeric: true });
-    if (seat !== 0) {
-      return seat;
+  return rows.sort((left, right) => compareManifestRows(left, right));
+}
+
+export function isConfirmedBookingStatus(status: BookingStatus): boolean {
+  return status === 'CONFIRMED';
+}
+
+export function bookingConfirmationLabel(status: BookingStatus): string {
+  return status === 'CONFIRMED' ? 'Confirmed booking' : 'Not confirmed';
+}
+
+export function uniqueOriginOptions(
+  rows: OperatorPassengerManifestRow[]
+): OperatorStopOption[] {
+  return uniqueStopOptions(rows, (row) => ({
+    sequence: row.originSequence,
+    label: row.originLabel
+  }));
+}
+
+export function uniqueDestinationOptions(
+  rows: OperatorPassengerManifestRow[]
+): OperatorStopOption[] {
+  return uniqueStopOptions(rows, (row) => ({
+    sequence: row.destinationSequence,
+    label: row.destinationLabel
+  }));
+}
+
+export function groupPassengerManifestRows(
+  rows: OperatorPassengerManifestRow[],
+  groupBy: OperatorManifestGroupBy
+): OperatorManifestGroup[] {
+  const groups = new Map<string, OperatorManifestGroup>();
+  for (const row of rows) {
+    const key =
+      groupBy === 'seat'
+        ? row.seatNumber
+        : groupBy === 'segment'
+          ? `${row.originSequence}-${row.destinationSequence}`
+          : row.bookingStatus;
+    const heading =
+      groupBy === 'seat'
+        ? `Seat ${row.seatNumber}`
+        : groupBy === 'segment'
+          ? `${row.originLabel} → ${row.destinationLabel}`
+          : row.bookingStatus;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.rows.push(row);
+    } else {
+      groups.set(key, { key, heading, rows: [row] });
     }
-    return left.bookingReference.localeCompare(right.bookingReference);
+  }
+
+  const ordered = [...groups.values()].sort((left, right) => {
+    if (groupBy === 'bookingStatus') {
+      return (
+        BOOKING_STATUSES.indexOf(left.key as BookingStatus) -
+        BOOKING_STATUSES.indexOf(right.key as BookingStatus)
+      );
+    }
+    if (groupBy === 'seat') {
+      return left.key.localeCompare(right.key, undefined, { numeric: true });
+    }
+    const leftSeq = Number(left.key.split('-')[0] ?? '0');
+    const rightSeq = Number(right.key.split('-')[0] ?? '0');
+    if (leftSeq !== rightSeq) {
+      return leftSeq - rightSeq;
+    }
+    return left.heading.localeCompare(right.heading);
   });
+
+  for (const group of ordered) {
+    group.rows = [...group.rows].sort(compareManifestRows);
+  }
+  return ordered;
+}
+
+function uniqueStopOptions(
+  rows: OperatorPassengerManifestRow[],
+  pick: (row: OperatorPassengerManifestRow) => { sequence: number; label: string }
+): OperatorStopOption[] {
+  const options = new Map<string, OperatorStopOption>();
+  for (const row of rows) {
+    const stop = pick(row);
+    const key = `${stop.sequence}:${stop.label}`;
+    if (!options.has(key)) {
+      options.set(key, { key, sequence: stop.sequence, label: stop.label });
+    }
+  }
+  return [...options.values()].sort(
+    (left, right) => left.sequence - right.sequence || left.label.localeCompare(right.label)
+  );
+}
+
+function compareManifestRows(
+  left: OperatorPassengerManifestRow,
+  right: OperatorPassengerManifestRow
+): number {
+  const seat = left.seatNumber.localeCompare(right.seatNumber, undefined, { numeric: true });
+  if (seat !== 0) {
+    return seat;
+  }
+  if (left.originSequence !== right.originSequence) {
+    return left.originSequence - right.originSequence;
+  }
+  if (left.destinationSequence !== right.destinationSequence) {
+    return left.destinationSequence - right.destinationSequence;
+  }
+  return left.bookingReference.localeCompare(right.bookingReference);
 }

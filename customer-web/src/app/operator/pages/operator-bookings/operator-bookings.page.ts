@@ -2,15 +2,24 @@ import { Component, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { EMPTY, forkJoin, of, switchMap } from 'rxjs';
-import { BookingStatus } from '../../../core/api/models';
+import { BookingItemStatus, BookingStatus } from '../../../core/api/models';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
 import {
+  BOOKING_ITEM_STATUSES,
   BOOKING_STATUSES,
+  OPERATOR_TICKET_UNAVAILABLE_NOTE,
+  OperatorManifestGroup,
+  OperatorManifestGroupBy,
   OperatorPassengerManifestRow,
+  OperatorStopOption,
   bookingBelongsToOperatorTrip,
-  passengerManifestRows
+  bookingConfirmationLabel,
+  groupPassengerManifestRows,
+  passengerManifestRows,
+  uniqueDestinationOptions,
+  uniqueOriginOptions
 } from '../../components/operator-booking-references';
 import { operatorStatusTone } from '../../components/operator-status';
 import { busSummary, routeSummary } from '../../components/operator-trip-references';
@@ -48,12 +57,19 @@ export class OperatorBookingsPageComponent implements OnInit {
   bookings: OperatorBooking[] = [];
   searchQuery = '';
   statusFilter: BookingStatus | 'ALL' = 'ALL';
-  view: 'bookings' | 'manifest' = 'bookings';
+  itemStatusFilter: BookingItemStatus | 'ALL' = 'ALL';
+  originFilter = 'ALL';
+  destinationFilter = 'ALL';
+  groupBy: OperatorManifestGroupBy = 'seat';
+  view: OperatorTripBookingView = 'bookings';
   readonly bookingStatuses = BOOKING_STATUSES;
+  readonly itemStatuses = BOOKING_ITEM_STATUSES;
+  readonly ticketUnavailableNote = OPERATOR_TICKET_UNAVAILABLE_NOTE;
   readonly formatDate = formatDate;
   readonly formatInstant = formatInstant;
   readonly formatMoney = formatMoney;
   readonly statusTone = operatorStatusTone;
+  readonly confirmationLabel = bookingConfirmationLabel;
 
   get selectedOperatorId(): string {
     return this.context.selectedOperatorId() ?? '';
@@ -61,6 +77,22 @@ export class OperatorBookingsPageComponent implements OnInit {
 
   get passengerCount(): number {
     return this.bookings.reduce((count, booking) => count + booking.passengers.length, 0);
+  }
+
+  get itemCount(): number {
+    return this.bookings.reduce((count, booking) => count + booking.items.length, 0);
+  }
+
+  get confirmedBookingCount(): number {
+    return this.bookings.filter((booking) => booking.status === 'CONFIRMED').length;
+  }
+
+  get originOptions(): OperatorStopOption[] {
+    return uniqueOriginOptions(this.manifestRows);
+  }
+
+  get destinationOptions(): OperatorStopOption[] {
+    return uniqueDestinationOptions(this.manifestRows);
   }
 
   get filteredBookings(): OperatorBooking[] {
@@ -74,9 +106,11 @@ export class OperatorBookingsPageComponent implements OnInit {
   }
 
   get filteredManifest(): OperatorPassengerManifestRow[] {
-    return this.manifestRows.filter(
-      (row) => this.matchesStatus(row.bookingStatus) && this.matchesQuery(this.manifestSearchText(row))
-    );
+    return this.manifestRows.filter((row) => this.matchesRow(row));
+  }
+
+  get groupedBoarding(): OperatorManifestGroup[] {
+    return groupPassengerManifestRows(this.filteredManifest, this.groupBy);
   }
 
   ngOnInit(): void {
@@ -95,6 +129,10 @@ export class OperatorBookingsPageComponent implements OnInit {
     this.bookings = [];
     this.searchQuery = '';
     this.statusFilter = 'ALL';
+    this.itemStatusFilter = 'ALL';
+    this.originFilter = 'ALL';
+    this.destinationFilter = 'ALL';
+    this.groupBy = 'seat';
     if (!operatorId || !tripId) {
       this.loading = false;
       this.error = {
@@ -165,12 +203,35 @@ export class OperatorBookingsPageComponent implements OnInit {
     this.view = 'manifest';
   }
 
+  showBoarding(): void {
+    this.view = 'boarding';
+  }
+
   busLabel(): string {
     return busSummary(this.bus ?? undefined, this.trip?.busId ?? '');
   }
 
   routeLabel(): string {
     return routeSummary(this.routeDetail ?? undefined, this.trip?.routeId ?? '');
+  }
+
+  private matchesRow(row: OperatorPassengerManifestRow): boolean {
+    if (!this.matchesStatus(row.bookingStatus)) {
+      return false;
+    }
+    if (this.itemStatusFilter !== 'ALL' && row.itemStatus !== this.itemStatusFilter) {
+      return false;
+    }
+    if (this.originFilter !== 'ALL' && this.originFilter !== `${row.originSequence}:${row.originLabel}`) {
+      return false;
+    }
+    if (
+      this.destinationFilter !== 'ALL' &&
+      this.destinationFilter !== `${row.destinationSequence}:${row.destinationLabel}`
+    ) {
+      return false;
+    }
+    return this.matchesQuery(this.manifestSearchText(row));
   }
 
   private matchesStatus(status: BookingStatus): boolean {
@@ -201,6 +262,7 @@ export class OperatorBookingsPageComponent implements OnInit {
     return [
       row.bookingReference,
       row.bookingStatus,
+      row.itemStatus,
       row.passengerName ?? '',
       row.seatNumber,
       row.originLabel,
@@ -211,3 +273,5 @@ export class OperatorBookingsPageComponent implements OnInit {
       .toLocaleLowerCase();
   }
 }
+
+export type OperatorTripBookingView = 'bookings' | 'manifest' | 'boarding';

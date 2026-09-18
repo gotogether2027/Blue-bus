@@ -12,7 +12,9 @@ import {
   operatorBookingFixture,
   operatorBusFixture,
   operatorCancelledMultiPassengerBookingFixture,
+  operatorPendingPaymentBookingFixture,
   operatorRouteFixture,
+  operatorSharedSeatSegmentBookings,
   operatorTripFixture
 } from '../../../testing/operator-fixtures';
 import { routes } from '../../app.routes';
@@ -99,6 +101,21 @@ describe('operator trip bookings', () => {
     expect(pageText(fixture.nativeElement)).toContain('No passengers for this trip.');
   });
 
+  it('renders an empty boarding view without inventing passengers', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', []);
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Boarding view');
+    fixture.detectChanges();
+    expect(pageText(fixture.nativeElement)).toContain('No passengers for this trip.');
+    expect(pageText(fixture.nativeElement)).toContain(
+      'Ticket status is not available in the operator booking data.'
+    );
+  });
+
   it('filters loaded bookings by reference on the client', async () => {
     const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
     const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
@@ -113,6 +130,22 @@ describe('operator trip bookings', () => {
     expect(text).toContain('BB-2002');
     expect(text).not.toContain('BB-1001');
     expect(text).toContain('does not support server-side search');
+  });
+
+  it('searches boarding rows by passenger name on the client', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed, cancelled]);
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Boarding view');
+    fixture.componentInstance.searchQuery = 'Asha Rao';
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Asha Rao');
+    expect(text).not.toContain('Ravi Kumar');
   });
 
   it('filters loaded bookings by status on the client', async () => {
@@ -154,6 +187,129 @@ describe('operator trip bookings', () => {
     expect(text).toContain('CONFIRMED');
     expect(text).not.toContain('Check-in');
     expect(text).not.toContain('Payment provider');
+  });
+
+  it('loads the boarding view from returned operator booking items', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed, cancelled]);
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Boarding view');
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Asha Rao');
+    expect(text).toContain('U1');
+    expect(text).toContain('Visakhapatnam');
+    expect(text).toContain('Hyderabad');
+    expect(text).toContain('BB-1001');
+    expect(text).toContain('CONFIRMED');
+    expect(text).toContain('Confirmed booking');
+    expect(text).toContain('Ticket status is not available in the operator booking data.');
+    expect(text).not.toContain('CHECKED_IN');
+    expect(text).not.toContain('BOARDED');
+    expect(text).not.toContain('NO_SHOW');
+    expect(text).not.toContain('Check-in');
+  });
+
+  it('distinguishes confirmed bookings from pending bookings without inventing boarding state', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [
+      confirmed,
+      operatorPendingPaymentBookingFixture()
+    ]);
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Boarding view');
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('CONFIRMED');
+    expect(text).toContain('Confirmed booking');
+    expect(text).toContain('PENDING_PAYMENT');
+    expect(text).toContain('Not confirmed');
+    expect(text).toContain('Kiran Shah');
+    expect(text).not.toContain('Boarded');
+  });
+
+  it('filters boarding rows by origin segment on the client', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', operatorSharedSeatSegmentBookings());
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Boarding view');
+    fixture.componentInstance.originFilter = '1:Hyderabad';
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Passenger A');
+    expect(text).toContain('Hyderabad');
+    expect(text).not.toContain('Passenger B');
+  });
+
+  it('filters passenger rows by booking item status on the client', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed, cancelled]);
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Passenger manifest');
+    fixture.componentInstance.itemStatusFilter = 'ACTIVE';
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Asha Rao');
+    expect(text).not.toContain('Ravi Kumar');
+  });
+
+  it('shows the same physical seat as separate journey segments', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', operatorSharedSeatSegmentBookings());
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Boarding view');
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Seat R2');
+    expect(text).toContain('Passenger A');
+    expect(text).toContain('Passenger B');
+    expect(text).toContain('Hyderabad');
+    expect(text).toContain('Vijayawada');
+    expect(text).toContain('Guntur');
+    expect(text).toContain('BB-4001');
+    expect(text).toContain('BB-4002');
+    expect(text).toContain('Seq 1 → 2');
+    expect(text).toContain('Seq 2 → 3');
+    expect(text).toContain('same physical seat can appear more than once');
+    expect(text).not.toContain('occupied by both');
+  });
+
+  it('keeps operator admin boarding access read-only', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' }, true);
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed]);
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Boarding view');
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('Asha Rao');
+    expect(text).toContain('BB-1001');
+    expect(text).not.toContain('Check-in');
+    expect(text).not.toContain('Board passenger');
+    expect(text).not.toContain('Cancel booking');
   });
 
   it('renders booking detail passengers, seats, and status without payment fields', async () => {
@@ -289,6 +445,7 @@ describe('operator trip bookings', () => {
     expect(text).toContain('read-only booking access');
     expect(text).toContain('View booking');
     expect(text).toContain('Passenger manifest');
+    expect(text).toContain('Boarding view');
     expect(text).not.toContain('Check-in');
     expect(text).not.toContain('Cancel booking');
     expect(text).not.toContain('Refund');
