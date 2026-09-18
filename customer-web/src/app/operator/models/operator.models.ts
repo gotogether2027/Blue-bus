@@ -10,6 +10,7 @@ import {
 export type OperatorRole = 'OPERATOR_ADMIN' | 'OPERATOR_STAFF';
 export type OperatorStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'INACTIVE';
 export type OperatorBusStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
+export type OperatorSeatLayoutStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 export type OperatorStopKind = 'SOURCE' | 'INTERMEDIATE' | 'DESTINATION';
 export type OperatorTripStopStatus = 'ACTIVE' | 'SKIPPED' | 'CANCELLED';
 
@@ -36,6 +37,48 @@ export interface OperatorBus {
   registrationNumber: string;
   displayName: string | null;
   status: OperatorBusStatus;
+}
+
+export interface OperatorBusType {
+  id: string;
+  code: string;
+  displayName: string;
+  active: boolean;
+}
+
+export interface OperatorSeatLayoutSeat {
+  id: string;
+  seatNumber: string;
+  deckNumber: number;
+  rowNumber: number;
+  columnNumber: number;
+  seatType: string;
+  sellable: boolean;
+}
+
+export interface OperatorSeatLayout {
+  id: string;
+  operatorId: string;
+  name: string;
+  version: number;
+  deckCount: number;
+  rowCount: number;
+  columnCount: number;
+  status: OperatorSeatLayoutStatus;
+  seats: OperatorSeatLayoutSeat[];
+}
+
+export interface CreateOperatorBusRequest {
+  busTypeId: string;
+  seatLayoutId: string;
+  registrationNumber: string;
+  displayName?: string;
+}
+
+export interface UpdateOperatorBusRequest {
+  displayName?: string;
+  busTypeId?: string;
+  seatLayoutId?: string;
 }
 
 export interface OperatorTripPoint {

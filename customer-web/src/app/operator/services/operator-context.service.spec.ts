@@ -41,6 +41,7 @@ describe('OperatorContextService', () => {
 
     expect(context.selectedOperatorId()).toBe(membership.operatorId);
     expect(context.currentMembership()).toEqual(membership);
+    expect(context.canManageOperator()).toBeTrue();
     expect(context.hasMultipleMemberships()).toBeFalse();
   });
 
@@ -61,6 +62,7 @@ describe('OperatorContextService', () => {
     expect(context.selectOperator('not-a-membership')).toBeFalse();
     expect(context.selectOperator(second.operatorId)).toBeTrue();
     expect(context.currentMembership()).toEqual(second);
+    expect(context.canManageOperator()).toBeFalse();
   });
 
   it('clears a stale selection when refreshed memberships no longer contain it', () => {

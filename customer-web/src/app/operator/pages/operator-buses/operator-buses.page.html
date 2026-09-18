@@ -3,9 +3,27 @@
     <div>
       <p class="eyebrow">Fleet</p>
       <h1>Buses</h1>
-      <p class="muted">Read-only fleet information for the current operator.</p>
+      <p class="muted">
+        {{ context.canManageOperator()
+          ? 'Manage buses and their operational lifecycle.'
+          : 'Review fleet information. Your operator staff access is read-only.' }}
+      </p>
     </div>
+    @if (context.canManageOperator()) {
+      <a
+        class="btn btn-primary"
+        [routerLink]="['/operator', selectedOperatorId, 'buses', 'new']"
+      >
+        Create bus
+      </a>
+    }
   </header>
+
+  @if (writeAccessDenied) {
+    <div class="operator-alert operator-alert-danger" role="alert">
+      Operator admin access is required to manage buses.
+    </div>
+  }
 
   @if (loading) {
     <div class="operator-card-grid" aria-label="Loading buses">
@@ -22,14 +40,46 @@
     <app-empty-state
       title="No buses"
       message="No buses are available in this operator workspace."
-    />
-  } @else {
-    <div class="operator-card-grid">
-      @for (bus of buses; track bus.id) {
+    >
+      @if (context.canManageOperator()) {
         <a
-          class="card operator-resource-card"
-          [routerLink]="['/operator', bus.operatorId, 'buses', bus.id]"
+          class="btn btn-primary"
+          [routerLink]="['/operator', selectedOperatorId, 'buses', 'new']"
         >
+          Create the first bus
+        </a>
+      }
+    </app-empty-state>
+  } @else {
+    <section class="card operator-filter-bar" aria-label="Filter buses">
+      <label class="field">
+        <span>Search buses</span>
+        <input
+          type="search"
+          [(ngModel)]="searchQuery"
+          placeholder="Registration, name, type, or layout"
+        />
+      </label>
+      <label class="field">
+        <span>Status</span>
+        <select [(ngModel)]="statusFilter">
+          <option value="ALL">All statuses</option>
+          @for (status of statusOptions; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </label>
+    </section>
+
+    @if (filteredBuses.length === 0) {
+      <app-empty-state
+        title="No matching buses"
+        message="Change the search text or status filter to see more buses."
+      />
+    } @else {
+      <div class="operator-card-grid">
+        @for (bus of filteredBuses; track bus.id) {
+          <article class="card operator-resource-card">
           <div class="operator-section-head">
             <span>
               <strong>{{ bus.displayName || bus.registrationNumber }}</strong>
@@ -39,16 +89,26 @@
           </div>
           <dl class="operator-detail-list operator-detail-list-compact">
             <div>
-              <dt>Bus type reference</dt>
-              <dd><code>{{ bus.busTypeId }}</code></dd>
+              <dt>Bus type</dt>
+              <dd>{{ busTypeLabel(bus.busTypeId) }}</dd>
             </div>
             <div>
-              <dt>Seat layout reference</dt>
-              <dd><code>{{ bus.seatLayoutId }}</code></dd>
+              <dt>Seat layout</dt>
+              <dd>{{ seatLayoutLabel(bus.seatLayoutId) }}</dd>
             </div>
           </dl>
-        </a>
-      }
-    </div>
+          <div class="operator-page-actions">
+            <a
+              class="btn"
+              [attr.aria-label]="'View bus ' + bus.registrationNumber"
+              [routerLink]="['/operator', selectedOperatorId, 'buses', bus.id]"
+            >
+              View bus
+            </a>
+          </div>
+          </article>
+        }
+      </div>
+    }
   }
 </section>

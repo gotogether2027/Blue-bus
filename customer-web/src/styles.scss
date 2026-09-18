@@ -149,8 +149,26 @@ input, select {
 .operator-page-actions, .operator-badge-row {
   display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
 }
-.operator-alert { border-radius: 10px; padding: 0.8rem 1rem; font-weight: 600; }
+.operator-alert { display: grid; gap: 0.2rem; border-radius: 10px; padding: 0.8rem 1rem; font-weight: 600; }
 .operator-alert-danger { color: var(--bb-danger); background: #fde8e6; border: 1px solid #f7b7b2; }
+.operator-alert-success { color: #087443; background: #e8f6ee; border: 1px solid #a6dfbd; }
+.operator-alert-info { color: var(--bb-info); background: #e7f0fb; border: 1px solid #b7d0ef; }
+.operator-form { display: grid; gap: 1.25rem; }
+.operator-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.operator-filter-bar {
+  display: grid; grid-template-columns: minmax(220px, 2fr) minmax(180px, 1fr); gap: 1rem;
+  align-items: end;
+}
+.operator-action-card { display: grid; gap: 1rem; }
+.field-hint { color: var(--bb-muted); line-height: 1.35; }
+.operator-form input.ng-invalid.ng-touched,
+.operator-form select.ng-invalid.ng-touched { border-color: var(--bb-danger); }
+.operator-dialog-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  display: grid; place-items: center; padding: 1rem;
+  background: rgba(8, 47, 85, 0.58);
+}
+.operator-dialog { display: grid; gap: 1.25rem; width: min(480px, 100%); }
 .operator-selector-grid, .operator-card-grid, .operator-metric-grid, .operator-content-grid {
   display: grid; gap: 1rem;
 }
@@ -188,6 +206,7 @@ input, select {
 }
 .operator-detail-list dt { color: var(--bb-muted); }
 .operator-detail-list dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.operator-detail-list dd > small { display: block; margin-top: 0.2rem; color: var(--bb-muted); }
 .operator-detail-list-compact > div { grid-template-columns: 1fr; gap: 0.2rem; }
 .operator-trip-row, .operator-booking-row {
   display: grid; gap: 1rem; color: var(--bb-text); min-width: 0;
@@ -249,6 +268,7 @@ input, select {
   .operator-switcher select { width: 100%; }
   .operator-trip-times { grid-template-columns: 1fr; }
   .operator-detail-list > div { grid-template-columns: 1fr; gap: 0.2rem; }
+  .operator-form-grid, .operator-filter-bar { grid-template-columns: 1fr; }
   .operator-manifest article { grid-template-columns: 1fr auto; }
   .operator-manifest article > div:first-child { grid-column: 1 / -1; }
   .operator-access-nav .nav-user { display: none; }

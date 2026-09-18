@@ -130,6 +130,48 @@ class OperatorBusAdminPostgresIntegrationTest {
     }
 
     @Test
+    void operatorMembersCanListOnlyActiveBusTypeReferenceData() throws Exception {
+        IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser staffUser = tokens.issueCustomer();
+        tokens.attachMembership(admin.operator(), staffUser.user(), RoleCode.OPERATOR_STAFF);
+        IssuedUser staffToken = tokens.issueToken(staffUser.user(), List.of("CUSTOMER"));
+        IssuedOperatorMember other = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+
+        String activeCode = "REF_" + shortId();
+        UUID activeTypeId = createBusType(activeCode, "Reference Type");
+        UUID inactiveTypeId = createBusType("REF_OFF_" + shortId(), "Inactive Reference Type");
+        mockMvc.perform(post("/api/v1/admin/bus-types/{id}/deactivate", inactiveTypeId)
+                        .with(bearer(platformAdminToken)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/operator/{operatorId}/bus-types", admin.operator().getId())
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id=='%s' && @.code=='%s')]"
+                        .formatted(activeTypeId, activeCode)).exists())
+                .andExpect(jsonPath("$[?(@.id=='%s' && @.displayName=='Reference Type')]"
+                        .formatted(activeTypeId)).exists())
+                .andExpect(jsonPath("$[?(@.id=='%s' && @.active==true)]"
+                        .formatted(activeTypeId)).exists())
+                .andExpect(jsonPath("$[?(@.id=='%s')]".formatted(inactiveTypeId)).isEmpty());
+
+        mockMvc.perform(get("/api/v1/operator/{operatorId}/bus-types", admin.operator().getId())
+                        .with(bearer(staffToken.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.id=='%s')]".formatted(activeTypeId)).exists());
+
+        mockMvc.perform(get("/api/v1/operator/{operatorId}/bus-types", admin.operator().getId())
+                        .with(bearer(other.accessToken())))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/v1/operator/{operatorId}/bus-types", admin.operator().getId())
+                        .with(anonymous()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void authorizationBoundariesAreEnforced() throws Exception {
         IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
                 RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));

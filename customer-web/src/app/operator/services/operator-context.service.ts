@@ -24,6 +24,9 @@ export class OperatorContextService {
       ) ?? null
     );
   });
+  readonly canManageOperator = computed(
+    () => this.currentMembership()?.role === 'OPERATOR_ADMIN'
+  );
   readonly hasMultipleMemberships = computed(() => this.membershipsState().length > 1);
 
   loadMemberships(force = false): Observable<OperatorMembership[]> {

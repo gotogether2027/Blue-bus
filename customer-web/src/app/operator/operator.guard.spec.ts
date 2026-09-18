@@ -5,13 +5,16 @@ import { Router, UrlTree, convertToParamMap, provideRouter } from '@angular/rout
 import { Observable, firstValueFrom, of, throwError } from 'rxjs';
 import { AuthService } from '../core/auth/auth.service';
 import { operatorMembershipFixture } from '../../testing/operator-fixtures';
-import { operatorMembershipGuard } from './operator.guard';
+import { operatorAdminGuard, operatorMembershipGuard } from './operator.guard';
 import { OperatorContextService } from './services/operator-context.service';
 
 describe('operatorMembershipGuard', () => {
   const membership = operatorMembershipFixture();
   let memberships$: Observable<ReturnType<typeof operatorMembershipFixture>[]>;
   let selectOperator: jasmine.Spy<(operatorId: string) => boolean>;
+  let membershipFor: jasmine.Spy<
+    (operatorId: string) => ReturnType<typeof operatorMembershipFixture> | null
+  >;
   let clearSession: jasmine.Spy<() => void>;
   const selectedOperatorId = signal<string | null>(null);
 
@@ -22,6 +25,7 @@ describe('operatorMembershipGuard', () => {
       selectedOperatorId.set(operatorId);
       return true;
     });
+    membershipFor = jasmine.createSpy('membershipFor').and.returnValue(membership);
     clearSession = jasmine.createSpy('clearSession');
     TestBed.configureTestingModule({
       providers: [
@@ -31,7 +35,8 @@ describe('operatorMembershipGuard', () => {
           useValue: {
             loadMemberships: () => memberships$,
             selectedOperatorId: selectedOperatorId.asReadonly(),
-            selectOperator
+            selectOperator,
+            membershipFor
           }
         },
         {
@@ -90,6 +95,21 @@ describe('operatorMembershipGuard', () => {
     );
   });
 
+  it('allows operator admins into bus mutation routes', () => {
+    expect(runAdminGuard('operator-1')).toBeTrue();
+  });
+
+  it('redirects operator staff away from bus mutation routes', () => {
+    membershipFor.and.returnValue(operatorMembershipFixture({ role: 'OPERATOR_STAFF' }));
+    const router = TestBed.inject(Router);
+
+    expect(runAdminGuard('operator-1')).toEqual(
+      router.createUrlTree(['/operator', 'operator-1', 'buses'], {
+        queryParams: { writeAccessDenied: 'true' }
+      })
+    );
+  });
+
   async function runGuard(operatorId: string, url: string): Promise<boolean | UrlTree> {
     const result = TestBed.runInInjectionContext(() =>
       operatorMembershipGuard(
@@ -98,5 +118,17 @@ describe('operatorMembershipGuard', () => {
       )
     );
     return firstValueFrom(result as Observable<boolean | UrlTree>);
+  }
+
+  function runAdminGuard(operatorId: string): boolean | UrlTree {
+    return TestBed.runInInjectionContext(() =>
+      operatorAdminGuard(
+        {
+          paramMap: convertToParamMap({}),
+          parent: { paramMap: convertToParamMap({ operatorId }), parent: null }
+        } as never,
+        { url: `/operator/${operatorId}/buses/new` } as never
+      )
+    ) as boolean | UrlTree;
   }
 });

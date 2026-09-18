@@ -10,6 +10,8 @@ import { environment } from '../../../environments/environment';
 import {
   operatorBookingFixture,
   operatorBusFixture,
+  operatorBusTypeFixture,
+  operatorSeatLayoutFixture,
   operatorTripFixture
 } from '../../../testing/operator-fixtures';
 import { AuthService } from '../../core/auth/auth.service';
@@ -23,10 +25,12 @@ import { OperatorTripsPageComponent } from './operator-trips/operator-trips.page
 describe('operator resource pages', () => {
   let http: HttpTestingController;
   const selectedOperatorId = signal<string | null>('operator-1');
+  const canManageOperator = signal(true);
   const base = `${environment.apiBaseUrl}/operator/operator-1`;
 
   beforeEach(async () => {
     selectedOperatorId.set('operator-1');
+    canManageOperator.set(true);
     await TestBed.configureTestingModule({
       imports: [
         OperatorBusesPageComponent,
@@ -41,7 +45,10 @@ describe('operator resource pages', () => {
         provideHttpClientTesting(),
         {
           provide: OperatorContextService,
-          useValue: { selectedOperatorId: selectedOperatorId.asReadonly() }
+          useValue: {
+            selectedOperatorId: selectedOperatorId.asReadonly(),
+            canManageOperator: canManageOperator.asReadonly()
+          }
         },
         {
           provide: AuthService,
@@ -55,7 +62,8 @@ describe('operator resource pages', () => {
                 busId: 'bus-1',
                 tripId: 'trip-1',
                 bookingId: 'booking-1'
-              })
+              }),
+              queryParamMap: convertToParamMap({})
             }
           }
         }
@@ -70,12 +78,16 @@ describe('operator resource pages', () => {
     const fixture = TestBed.createComponent(OperatorBusesPageComponent);
     fixture.detectChanges();
     http.expectOne(`${base}/buses`).flush([operatorBusFixture()]);
+    http.expectOne(`${base}/bus-types`).flush([operatorBusTypeFixture()]);
+    http
+      .expectOne((request) => request.url === `${base}/seat-layouts`)
+      .flush([operatorSeatLayoutFixture()]);
     fixture.detectChanges();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Coastal Sleeper');
     expect(text).toContain('AP31AB1234');
-    expect(text).toContain('layout-1');
+    expect(text).toContain('Sleeper 2+1');
   });
 
   it('loads and renders trips with bus data', () => {
@@ -108,6 +120,10 @@ describe('operator resource pages', () => {
   it('shows the required operator message for a backend 403', () => {
     const fixture = TestBed.createComponent(OperatorBusesPageComponent);
     fixture.detectChanges();
+    http.expectOne(`${base}/bus-types`).flush([operatorBusTypeFixture()]);
+    http
+      .expectOne((request) => request.url === `${base}/seat-layouts`)
+      .flush([operatorSeatLayoutFixture()]);
     http
       .expectOne(`${base}/buses`)
       .flush({}, { status: 403, statusText: 'Forbidden' });
@@ -120,6 +136,10 @@ describe('operator resource pages', () => {
   it('shows a resource-not-found state for a backend 404', () => {
     const fixture = TestBed.createComponent(OperatorBusDetailPageComponent);
     fixture.detectChanges();
+    http.expectOne(`${base}/bus-types`).flush([operatorBusTypeFixture()]);
+    http
+      .expectOne((request) => request.url === `${base}/seat-layouts`)
+      .flush([operatorSeatLayoutFixture()]);
     http
       .expectOne(`${base}/buses/bus-1`)
       .flush({}, { status: 404, statusText: 'Not Found' });

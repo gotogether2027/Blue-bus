@@ -1,8 +1,10 @@
 import {
   OperatorBooking,
   OperatorBus,
+  OperatorBusType,
   OperatorMembership,
   OperatorProfile,
+  OperatorSeatLayout,
   OperatorTrip
 } from '../app/operator/models/operator.models';
 
@@ -35,6 +37,31 @@ export const operatorBusFixture = (overrides: Partial<OperatorBus> = {}): Operat
   registrationNumber: 'AP31AB1234',
   displayName: 'Coastal Sleeper',
   status: 'ACTIVE',
+  ...overrides
+});
+
+export const operatorBusTypeFixture = (
+  overrides: Partial<OperatorBusType> = {}
+): OperatorBusType => ({
+  id: 'bus-type-1',
+  code: 'AC_SLEEPER',
+  displayName: 'AC Sleeper',
+  active: true,
+  ...overrides
+});
+
+export const operatorSeatLayoutFixture = (
+  overrides: Partial<OperatorSeatLayout> = {}
+): OperatorSeatLayout => ({
+  id: 'layout-1',
+  operatorId: 'operator-1',
+  name: 'Sleeper 2+1',
+  version: 1,
+  deckCount: 1,
+  rowCount: 10,
+  columnCount: 3,
+  status: 'PUBLISHED',
+  seats: [],
   ...overrides
 });
 

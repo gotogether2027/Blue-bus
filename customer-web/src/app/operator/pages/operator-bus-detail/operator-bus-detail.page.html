@@ -19,18 +19,64 @@
         <h1>{{ busDetail.displayName || busDetail.registrationNumber }}</h1>
         <p class="muted">{{ busDetail.registrationNumber }}</p>
       </div>
-      <app-status-badge
-        [label]="busDetail.status"
-        [tone]="statusTone(busDetail.status)"
-      />
+      <div class="operator-page-actions">
+        <app-status-badge
+          [label]="busDetail.status"
+          [tone]="statusTone(busDetail.status)"
+        />
+        @if (context.canManageOperator()) {
+          <a
+            class="btn"
+            [routerLink]="['/operator', context.selectedOperatorId(), 'buses', busDetail.id, 'edit']"
+          >
+            Edit bus
+          </a>
+        }
+      </div>
     </header>
 
+    @if (successMessage) {
+      <div class="operator-alert operator-alert-success" role="status">
+        {{ successMessage }}
+      </div>
+    }
+
+    @if (actionError) {
+      <div class="operator-alert operator-alert-danger" role="alert">
+        <strong>{{ actionError.title }}</strong>
+        <span>{{ actionError.message }}</span>
+      </div>
+    }
+
     <section class="card">
-      <h2>Fleet references</h2>
-      <p class="muted">
-        The current operator API returns identifiers for bus type and seat layout.
-      </p>
+      <h2>Bus information</h2>
       <dl class="operator-detail-list">
+        <div>
+          <dt>Registration number</dt>
+          <dd>{{ busDetail.registrationNumber }}</dd>
+        </div>
+        <div>
+          <dt>Display name</dt>
+          <dd>{{ busDetail.displayName || 'Not set' }}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{{ busDetail.status }}</dd>
+        </div>
+        <div>
+          <dt>Bus type</dt>
+          <dd>
+            {{ busTypeLabel(busDetail.busTypeId) }}
+            <small><code>{{ busDetail.busTypeId }}</code></small>
+          </dd>
+        </div>
+        <div>
+          <dt>Seat layout</dt>
+          <dd>
+            {{ seatLayoutLabel(busDetail.seatLayoutId) }}
+            <small><code>{{ busDetail.seatLayoutId }}</code></small>
+          </dd>
+        </div>
         <div>
           <dt>Bus reference</dt>
           <dd><code>{{ busDetail.id }}</code></dd>
@@ -39,16 +85,82 @@
           <dt>Operator reference</dt>
           <dd><code>{{ busDetail.operatorId }}</code></dd>
         </div>
-        <div>
-          <dt>Bus type reference</dt>
-          <dd><code>{{ busDetail.busTypeId }}</code></dd>
-        </div>
-        <div>
-          <dt>Seat layout reference</dt>
-          <dd><code>{{ busDetail.seatLayoutId }}</code></dd>
-        </div>
       </dl>
     </section>
+
+    @if (context.canManageOperator()) {
+      <section class="card operator-action-card">
+        <div>
+          <h2>Lifecycle</h2>
+          <p class="muted">
+            Status changes do not alter existing trips. Only ACTIVE buses can be assigned to new
+            trips.
+          </p>
+        </div>
+        <div class="operator-page-actions">
+          @if (busDetail.status !== 'ACTIVE') {
+            <button type="button" class="btn btn-primary" (click)="requestLifecycle('activate')">
+              Activate bus
+            </button>
+          }
+          @if (busDetail.status !== 'MAINTENANCE') {
+            <button type="button" class="btn" (click)="requestLifecycle('maintenance')">
+              Mark as maintenance
+            </button>
+          }
+          @if (busDetail.status !== 'INACTIVE') {
+            <button type="button" class="btn btn-danger" (click)="requestLifecycle('deactivate')">
+              Deactivate bus
+            </button>
+          }
+        </div>
+      </section>
+    } @else {
+      <div class="operator-alert operator-alert-info" role="note">
+        Your OPERATOR_STAFF membership provides read-only bus access.
+      </div>
+    }
     }
   }
 </section>
+
+@if (pendingLifecycleAction; as action) {
+  <div class="operator-dialog-backdrop" (click)="cancelLifecycle()">
+    <section
+      class="card operator-dialog"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      [attr.aria-busy]="lifecycleSubmitting"
+      aria-labelledby="lifecycle-dialog-title"
+      aria-describedby="lifecycle-dialog-message"
+      (click)="$event.stopPropagation()"
+    >
+      <div>
+        <p class="eyebrow">Confirm status change</p>
+        <h2 id="lifecycle-dialog-title">{{ lifecycleActionLabel(action) }}</h2>
+        <p id="lifecycle-dialog-message">{{ lifecycleConfirmationMessage(action) }}</p>
+      </div>
+      <div class="operator-page-actions">
+        <button
+          type="button"
+          class="btn"
+          [disabled]="lifecycleSubmitting"
+          (click)="cancelLifecycle()"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-danger]="action !== 'activate'"
+          [class.btn-primary]="action === 'activate'"
+          [disabled]="lifecycleSubmitting"
+          (click)="confirmLifecycle()"
+        >
+          {{ lifecycleSubmitting ? 'Applying change…' : lifecycleActionLabel(action) }}
+        </button>
+      </div>
+    </section>
+  </div>
+}

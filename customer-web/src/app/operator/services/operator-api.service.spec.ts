@@ -8,8 +8,10 @@ import { environment } from '../../../environments/environment';
 import {
   operatorBookingFixture,
   operatorBusFixture,
+  operatorBusTypeFixture,
   operatorMembershipFixture,
   operatorProfileFixture,
+  operatorSeatLayoutFixture,
   operatorTripFixture
 } from '../../../testing/operator-fixtures';
 import { OperatorApiService } from './operator-api.service';
@@ -51,6 +53,68 @@ describe('OperatorApiService', () => {
     http
       .expectOne(`${environment.apiBaseUrl}/operator/operator-1/buses`)
       .flush([operatorBusFixture()]);
+  });
+
+  it('loads operator-safe active bus types and published seat layouts', () => {
+    service.listActiveBusTypes('operator-1').subscribe((result) => {
+      expect(result).toEqual([operatorBusTypeFixture()]);
+    });
+    const typesRequest = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/bus-types`
+    );
+    expect(typesRequest.request.method).toBe('GET');
+    typesRequest.flush([operatorBusTypeFixture()]);
+
+    service.listPublishedSeatLayouts('operator-1').subscribe((result) => {
+      expect(result).toEqual([operatorSeatLayoutFixture()]);
+    });
+    const layoutsRequest = http.expectOne(
+      (candidate) =>
+        candidate.url ===
+        `${environment.apiBaseUrl}/operator/operator-1/seat-layouts`
+    );
+    expect(layoutsRequest.request.method).toBe('GET');
+    expect(layoutsRequest.request.params.get('status')).toBe('PUBLISHED');
+    layoutsRequest.flush([operatorSeatLayoutFixture()]);
+  });
+
+  it('uses the exact operator bus mutation contracts', () => {
+    const createRequest = {
+      busTypeId: 'bus-type-1',
+      seatLayoutId: 'layout-1',
+      registrationNumber: 'AP31AB1234',
+      displayName: 'Coastal Sleeper'
+    };
+    service.createBus('operator-1', createRequest).subscribe();
+    const create = http.expectOne(`${environment.apiBaseUrl}/operator/operator-1/buses`);
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body).toEqual(createRequest);
+    create.flush(operatorBusFixture());
+
+    service
+      .updateBus('operator-1', 'bus-1', { displayName: 'Night Rider' })
+      .subscribe();
+    const update = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/buses/bus-1`
+    );
+    expect(update.request.method).toBe('PATCH');
+    expect(update.request.body).toEqual({ displayName: 'Night Rider' });
+    update.flush(operatorBusFixture({ displayName: 'Night Rider' }));
+
+    const lifecycleCases = [
+      ['activate', () => service.activateBus('operator-1', 'bus-1')],
+      ['deactivate', () => service.deactivateBus('operator-1', 'bus-1')],
+      ['maintenance', () => service.markBusMaintenance('operator-1', 'bus-1')]
+    ] as const;
+    for (const [action, invoke] of lifecycleCases) {
+      invoke().subscribe();
+      const lifecycle = http.expectOne(
+        `${environment.apiBaseUrl}/operator/operator-1/buses/bus-1/${action}`
+      );
+      expect(lifecycle.request.method).toBe('POST');
+      expect(lifecycle.request.body).toBeNull();
+      lifecycle.flush(operatorBusFixture());
+    }
   });
 
   it('forwards only supported trip filters', () => {

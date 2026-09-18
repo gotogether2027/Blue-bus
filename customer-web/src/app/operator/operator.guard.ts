@@ -1,6 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { CanActivateFn, Router } from '@angular/router';
+import { ActivatedRouteSnapshot, CanActivateFn, Router } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
 import { AuthService } from '../core/auth/auth.service';
 import { OperatorContextService } from './services/operator-context.service';
@@ -58,7 +58,39 @@ export const operatorMembershipGuard: CanActivateFn = (route, state) => {
   );
 };
 
+/**
+ * Hides operator mutations from read-only members after the parent membership
+ * guard has refreshed context. The backend remains authoritative for every write.
+ */
+export const operatorAdminGuard: CanActivateFn = (route) => {
+  const context = inject(OperatorContextService);
+  const router = inject(Router);
+  const operatorId = findRouteParam(route, 'operatorId');
+
+  if (!operatorId) {
+    return router.createUrlTree(['/operator']);
+  }
+  if (context.membershipFor(operatorId)?.role === 'OPERATOR_ADMIN') {
+    return true;
+  }
+  return router.createUrlTree(['/operator', operatorId, 'buses'], {
+    queryParams: { writeAccessDenied: 'true' }
+  });
+};
+
 function isOperatorRootUrl(url: string, operatorId: string): boolean {
   const path = url.split(/[?#]/, 1)[0].replace(/\/+$/, '');
   return path === `/operator/${operatorId}`;
+}
+
+function findRouteParam(route: ActivatedRouteSnapshot, name: string): string | null {
+  let current: ActivatedRouteSnapshot | null = route;
+  while (current) {
+    const value = current.paramMap.get(name);
+    if (value) {
+      return value;
+    }
+    current = current.parent;
+  }
+  return null;
 }

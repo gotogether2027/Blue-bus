@@ -1,0 +1,140 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    <a class="back" [routerLink]="['/operator', operatorId, 'buses']">← Back to buses</a>
+  }
+
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Fleet management</p>
+      <h1>Create bus</h1>
+      <p class="muted">Add a bus using active fleet reference data.</p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading bus form"></div>
+  } @else if (pageError) {
+    <app-empty-state [title]="pageError.title" [message]="pageError.message">
+      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
+        <button type="button" class="btn btn-primary" (click)="loadReferenceData()">
+          Try again
+        </button>
+      }
+    </app-empty-state>
+  } @else if (busTypes.length === 0) {
+    <app-empty-state
+      title="No active bus types"
+      message="A platform administrator must activate a bus type before a bus can be created."
+    />
+  } @else if (seatLayouts.length === 0) {
+    <app-empty-state
+      title="No published seat layouts"
+      message="Publish an eligible seat layout for this operator before creating a bus."
+    />
+  } @else {
+    <form class="card operator-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div>
+        <h2>Bus identity</h2>
+        <p class="muted">
+          The operator and registration number cannot be changed after creation.
+        </p>
+      </div>
+
+      <div class="operator-form-grid">
+        <label class="field">
+          <span>Registration number</span>
+          <input
+            type="text"
+            formControlName="registrationNumber"
+            autocomplete="off"
+            maxlength="30"
+            spellcheck="false"
+            [attr.aria-invalid]="
+              form.controls.registrationNumber.touched && form.controls.registrationNumber.invalid
+            "
+            aria-describedby="registration-help registration-error"
+          />
+          <small id="registration-help" class="field-hint">
+            4–30 letters, numbers, spaces, or hyphens. Uniqueness is checked when saved.
+          </small>
+          @if (form.controls.registrationNumber.touched && form.controls.registrationNumber.invalid) {
+            <small id="registration-error" class="field-error">
+              Enter a valid registration number.
+            </small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Display name <small>(optional)</small></span>
+          <input
+            type="text"
+            formControlName="displayName"
+            autocomplete="off"
+            maxlength="120"
+            [attr.aria-invalid]="form.controls.displayName.touched && form.controls.displayName.invalid"
+            aria-describedby="display-name-error"
+          />
+          @if (form.controls.displayName.touched && form.controls.displayName.invalid) {
+            <small id="display-name-error" class="field-error">
+              Display name must be 120 characters or fewer.
+            </small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Bus type</span>
+          <select
+            formControlName="busTypeId"
+            [attr.aria-invalid]="form.controls.busTypeId.touched && form.controls.busTypeId.invalid"
+            aria-describedby="bus-type-help bus-type-error"
+          >
+            <option value="">Select a bus type</option>
+            @for (busType of busTypes; track busType.id) {
+              <option [value]="busType.id">{{ busType.displayName }} ({{ busType.code }})</option>
+            }
+          </select>
+          <small id="bus-type-help" class="field-hint">Only active bus types are available.</small>
+          @if (form.controls.busTypeId.touched && form.controls.busTypeId.invalid) {
+            <small id="bus-type-error" class="field-error">Select a bus type.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Seat layout</span>
+          <select
+            formControlName="seatLayoutId"
+            [attr.aria-invalid]="form.controls.seatLayoutId.touched && form.controls.seatLayoutId.invalid"
+            aria-describedby="seat-layout-help seat-layout-error"
+          >
+            <option value="">Select a seat layout</option>
+            @for (layout of seatLayouts; track layout.id) {
+              <option [value]="layout.id">{{ layout.name }} · version {{ layout.version }}</option>
+            }
+          </select>
+          <small id="seat-layout-help" class="field-hint">
+            Only published layouts owned by this operator are available.
+          </small>
+          @if (form.controls.seatLayoutId.touched && form.controls.seatLayoutId.invalid) {
+            <small id="seat-layout-error" class="field-error">Select a seat layout.</small>
+          }
+        </label>
+      </div>
+
+      @if (actionError) {
+        <div class="operator-alert operator-alert-danger" role="alert">
+          <strong>{{ actionError.title }}</strong>
+          <span>{{ actionError.message }}</span>
+        </div>
+      }
+
+      <div class="operator-page-actions">
+        <button type="submit" class="btn btn-primary" [disabled]="submitting">
+          {{ submitting ? 'Creating bus…' : 'Create bus' }}
+        </button>
+        @if (context.selectedOperatorId(); as operatorId) {
+          <a class="btn" [routerLink]="['/operator', operatorId, 'buses']">Cancel</a>
+        }
+      </div>
+    </form>
+  }
+</section>

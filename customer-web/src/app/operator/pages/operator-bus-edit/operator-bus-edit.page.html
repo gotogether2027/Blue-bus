@@ -1,0 +1,131 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    @if (bus; as currentBus) {
+      <a class="back" [routerLink]="['/operator', operatorId, 'buses', currentBus.id]">
+        ← Back to bus detail
+      </a>
+    } @else {
+      <a class="back" [routerLink]="['/operator', operatorId, 'buses']">← Back to buses</a>
+    }
+  }
+
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Fleet management</p>
+      <h1>Edit bus</h1>
+      <p class="muted">Update only the fields supported by the operator bus API.</p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading bus form"></div>
+  } @else if (pageError) {
+    <app-empty-state [title]="pageError.title" [message]="pageError.message">
+      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (bus; as currentBus) {
+      <section class="card">
+        <h2>Immutable identity</h2>
+        <p class="muted">These values cannot be changed after the bus is created.</p>
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Registration number</dt>
+            <dd>{{ currentBus.registrationNumber }}</dd>
+          </div>
+          <div>
+            <dt>Operator reference</dt>
+            <dd><code>{{ currentBus.operatorId }}</code></dd>
+          </div>
+          <div>
+            <dt>Bus reference</dt>
+            <dd><code>{{ currentBus.id }}</code></dd>
+          </div>
+        </dl>
+      </section>
+
+      <form class="card operator-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+        <div>
+          <h2>Editable details</h2>
+          <p class="muted">Bus type and layout choices are limited to currently eligible records.</p>
+        </div>
+
+        <div class="operator-form-grid">
+          <label class="field">
+            <span>Display name <small>(optional)</small></span>
+            <input
+              type="text"
+              formControlName="displayName"
+              autocomplete="off"
+              maxlength="120"
+              [attr.aria-invalid]="
+                form.controls.displayName.touched && form.controls.displayName.invalid
+              "
+              aria-describedby="edit-display-name-error"
+            />
+            @if (form.controls.displayName.touched && form.controls.displayName.invalid) {
+              <small id="edit-display-name-error" class="field-error">
+                Display name must be 120 characters or fewer.
+              </small>
+            }
+          </label>
+
+          <label class="field">
+            <span>Bus type</span>
+            <select formControlName="busTypeId" aria-describedby="edit-bus-type-help">
+              @if (!hasActiveBusType(currentBus.busTypeId)) {
+                <option [value]="currentBus.busTypeId" disabled>
+                  Current bus type (no longer active)
+                </option>
+              }
+              @for (busType of busTypes; track busType.id) {
+                <option [value]="busType.id">{{ busType.displayName }} ({{ busType.code }})</option>
+              }
+            </select>
+            <small id="edit-bus-type-help" class="field-hint">
+              A replacement must be an active bus type.
+            </small>
+          </label>
+
+          <label class="field">
+            <span>Seat layout</span>
+            <select formControlName="seatLayoutId" aria-describedby="edit-seat-layout-help">
+              @if (!hasPublishedSeatLayout(currentBus.seatLayoutId)) {
+                <option [value]="currentBus.seatLayoutId" disabled>
+                  Current seat layout (no longer published)
+                </option>
+              }
+              @for (layout of seatLayouts; track layout.id) {
+                <option [value]="layout.id">{{ layout.name }} · version {{ layout.version }}</option>
+              }
+            </select>
+            <small id="edit-seat-layout-help" class="field-hint">
+              A replacement must be this operator’s published layout. The backend rejects layout
+              changes after any trip exists for this bus.
+            </small>
+          </label>
+        </div>
+
+        @if (actionError) {
+          <div class="operator-alert operator-alert-danger" role="alert">
+            <strong>{{ actionError.title }}</strong>
+            <span>{{ actionError.message }}</span>
+          </div>
+        }
+
+        <div class="operator-page-actions">
+          <button type="submit" class="btn btn-primary" [disabled]="submitting">
+            {{ submitting ? 'Saving changes…' : 'Save changes' }}
+          </button>
+          @if (context.selectedOperatorId(); as operatorId) {
+            <a class="btn" [routerLink]="['/operator', operatorId, 'buses', currentBus.id]">
+              Cancel
+            </a>
+          }
+        </div>
+      </form>
+    }
+  }
+</section>

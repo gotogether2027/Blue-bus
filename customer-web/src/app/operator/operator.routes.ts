@@ -1,9 +1,11 @@
 import { Routes } from '@angular/router';
-import { operatorMembershipGuard } from './operator.guard';
+import { operatorAdminGuard, operatorMembershipGuard } from './operator.guard';
 import { OperatorAccessPageComponent } from './pages/operator-access/operator-access.page';
 import { OperatorBookingDetailPageComponent } from './pages/operator-booking-detail/operator-booking-detail.page';
 import { OperatorBookingsPageComponent } from './pages/operator-bookings/operator-bookings.page';
+import { OperatorBusCreatePageComponent } from './pages/operator-bus-create/operator-bus-create.page';
 import { OperatorBusDetailPageComponent } from './pages/operator-bus-detail/operator-bus-detail.page';
+import { OperatorBusEditPageComponent } from './pages/operator-bus-edit/operator-bus-edit.page';
 import { OperatorBusesPageComponent } from './pages/operator-buses/operator-buses.page';
 import { OperatorDashboardPageComponent } from './pages/operator-dashboard/operator-dashboard.page';
 import { OperatorShellComponent } from './pages/operator-shell/operator-shell.page';
@@ -34,6 +36,18 @@ export const OPERATOR_ROUTES: Routes = [
         pathMatch: 'full',
         component: OperatorBusesPageComponent,
         title: 'Operator buses · BLUE BUS'
+      },
+      {
+        path: 'buses/new',
+        component: OperatorBusCreatePageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Create bus · BLUE BUS'
+      },
+      {
+        path: 'buses/:busId/edit',
+        component: OperatorBusEditPageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Edit bus · BLUE BUS'
       },
       {
         path: 'buses/:busId',
