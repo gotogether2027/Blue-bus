@@ -46,9 +46,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -192,17 +195,10 @@ class RefreshTokenApiPostgresIntegrationTest {
                 java.sql.Timestamp.from(Instant.now().minusSeconds(60)),
                 sha256(decodeRefresh(refresh)));
 
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .with(anonymous())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(refreshBody(refresh)))
-                .andExpect(status().isUnauthorized());
+        expectGenericRefreshUnauthorized(refresh);
 
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .with(anonymous())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(refreshBody(Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32]))))
-                .andExpect(status().isUnauthorized());
+        String unknown = Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32]);
+        expectGenericRefreshUnauthorized(unknown);
 
         JsonNode again = login(CUSTOMER_EMAIL);
         String active = again.get("refreshToken").asText();
@@ -211,11 +207,15 @@ class RefreshTokenApiPostgresIntegrationTest {
                 java.sql.Timestamp.from(Instant.now()),
                 sha256(decodeRefresh(active)));
 
-        mockMvc.perform(post("/api/v1/auth/refresh")
-                        .with(anonymous())
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(refreshBody(active)))
-                .andExpect(status().isUnauthorized());
+        expectGenericRefreshUnauthorized(active);
+    }
+
+    @Test
+    void malformedRefreshTokenMatchesUnknownUnauthorizedEnvelope() throws Exception {
+        expectGenericRefreshUnauthorized("not-a-valid-refresh-token!!!");
+        expectGenericRefreshUnauthorized("%%%");
+        expectGenericRefreshUnauthorized(Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[8]));
+        expectGenericRefreshUnauthorized("header.payload.signature");
     }
 
     @Test
@@ -362,6 +362,16 @@ class RefreshTokenApiPostgresIntegrationTest {
         mockMvc.perform(post("/api/v1/auth/logout")
                         .with(anonymous())
                         .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshBody("not-a-valid-refresh-token!!!")))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshBody(Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[32]))))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshBody(a)))
                 .andExpect(status().isNoContent());
 
@@ -461,6 +471,23 @@ class RefreshTokenApiPostgresIntegrationTest {
                 .andExpect(jsonPath("$.refreshToken").isNotEmpty())
                 .andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
+    }
+
+    private void expectGenericRefreshUnauthorized(String refreshToken) throws Exception {
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .with(anonymous())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshBody(refreshToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Invalid credentials."))
+                .andExpect(jsonPath("$.path").value("/api/v1/auth/refresh"))
+                .andExpect(jsonPath("$.accessToken").doesNotExist())
+                .andExpect(jsonPath("$.refreshToken").doesNotExist())
+                .andExpect(content().string(not(containsString("malformed"))))
+                .andExpect(content().string(not(containsString("SHA-256"))))
+                .andExpect(content().string(not(containsString("tokenHash"))))
+                .andExpect(content().string(not(containsString(refreshToken))));
     }
 
     private static String refreshBody(String refreshToken) {

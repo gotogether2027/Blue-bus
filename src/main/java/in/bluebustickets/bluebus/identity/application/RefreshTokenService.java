@@ -96,7 +96,7 @@ public class RefreshTokenService {
                 return attempt.response();
             }
             throw unauthorized();
-        } catch (DataIntegrityViolationException exception) {
+        } catch (DataIntegrityViolationException | IllegalArgumentException exception) {
             throw unauthorized();
         }
     }

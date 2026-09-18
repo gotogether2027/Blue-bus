@@ -9,7 +9,7 @@ This repository contains the approved architecture documentation, a **modular-mo
 Implemented:
 
 - Phase 1 foundation: health API, security baseline, Flyway, error envelope
-- Identity: email/password login (JWT access + opaque refresh), customer registration, operator memberships
+- Identity: email/password login (JWT access + opaque refresh), customer registration, operator memberships. Logout revokes the refresh family only; access JWTs remain valid until their short TTL.
 - Operator supply: fleet, seat layouts, locations, routes/stops, scheduled trips, physical `trip_seat_inventory`
 - Customer booking: search, seat map, segment-aware holds, bookings, unpaid expiry, tickets
 - Payments: Razorpay Checkout, webhooks, refunds (local may leave `PAYMENT_PROVIDER=UNCONFIGURED`)

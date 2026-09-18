@@ -44,9 +44,12 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -162,15 +165,48 @@ class AuthApiPostgresIntegrationTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/v1/admin/locations")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer not-a-jwt"))
-                .andExpect(status().isUnauthorized());
+        expectGenericJwtUnauthorized("not-a-jwt");
 
-        String expired = expiredToken(UUID.fromString(
-                jwtDecoder.decode(token).getSubject()), ADMIN_EMAIL, List.of("ADMIN"));
-        mockMvc.perform(get("/api/v1/admin/locations")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + expired))
-                .andExpect(status().isUnauthorized());
+        UUID userId = UUID.fromString(jwtDecoder.decode(token).getSubject());
+        String expired = signedAccessToken(
+                environment.getProperty("blue-bus.security.jwt.secret"),
+                environment.getProperty("blue-bus.security.jwt.issuer"),
+                Instant.now().minusSeconds(3600),
+                userId,
+                ADMIN_EMAIL,
+                List.of("ADMIN"));
+        expectGenericJwtUnauthorized(expired);
+    }
+
+    @Test
+    void jwtRejectsWrongSecretWrongIssuerAndTamperedTokens() throws Exception {
+        String valid = loginToken(ADMIN_EMAIL, PASSWORD);
+        UUID userId = UUID.fromString(jwtDecoder.decode(valid).getSubject());
+        Instant future = Instant.now().plusSeconds(900);
+        String issuer = environment.getProperty("blue-bus.security.jwt.issuer");
+        String secret = environment.getProperty("blue-bus.security.jwt.secret");
+
+        String wrongSecret = signedAccessToken(
+                "different-hmac-secret-value-32b!!!",
+                issuer,
+                future,
+                userId,
+                ADMIN_EMAIL,
+                List.of("ADMIN"));
+        expectGenericJwtUnauthorized(wrongSecret);
+
+        String wrongIssuer = signedAccessToken(
+                secret,
+                "not-the-configured-issuer",
+                future,
+                userId,
+                ADMIN_EMAIL,
+                List.of("ADMIN"));
+        expectGenericJwtUnauthorized(wrongIssuer);
+
+        String tampered = tamperPayload(valid);
+        expectGenericJwtUnauthorized(tampered);
+        assertThat(tampered).isNotEqualTo(valid);
     }
 
     @Test
@@ -229,14 +265,41 @@ class AuthApiPostgresIntegrationTest {
         return objectMapper.readTree(result.getResponse().getContentAsString()).get("accessToken").asText();
     }
 
-    private String expiredToken(UUID userId, String email, List<String> roles) throws Exception {
+    private void expectGenericJwtUnauthorized(String token) throws Exception {
         String secret = environment.getProperty("blue-bus.security.jwt.secret");
-        Instant now = Instant.now();
+        mockMvc.perform(get("/api/v1/admin/locations")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.message").value("Authentication or authorization is required."))
+                .andExpect(jsonPath("$.accessToken").doesNotExist())
+                .andExpect(content().string(not(containsString("Invalid signature"))))
+                .andExpect(content().string(not(containsString("MAC"))))
+                .andExpect(content().string(not(containsString(secret))))
+                .andExpect(content().string(not(containsString(token))));
+    }
+
+    private static String tamperPayload(String jwt) {
+        String[] parts = jwt.split("\\.");
+        assertThat(parts).hasSize(3);
+        char[] payload = parts[1].toCharArray();
+        payload[payload.length - 1] = payload[payload.length - 1] == 'A' ? 'B' : 'A';
+        return parts[0] + "." + new String(payload) + "." + parts[2];
+    }
+
+    private String signedAccessToken(
+            String secret,
+            String issuer,
+            Instant expiresAt,
+            UUID userId,
+            String email,
+            List<String> roles) throws Exception {
+        Instant issuedAt = expiresAt.minusSeconds(60);
         JWTClaimsSet claims = new JWTClaimsSet.Builder()
-                .issuer(environment.getProperty("blue-bus.security.jwt.issuer"))
+                .issuer(issuer)
                 .subject(userId.toString())
-                .issueTime(java.util.Date.from(now.minusSeconds(7200)))
-                .expirationTime(java.util.Date.from(now.minusSeconds(3600)))
+                .issueTime(java.util.Date.from(issuedAt))
+                .expirationTime(java.util.Date.from(expiresAt))
                 .claim(JwtConfiguration.EMAIL_CLAIM, email)
                 .claim(JwtConfiguration.ROLES_CLAIM, roles)
                 .build();
