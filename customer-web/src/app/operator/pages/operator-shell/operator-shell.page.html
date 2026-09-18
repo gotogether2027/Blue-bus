@@ -54,6 +54,12 @@
         >
           Team
         </a>
+        <a
+          [routerLink]="['/operator', membership.operatorId, 'settings']"
+          routerLinkActive="active"
+        >
+          Settings
+        </a>
       }
       <a routerLink="/profile">Profile</a>
       <span class="nav-user">{{ auth.currentUser()?.firstName }}</span>

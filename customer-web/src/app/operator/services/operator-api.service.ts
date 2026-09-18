@@ -26,6 +26,7 @@ import {
   BlockOperatorTripSeatRequest,
   UpdateOperatorBusRequest,
   UpdateOperatorMemberRequest,
+  UpdateOperatorSupportContactRequest,
   UpdateOperatorTripRequest,
   UpdateOperatorRoutePointRequest,
   UpdateOperatorRouteRequest,
@@ -43,6 +44,13 @@ export class OperatorApiService {
 
   getOperator(operatorId: string): Observable<OperatorProfile> {
     return this.http.get<OperatorProfile>(`${this.operatorBase(operatorId)}`);
+  }
+
+  updateSupportContact(
+    operatorId: string,
+    request: UpdateOperatorSupportContactRequest
+  ): Observable<OperatorProfile> {
+    return this.http.patch<OperatorProfile>(`${this.operatorBase(operatorId)}`, request);
   }
 
   listMembers(operatorId: string): Observable<OperatorMember[]> {

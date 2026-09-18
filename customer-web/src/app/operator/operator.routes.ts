@@ -14,6 +14,7 @@ import { OperatorRouteDetailPageComponent } from './pages/operator-route-detail/
 import { OperatorRouteEditPageComponent } from './pages/operator-route-edit/operator-route-edit.page';
 import { OperatorRouteStopsPageComponent } from './pages/operator-route-stops/operator-route-stops.page';
 import { OperatorRoutesPageComponent } from './pages/operator-routes/operator-routes.page';
+import { OperatorSettingsPageComponent } from './pages/operator-settings/operator-settings.page';
 import { OperatorShellComponent } from './pages/operator-shell/operator-shell.page';
 import { OperatorTripCreatePageComponent } from './pages/operator-trip-create/operator-trip-create.page';
 import { OperatorTripDetailPageComponent } from './pages/operator-trip-detail/operator-trip-detail.page';
@@ -45,6 +46,12 @@ export const OPERATOR_ROUTES: Routes = [
         pathMatch: 'full',
         component: OperatorMembersPageComponent,
         title: 'Operator team · BLUE BUS'
+      },
+      {
+        path: 'settings',
+        pathMatch: 'full',
+        component: OperatorSettingsPageComponent,
+        title: 'Operator settings · BLUE BUS'
       },
       {
         path: 'buses',

@@ -1,0 +1,171 @@
+<section class="page operator-page">
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading operator settings"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else if (operator) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Workspace</p>
+        <h1>Settings</h1>
+        <p class="muted">
+          {{ context.canManageOperator()
+            ? 'Review this operator workspace and update support contact details.'
+            : 'Review this operator workspace. Your operator staff access is read-only.' }}
+        </p>
+      </div>
+      <div class="operator-badge-row">
+        <app-status-badge [label]="operator.status" [tone]="statusTone(operator.status)" />
+        @if (context.currentMembership(); as membership) {
+          <app-status-badge
+            [label]="roleLabel(membership.role)"
+            [tone]="statusTone(membership.role)"
+          />
+        }
+      </div>
+    </header>
+
+    @if (successMessage) {
+      <div class="operator-alert operator-alert-success" role="status">
+        {{ successMessage }}
+      </div>
+    }
+
+    @if (actionError) {
+      <div class="operator-alert operator-alert-danger" role="alert">
+        <strong>{{ actionError.title }}</strong>
+        <span>{{ actionError.message }}</span>
+      </div>
+    }
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Operator identity</p>
+          <h2>{{ operator.displayName }}</h2>
+        </div>
+      </div>
+      <dl class="operator-detail-list">
+        <div>
+          <dt>Display name</dt>
+          <dd>{{ operator.displayName }}</dd>
+        </div>
+        <div>
+          <dt>Legal name</dt>
+          <dd>{{ operator.legalName }}</dd>
+        </div>
+        <div>
+          <dt>Operator ID</dt>
+          <dd><code>{{ operator.id }}</code></dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{{ operator.status }}</dd>
+        </div>
+      </dl>
+      <p class="muted">
+        Legal name, display name, and operator status are not editable in this workspace.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Support contact</p>
+          <h2>Passenger-facing contacts</h2>
+        </div>
+      </div>
+
+      @if (context.canManageOperator()) {
+        <form class="operator-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+          <div class="operator-form-grid">
+            <label class="field">
+              <span>Support email <small>(optional)</small></span>
+              <input
+                type="email"
+                formControlName="supportEmail"
+                autocomplete="email"
+                maxlength="320"
+                [attr.aria-invalid]="
+                  form.controls.supportEmail.touched && form.controls.supportEmail.invalid
+                "
+                aria-describedby="support-email-help support-email-error"
+              />
+              <small id="support-email-help" class="field-hint">
+                Leave blank to clear the saved support email.
+              </small>
+              @if (form.controls.supportEmail.touched && form.controls.supportEmail.invalid) {
+                <small id="support-email-error" class="field-error">
+                  Enter a valid email address of 320 characters or fewer.
+                </small>
+              }
+            </label>
+            <label class="field">
+              <span>Support phone <small>(optional)</small></span>
+              <input
+                type="tel"
+                formControlName="supportPhoneE164"
+                autocomplete="tel"
+                maxlength="20"
+                [attr.aria-invalid]="
+                  form.controls.supportPhoneE164.touched && form.controls.supportPhoneE164.invalid
+                "
+                aria-describedby="support-phone-help support-phone-error"
+              />
+              <small id="support-phone-help" class="field-hint">
+                E.164 format, for example +919876543210. Leave blank to clear the saved number.
+              </small>
+              @if (form.controls.supportPhoneE164.touched && form.controls.supportPhoneE164.invalid) {
+                <small id="support-phone-error" class="field-error">
+                  Enter a valid E.164 phone number.
+                </small>
+              }
+            </label>
+          </div>
+          <div class="operator-page-actions">
+            <button type="submit" class="btn btn-primary" [disabled]="submitting">
+              {{ submitting ? 'Saving…' : 'Save support contact' }}
+            </button>
+          </div>
+        </form>
+      } @else {
+        <dl class="operator-detail-list">
+          <div>
+            <dt>Support email</dt>
+            <dd>{{ operator.supportEmail || 'Not provided' }}</dd>
+          </div>
+          <div>
+            <dt>Support phone</dt>
+            <dd>{{ operator.supportPhoneE164 || 'Not provided' }}</dd>
+          </div>
+        </dl>
+        <div class="operator-alert operator-alert-info" role="note">
+          Your OPERATOR_STAFF membership provides read-only workspace access.
+        </div>
+      }
+    </section>
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Workspace</p>
+          <h2>Operator areas</h2>
+        </div>
+      </div>
+      <div class="operator-page-actions">
+        <a class="btn" [routerLink]="['/operator', operator.id]">Dashboard</a>
+        <a class="btn" [routerLink]="['/operator', operator.id, 'members']">Team</a>
+        <a class="btn" [routerLink]="['/operator', operator.id, 'buses']">Buses</a>
+        <a class="btn" [routerLink]="['/operator', operator.id, 'routes']">Routes</a>
+        <a class="btn" [routerLink]="['/operator', operator.id, 'trips']">Trips</a>
+      </div>
+      <p class="muted">
+        Inventory and bookings are opened from a trip. Use Trips to reach those views.
+      </p>
+    </section>
+  }
+</section>

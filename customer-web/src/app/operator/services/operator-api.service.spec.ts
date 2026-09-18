@@ -318,4 +318,24 @@ describe('OperatorApiService', () => {
     expect(deactivate.request.body).toBeNull();
     deactivate.flush(operatorMemberFixture({ status: 'INACTIVE' }));
   });
+
+  it('patches operator support contact on the operator profile URL', () => {
+    const updated = operatorProfileFixture({
+      supportEmail: 'desk@example.test',
+      supportPhoneE164: '+919812345678'
+    });
+    service
+      .updateSupportContact('operator/1', {
+        supportEmail: 'desk@example.test',
+        supportPhoneE164: '+919812345678'
+      })
+      .subscribe((result) => expect(result).toEqual(updated));
+    const request = http.expectOne(`${environment.apiBaseUrl}/operator/operator%2F1`);
+    expect(request.request.method).toBe('PATCH');
+    expect(request.request.body).toEqual({
+      supportEmail: 'desk@example.test',
+      supportPhoneE164: '+919812345678'
+    });
+    request.flush(updated);
+  });
 });

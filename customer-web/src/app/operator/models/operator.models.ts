@@ -49,6 +49,11 @@ export interface OperatorProfile {
   supportPhoneE164: string | null;
 }
 
+export interface UpdateOperatorSupportContactRequest {
+  supportEmail?: string | null;
+  supportPhoneE164?: string | null;
+}
+
 export interface OperatorBus {
   id: string;
   operatorId: string;
