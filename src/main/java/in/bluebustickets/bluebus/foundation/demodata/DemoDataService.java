@@ -48,15 +48,17 @@ import in.bluebustickets.bluebus.scheduling.repository.TripStopRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Idempotent local demo catalog. Creates only demo-named records and never deletes
- * bookings, payments, tickets, or unrelated users.
+ * bookings, payments, tickets, or unrelated users. Impossible to load under profile {@code prod}.
  */
 @Service
+@Profile("!prod")
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
 @ConditionalOnProperty(prefix = "blue-bus.demo-data", name = "enabled", havingValue = "true")
 public class DemoDataService {

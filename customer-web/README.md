@@ -21,6 +21,8 @@ Open http://localhost:4200
 
 API paths use `environment.apiBaseUrl` (`/api/v1`). Do not hardcode hostnames in feature code.
 
+Production is same-origin: the built SPA is served with `/api/v1` on the same public origin. Do not set a public API hostname in `environment.prod.ts`.
+
 ## Local E2E with demo data
 
 The backend can seed a local-only catalog. See the root `README.md` section **Local E2E demo data**.

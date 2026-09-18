@@ -89,6 +89,10 @@ public class SecurityConfiguration {
         return http.build();
     }
 
+    /**
+     * Empty allow-list returns no CORS configuration so browsers only talk same-origin.
+     * Credentials are never enabled, and wildcards are rejected in {@link CorsProperties}.
+     */
     @Bean
     CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
         List<String> origins = properties.getAllowedOrigins();

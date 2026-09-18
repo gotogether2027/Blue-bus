@@ -4,13 +4,19 @@ BLUE BUS is a planned bus ticket booking and operator-management platform, initi
 
 ## Current status
 
-This repository contains the approved architecture documentation and a **modular-monolith backend** through the V5 segment-aware inventory correction:
+This repository contains the approved architecture documentation, a **modular-monolith backend**, and the Angular `customer-web` SPA (customer booking plus operator portal).
+
+Implemented:
 
 - Phase 1 foundation: health API, security baseline, Flyway, error envelope
-- Phase 2 operator supply: identity, operators, fleet, locations, routes/stops, scheduled trips
-- V5 inventory correction: trip-stop and trip-point snapshots, route boarding/drop points, and physical `trip_seat_inventory`
+- Identity: email/password login (JWT access + opaque refresh), customer registration, operator memberships
+- Operator supply: fleet, seat layouts, locations, routes/stops, scheduled trips, physical `trip_seat_inventory`
+- Customer booking: search, seat map, segment-aware holds, bookings, unpaid expiry, tickets
+- Payments: Razorpay Checkout, webhooks, refunds (local may leave `PAYMENT_PROVIDER=UNCONFIGURED`)
+- Operator portal: buses, routes, trips, inventory, bookings/manifest, members, settings, dashboard, reports
+- Production fail-fast under Spring profile `prod` (demo data, core API kill switch, payments, CORS)
 
-It does **not** contain authentication flows, seat holds, segment allocations, booking, payments, notifications, or a frontend.
+Deferred: Redis, RabbitMQ, Admin SPA, HttpOnly-cookie BFF, PDF/QR ticketing, GST/`trip_fares`, and settlements.
 
 Seats remain reusable `SeatLayout` definitions. A bus references one operator-owned layout; seats are not duplicated per bus or per trip.
 
@@ -18,7 +24,7 @@ Physical inventory:
 
 - `TripSeatInventory` — one snapshot row per trip + layout seat. Status is only `AVAILABLE` or `BLOCKED`.
 
-Future sale occupancy (not implemented):
+Sale occupancy (implemented):
 
 - `TripSeatAllocation` — held or booked occupancy for `int4range(origin_sequence, destination_sequence, '[)')`
 - `SeatHold` — temporary checkout reservation
@@ -31,8 +37,8 @@ Future sale occupancy (not implemented):
 - Backend: Java 21, Spring Boot, Spring Security, Spring Data JPA, Hibernate, Maven, REST
 - Frontend: Angular, TypeScript, Angular Material, Reactive Forms
 - Data: PostgreSQL
-- Temporary state/cache: Redis
-- Asynchronous messaging: RabbitMQ
+- Temporary state/cache: Redis (deferred)
+- Asynchronous messaging: RabbitMQ (deferred)
 - Authentication: JWT
 - Deployment shape: modular monolith first; extraction-ready module boundaries later
 
@@ -83,11 +89,30 @@ To run tests:
 
 Tests explicitly use the `test` Spring profile. Fast foundation tests disable database auto-configuration through their test annotations; `FlywayPostgresIntegrationTest` starts PostgreSQL through Testcontainers and runs Flyway normally. It needs Docker, but does not need a developer-installed PostgreSQL instance. Production/local startup still requires PostgreSQL and runs Flyway. Redis and RabbitMQ are intentionally not configured yet.
 
-The health endpoint is a liveness probe only: it confirms the application process can serve HTTP. It is not currently a PostgreSQL readiness check. Browser CORS is an explicit `blue-bus.cors.allowed-origins` allow-list (empty by default; never `*`). Local Angular development uses the `/api` proxy in `customer-web` and does not require CORS.
+The health endpoint is a liveness probe only: it confirms the application process can serve HTTP. It is not a PostgreSQL readiness check and does not mean the core business API is registered. Browser CORS is an explicit `blue-bus.cors.allowed-origins` allow-list (empty by default; never `*`). Production is same-origin: serve the Angular SPA and `/api/v1` on one public origin so the empty allow-list is correct. Local Angular development uses the `/api` proxy in `customer-web` and does not require CORS. Split-origin hosting must set explicit origins and `BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS=true`.
+
+## Production configuration
+
+Activate fail-fast checks with `SPRING_PROFILES_ACTIVE=prod`. Startup refuses unsafe settings instead of serving a half-configured process.
+
+Checklist:
+
+- `SPRING_PROFILES_ACTIVE=prod`
+- `DEMO_DATA_ENABLED=false` (startup fails if demo data is enabled)
+- Core API enabled: `BLUE_BUS_ADMIN_MASTER_DATA_ENABLED` must not be `false`
+- `PAYMENT_PROVIDER=RAZORPAY`
+- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` set (values are never logged)
+- PostgreSQL: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`
+- `JWT_SECRET` at least 32 bytes
+- Flyway runs on startup (`spring.jpa.hibernate.ddl-auto=validate`); the database must be reachable
+- CORS/deployment: same-origin (empty allow-list) **or** explicit allowed origins plus `BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS=true`
+- Serve `customer-web` production build and `/api/v1` on the same public origin; do not hard-code a public API hostname in the SPA
+
+See `.env.example` for placeholders. Never commit real secrets.
 
 ## Local E2E demo data
 
-An opt-in Spring Boot bootstrap can seed a small local catalog for browser end-to-end checks of Search → Seats → Hold → Passengers → Booking. It is **disabled by default** and must never be enabled in production.
+An opt-in Spring Boot bootstrap can seed a small local catalog for browser end-to-end checks of Search → Seats → Hold → Passengers → Booking. It is **disabled by default**. Spring profile `prod` refuses to start if demo data is enabled, so known demo customer/operator-admin credentials cannot be seeded in production.
 
 Enable it only in a local shell (do not commit a password):
 

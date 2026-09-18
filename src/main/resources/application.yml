@@ -49,8 +49,16 @@ blue-bus:
       enabled: true
       reaper-interval-ms: 30000
       batch-size: 100
+  # Historical name. This flag registers the core business API (auth, search, holds,
+  # bookings, payments, tickets, operator portal, and admin controllers).
+  # /api/v1/health is independent and can still report UP when this is false.
+  # Production profile `prod` refuses to start if this is false. Do not disable it
+  # while the outbox processor is enabled — BOOKING_CONFIRMED ticket handling would be missing.
+  admin-master-data:
+    enabled: ${BLUE_BUS_ADMIN_MASTER_DATA_ENABLED:true}
   outbox:
-    # Enables local outbox processor beans (independent of admin master-data).
+    # Enables local outbox processor beans. Independent of the core API flag above;
+    # ProductionConfigurationGuard rejects the combination processor-on + API-off.
     enabled: true
     processor:
       # Local DB consumer for BOOKING_CONFIRMED → ticket issuance. RabbitMQ remains deferred.
@@ -58,7 +66,8 @@ blue-bus:
       poll-interval-ms: 5000
       batch-size: 50
   payments:
-    # Set PAYMENT_PROVIDER=RAZORPAY and supply Razorpay environment secrets to enable checkout.
+    # Local/test may stay UNCONFIGURED (checkout then returns 503).
+    # Profile `prod` requires PAYMENT_PROVIDER=RAZORPAY plus Razorpay secrets at startup.
     default-provider: ${PAYMENT_PROVIDER:UNCONFIGURED}
     razorpay:
       key-id: ${RAZORPAY_KEY_ID:}
@@ -82,10 +91,13 @@ blue-bus:
       initial-backoff-ms: 5000
       max-backoff-ms: 900000
   cors:
-    # Fail-closed: empty list grants no browser origins. Never use "*".
+    # Fail-closed: empty list grants no browser CORS headers (same-origin /api/v1 is the
+    # supported production SPA model). Never use "*". Split-origin hosting must set
+    # explicit origins and require-allowed-origins=true.
     allowed-origins: []
+    require-allowed-origins: ${BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS:false}
   demo-data:
-    # Local E2E catalog only. Default false; never enable in production.
+    # Local E2E catalog only. Default false. Profile `prod` refuses to start if this is true.
     enabled: ${DEMO_DATA_ENABLED:false}
     customer-email: ${DEMO_CUSTOMER_EMAIL:demo.customer@example.test}
     # Required when enabled. Supply via environment — do not commit a password.

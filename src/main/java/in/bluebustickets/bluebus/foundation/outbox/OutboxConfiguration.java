@@ -8,6 +8,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 /**
  * Outbox processor beans are gated by {@code blue-bus.outbox.enabled}, not admin master-data.
  * The scheduler is additionally gated by {@code blue-bus.outbox.processor.enabled}.
+ * Ticket handling for {@code BOOKING_CONFIRMED} still requires the core API flag
+ * ({@code blue-bus.admin-master-data.enabled}); ProductionConfigurationGuard rejects
+ * processor-on + API-off so confirmed bookings cannot skip ticket issuance.
  */
 @Configuration
 @EnableConfigurationProperties(OutboxProcessorProperties.class)

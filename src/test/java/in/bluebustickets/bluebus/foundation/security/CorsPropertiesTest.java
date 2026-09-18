@@ -13,6 +13,7 @@ class CorsPropertiesTest {
     void emptyAllowListIsTheFailClosedDefault() {
         CorsProperties properties = new CorsProperties();
         assertThat(properties.getAllowedOrigins()).isEmpty();
+        assertThat(properties.isRequireAllowedOrigins()).isFalse();
     }
 
     @Test
@@ -22,6 +23,14 @@ class CorsPropertiesTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> properties.setAllowedOrigins(List.of("https://*.example.com")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void requireAllowedOriginsDefaultsFalseAndCanBeEnabled() {
+        CorsProperties properties = new CorsProperties();
+        assertThat(properties.isRequireAllowedOrigins()).isFalse();
+        properties.setRequireAllowedOrigins(true);
+        assertThat(properties.isRequireAllowedOrigins()).isTrue();
     }
 
     @Test

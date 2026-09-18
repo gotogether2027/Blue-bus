@@ -1,0 +1,19 @@
+# Production profile. Activate with SPRING_PROFILES_ACTIVE=prod
+#
+# ProductionConfigurationGuard fails startup when configuration is unsafe:
+# - demo data enabled
+# - blue-bus.admin-master-data.enabled=false (core API kill switch)
+# - outbox processor enabled while the core API / ticket handler is disabled
+# - PAYMENT_PROVIDER missing or UNCONFIGURED
+# - PAYMENT_PROVIDER=RAZORPAY with incomplete Razorpay secrets
+# - cors.require-allowed-origins=true with an empty allow-list
+#
+# Primary SPA deployment is same-origin: serve the Angular build and /api/v1 on one
+# public origin. Leave allowed-origins empty. Split hosting must set explicit origins
+# and BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS=true.
+#
+# Do not put secrets in this file.
+
+blue-bus:
+  cors:
+    require-allowed-origins: ${BLUE_BUS_CORS_REQUIRE_ALLOWED_ORIGINS:false}

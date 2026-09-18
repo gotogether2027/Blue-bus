@@ -14,7 +14,8 @@ public class HealthController {
 
     /**
      * Liveness probe only: success means the application process can serve HTTP.
-     * It is deliberately not a PostgreSQL or Flyway readiness check.
+     * It is deliberately not a PostgreSQL or Flyway readiness check, and it does not
+     * mean the core business API is registered.
      */
     @GetMapping
     public ResponseEntity<Map<String, Object>> health() {

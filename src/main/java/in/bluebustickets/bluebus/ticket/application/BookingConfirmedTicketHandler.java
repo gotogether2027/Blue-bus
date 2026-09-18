@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
  * Consumes {@code BOOKING_CONFIRMED} from the transactional outbox and issues a ticket.
  * Loads authoritative booking data from PostgreSQL — never trusts the event payload for
  * passenger/fare/seat snapshots.
+ * Registered only when the core API flag ({@code blue-bus.admin-master-data.enabled}) is on;
+ * the outbox processor must not run without this handler.
  */
 @Component
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
