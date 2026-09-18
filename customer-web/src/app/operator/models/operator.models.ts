@@ -81,6 +81,92 @@ export interface UpdateOperatorBusRequest {
   seatLayoutId?: string;
 }
 
+export type OperatorRouteStatus = 'ACTIVE' | 'INACTIVE';
+
+export interface OperatorRoutePoint {
+  id: string;
+  routeStopId: string;
+  name: string;
+  pointType: PointType;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  active: boolean;
+}
+
+export interface OperatorRouteStop {
+  id: string;
+  routeId: string;
+  locationId: string;
+  sequenceNumber: number;
+  stopKind: OperatorStopKind;
+  arrivalOffsetMinutes: number | null;
+  departureOffsetMinutes: number | null;
+  distanceKm: number | null;
+  points: OperatorRoutePoint[];
+}
+
+export interface OperatorRoute {
+  id: string;
+  operatorId: string;
+  code: string;
+  name: string;
+  sourceLocationId: string;
+  destinationLocationId: string;
+  status: OperatorRouteStatus;
+  stops: OperatorRouteStop[];
+}
+
+export interface CreateOperatorRoutePointRequest {
+  name: string;
+  pointType: PointType;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  active?: boolean;
+}
+
+export interface CreateOperatorRouteStopRequest {
+  locationId: string;
+  sequenceNumber: number;
+  stopKind: OperatorStopKind;
+  arrivalOffsetMinutes?: number;
+  departureOffsetMinutes?: number;
+  distanceKm?: number;
+  points?: CreateOperatorRoutePointRequest[];
+}
+
+export interface CreateOperatorRouteRequest {
+  code: string;
+  name: string;
+  sourceLocationId: string;
+  destinationLocationId: string;
+  stops?: CreateOperatorRouteStopRequest[];
+}
+
+export interface UpdateOperatorRouteRequest {
+  name?: string;
+  sourceLocationId?: string;
+  destinationLocationId?: string;
+}
+
+export interface UpdateOperatorRouteStopRequest {
+  locationId: string;
+  sequenceNumber: number;
+  stopKind: OperatorStopKind;
+  arrivalOffsetMinutes?: number;
+  departureOffsetMinutes?: number;
+  distanceKm?: number;
+}
+
+export interface UpdateOperatorRoutePointRequest {
+  name: string;
+  pointType: PointType;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+}
+
 export interface OperatorTripPoint {
   id: string;
   tripStopId: string;

@@ -56,7 +56,7 @@ describe('OperatorShellComponent', () => {
     fixture.detectChanges();
   });
 
-  it('renders dashboard, buses, and trips navigation for the selected operator', () => {
+  it('renders dashboard, buses, routes, and trips navigation for the selected operator', () => {
     const hrefs = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLAnchorElement>(
         '.operator-nav a'
@@ -65,6 +65,7 @@ describe('OperatorShellComponent', () => {
 
     expect(hrefs).toContain('/operator/operator-1');
     expect(hrefs).toContain('/operator/operator-1/buses');
+    expect(hrefs).toContain('/operator/operator-1/routes');
     expect(hrefs).toContain('/operator/operator-1/trips');
   });
 

@@ -8,6 +8,11 @@ import { OperatorBusDetailPageComponent } from './pages/operator-bus-detail/oper
 import { OperatorBusEditPageComponent } from './pages/operator-bus-edit/operator-bus-edit.page';
 import { OperatorBusesPageComponent } from './pages/operator-buses/operator-buses.page';
 import { OperatorDashboardPageComponent } from './pages/operator-dashboard/operator-dashboard.page';
+import { OperatorRouteCreatePageComponent } from './pages/operator-route-create/operator-route-create.page';
+import { OperatorRouteDetailPageComponent } from './pages/operator-route-detail/operator-route-detail.page';
+import { OperatorRouteEditPageComponent } from './pages/operator-route-edit/operator-route-edit.page';
+import { OperatorRouteStopsPageComponent } from './pages/operator-route-stops/operator-route-stops.page';
+import { OperatorRoutesPageComponent } from './pages/operator-routes/operator-routes.page';
 import { OperatorShellComponent } from './pages/operator-shell/operator-shell.page';
 import { OperatorTripDetailPageComponent } from './pages/operator-trip-detail/operator-trip-detail.page';
 import { OperatorTripsPageComponent } from './pages/operator-trips/operator-trips.page';
@@ -53,6 +58,35 @@ export const OPERATOR_ROUTES: Routes = [
         path: 'buses/:busId',
         component: OperatorBusDetailPageComponent,
         title: 'Bus detail · BLUE BUS'
+      },
+      {
+        path: 'routes',
+        pathMatch: 'full',
+        component: OperatorRoutesPageComponent,
+        title: 'Operator routes · BLUE BUS'
+      },
+      {
+        path: 'routes/new',
+        component: OperatorRouteCreatePageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Create route · BLUE BUS'
+      },
+      {
+        path: 'routes/:routeId/edit',
+        component: OperatorRouteEditPageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Edit route · BLUE BUS'
+      },
+      {
+        path: 'routes/:routeId/stops',
+        component: OperatorRouteStopsPageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Manage route stops · BLUE BUS'
+      },
+      {
+        path: 'routes/:routeId',
+        component: OperatorRouteDetailPageComponent,
+        title: 'Route detail · BLUE BUS'
       },
       {
         path: 'trips',

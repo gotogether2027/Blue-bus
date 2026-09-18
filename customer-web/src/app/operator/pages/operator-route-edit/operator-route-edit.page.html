@@ -1,0 +1,135 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    @if (routeDetail; as currentRoute) {
+      <a class="back" [routerLink]="['/operator', operatorId, 'routes', currentRoute.id]">
+        ← Back to route detail
+      </a>
+    } @else {
+      <a class="back" [routerLink]="['/operator', operatorId, 'routes']">← Back to routes</a>
+    }
+  }
+
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Route management</p>
+      <h1>Edit route</h1>
+      <p class="muted">Update only the fields supported by the operator route API.</p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading route form"></div>
+  } @else if (pageError) {
+    <app-empty-state [title]="pageError.title" [message]="pageError.message">
+      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (routeDetail; as currentRoute) {
+    <section class="card">
+      <h2>Immutable identity</h2>
+      <p class="muted">These values cannot be changed after the route is created.</p>
+      <dl class="operator-detail-list">
+        <div>
+          <dt>Route code</dt>
+          <dd>{{ currentRoute.code }}</dd>
+        </div>
+        <div>
+          <dt>Operator reference</dt>
+          <dd><code>{{ currentRoute.operatorId }}</code></dd>
+        </div>
+        <div>
+          <dt>Route reference</dt>
+          <dd><code>{{ currentRoute.id }}</code></dd>
+        </div>
+      </dl>
+    </section>
+
+    @if (hasTrips) {
+      <div class="operator-alert operator-alert-info" role="note">
+        {{ structuralRestriction }}
+      </div>
+    }
+
+    <form class="card operator-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div>
+        <h2>Editable details</h2>
+      </div>
+      <div class="operator-form-grid">
+        <label class="field">
+          <span>Route name</span>
+          <input
+            type="text"
+            formControlName="name"
+            maxlength="160"
+            autocomplete="off"
+            [attr.aria-invalid]="form.controls.name.touched && form.controls.name.invalid"
+          />
+          @if (form.controls.name.touched && form.controls.name.invalid) {
+            <small class="field-error">Enter a route name of 160 characters or fewer.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Source location</span>
+          <select formControlName="sourceLocationId" [attr.aria-disabled]="hasTrips">
+            @if (!hasActiveLocation(currentRoute.sourceLocationId)) {
+              <option [value]="currentRoute.sourceLocationId" disabled>
+                Current source (no longer in the active catalog)
+              </option>
+            }
+            @for (location of locations; track location.id) {
+              <option [value]="location.id">
+                {{ location.city }}{{ location.locality ? ' · ' + location.locality : '' }} · {{ location.state }}
+              </option>
+            }
+          </select>
+          <small class="field-hint">
+            {{ hasTrips ? 'Source cannot be changed while trips exist.' : 'A replacement must be an active location.' }}
+          </small>
+        </label>
+
+        <label class="field">
+          <span>Destination location</span>
+          <select formControlName="destinationLocationId" [attr.aria-disabled]="hasTrips">
+            @if (!hasActiveLocation(currentRoute.destinationLocationId)) {
+              <option [value]="currentRoute.destinationLocationId" disabled>
+                Current destination (no longer in the active catalog)
+              </option>
+            }
+            @for (location of locations; track location.id) {
+              <option [value]="location.id">
+                {{ location.city }}{{ location.locality ? ' · ' + location.locality : '' }} · {{ location.state }}
+              </option>
+            }
+          </select>
+        </label>
+      </div>
+
+      @if (form.touched && form.hasError('sameLocations')) {
+        <div class="operator-alert operator-alert-danger" role="alert">
+          <strong>Source and destination must differ</strong>
+          <span>Choose two different locations before saving.</span>
+        </div>
+      }
+
+      @if (actionError) {
+        <div class="operator-alert operator-alert-danger" role="alert">
+          <strong>{{ actionError.title }}</strong>
+          <span>{{ actionError.message }}</span>
+        </div>
+      }
+
+      <div class="operator-page-actions">
+        <button type="submit" class="btn btn-primary" [disabled]="submitting">
+          {{ submitting ? 'Saving changes…' : 'Save changes' }}
+        </button>
+        <a class="btn" [routerLink]="['/operator', context.selectedOperatorId(), 'routes', currentRoute.id]">
+          Cancel
+        </a>
+      </div>
+    </form>
+    }
+  }
+</section>

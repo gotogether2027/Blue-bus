@@ -1,0 +1,219 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    <a class="back" [routerLink]="['/operator', operatorId, 'routes']">← Back to routes</a>
+  }
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading route"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (routeDetail; as currentRoute) {
+    <header class="page-head">
+      <div>
+        <p class="eyebrow">Route detail</p>
+        <h1>{{ currentRoute.name }}</h1>
+        <p class="muted">{{ currentRoute.code }}</p>
+      </div>
+      <div class="operator-page-actions">
+        <app-status-badge [label]="currentRoute.status" [tone]="statusTone(currentRoute.status)" />
+        @if (context.canManageOperator()) {
+          <a class="btn" [routerLink]="['/operator', context.selectedOperatorId(), 'routes', currentRoute.id, 'edit']">
+            Edit route
+          </a>
+          <a class="btn" [routerLink]="['/operator', context.selectedOperatorId(), 'routes', currentRoute.id, 'stops']">
+            Manage stops
+          </a>
+        }
+      </div>
+    </header>
+
+    @if (successMessage) {
+      <div class="operator-alert operator-alert-success" role="status">{{ successMessage }}</div>
+    }
+
+    @if (actionError) {
+      <div class="operator-alert operator-alert-danger" role="alert">
+        <strong>{{ actionError.title }}</strong>
+        <span>{{ actionError.message }}</span>
+      </div>
+    }
+
+    @if (hasTrips) {
+      <div class="operator-alert operator-alert-info" role="note">
+        {{ structuralRestriction }}
+      </div>
+    }
+
+    <section class="card">
+      <h2>Route information</h2>
+      <dl class="operator-detail-list">
+        <div>
+          <dt>Route code</dt>
+          <dd>{{ currentRoute.code }}</dd>
+        </div>
+        <div>
+          <dt>Route name</dt>
+          <dd>{{ currentRoute.name }}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{{ currentRoute.status }}</dd>
+        </div>
+        <div>
+          <dt>Source</dt>
+          <dd>
+            {{ locationLabel(currentRoute.sourceLocationId) }}
+            <small><code>{{ currentRoute.sourceLocationId }}</code></small>
+          </dd>
+        </div>
+        <div>
+          <dt>Destination</dt>
+          <dd>
+            {{ locationLabel(currentRoute.destinationLocationId) }}
+            <small><code>{{ currentRoute.destinationLocationId }}</code></small>
+          </dd>
+        </div>
+        <div>
+          <dt>Route reference</dt>
+          <dd><code>{{ currentRoute.id }}</code></dd>
+        </div>
+        <div>
+          <dt>Operator reference</dt>
+          <dd><code>{{ currentRoute.operatorId }}</code></dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>Ordered journey</h2>
+      <p class="muted">Stops are shown in backend sequence order.</p>
+      @if (orderedStops.length === 0) {
+        <p class="muted">This route has no stops yet.</p>
+      } @else {
+        <ol class="operator-journey">
+          @for (stop of orderedStops; track stop.id; let last = $last) {
+            <li class="operator-journey-item" [class.operator-journey-item-last]="last">
+              <span class="operator-journey-index" aria-hidden="true">{{ stop.sequenceNumber }}</span>
+              <div>
+                <strong>{{ locationLabel(stop.locationId) }}</strong>
+                <small>{{ stop.stopKind }} · sequence {{ stop.sequenceNumber }}</small>
+                <dl class="operator-detail-list operator-detail-list-compact">
+                  <div>
+                    <dt>Arrival offset</dt>
+                    <dd>{{ stop.arrivalOffsetMinutes ?? 'Not set' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Departure offset</dt>
+                    <dd>{{ stop.departureOffsetMinutes ?? 'Not set' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Distance</dt>
+                    <dd>{{ stop.distanceKm == null ? 'Not set' : stop.distanceKm + ' km' }}</dd>
+                  </div>
+                </dl>
+                @if (stop.points.length > 0) {
+                  <ul class="plain-list operator-point-list">
+                    @for (point of stop.points; track point.id) {
+                      <li>
+                        <span>
+                          <strong>{{ point.name }}</strong>
+                          <small>{{ point.pointType }} · {{ point.active ? 'Active' : 'Inactive' }}</small>
+                        </span>
+                        @if (context.canManageOperator()) {
+                          @if (point.active) {
+                            <button
+                              type="button"
+                              class="btn"
+                              (click)="requestPointLifecycle(point, 'deactivatePoint')"
+                            >
+                              Deactivate point
+                            </button>
+                          } @else {
+                            <button
+                              type="button"
+                              class="btn btn-primary"
+                              (click)="requestPointLifecycle(point, 'activatePoint')"
+                            >
+                              Activate point
+                            </button>
+                          }
+                        }
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+            </li>
+          }
+        </ol>
+      }
+    </section>
+
+    @if (context.canManageOperator()) {
+      <section class="card operator-action-card">
+        <div>
+          <h2>Lifecycle</h2>
+          <p class="muted">Status changes do not alter existing trips.</p>
+        </div>
+        <div class="operator-page-actions">
+          @if (currentRoute.status !== 'ACTIVE') {
+            <button type="button" class="btn btn-primary" (click)="requestRouteLifecycle('activate')">
+              Activate route
+            </button>
+          }
+          @if (currentRoute.status !== 'INACTIVE') {
+            <button type="button" class="btn btn-danger" (click)="requestRouteLifecycle('deactivate')">
+              Deactivate route
+            </button>
+          }
+        </div>
+      </section>
+    } @else {
+      <div class="operator-alert operator-alert-info" role="note">
+        Your OPERATOR_STAFF membership provides read-only route access.
+      </div>
+    }
+    }
+  }
+</section>
+
+@if (pendingAction; as action) {
+  <div class="operator-dialog-backdrop" (click)="cancelLifecycle()">
+    <section
+      class="card operator-dialog"
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      [attr.aria-busy]="lifecycleSubmitting"
+      aria-labelledby="route-lifecycle-title"
+      aria-describedby="route-lifecycle-message"
+      (click)="$event.stopPropagation()"
+    >
+      <div>
+        <p class="eyebrow">Confirm status change</p>
+        <h2 id="route-lifecycle-title">{{ lifecycleActionLabel(action) }}</h2>
+        <p id="route-lifecycle-message">{{ lifecycleConfirmationMessage(action) }}</p>
+      </div>
+      <div class="operator-page-actions">
+        <button type="button" class="btn" [disabled]="lifecycleSubmitting" (click)="cancelLifecycle()">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-danger]="action === 'deactivate' || action === 'deactivatePoint'"
+          [class.btn-primary]="action === 'activate' || action === 'activatePoint'"
+          [disabled]="lifecycleSubmitting"
+          (click)="confirmLifecycle()"
+        >
+          {{ lifecycleSubmitting ? 'Applying change…' : lifecycleActionLabel(action) }}
+        </button>
+      </div>
+    </section>
+  </div>
+}

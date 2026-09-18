@@ -4,15 +4,25 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   CreateOperatorBusRequest,
+  CreateOperatorRoutePointRequest,
+  CreateOperatorRouteRequest,
+  CreateOperatorRouteStopRequest,
   OperatorBooking,
   OperatorBus,
   OperatorBusType,
   OperatorMembership,
   OperatorProfile,
+  OperatorRoute,
+  OperatorRoutePoint,
+  OperatorRouteStatus,
+  OperatorRouteStop,
   OperatorSeatLayout,
   OperatorTrip,
   OperatorTripFilters,
-  UpdateOperatorBusRequest
+  UpdateOperatorBusRequest,
+  UpdateOperatorRoutePointRequest,
+  UpdateOperatorRouteRequest,
+  UpdateOperatorRouteStopRequest
 } from '../models/operator.models';
 
 @Injectable({ providedIn: 'root' })
@@ -80,6 +90,118 @@ export class OperatorApiService {
     return this.changeBusLifecycle(operatorId, busId, 'maintenance');
   }
 
+  listRoutes(
+    operatorId: string,
+    status?: OperatorRouteStatus
+  ): Observable<OperatorRoute[]> {
+    let params = new HttpParams();
+    if (status) {
+      params = params.set('status', status);
+    }
+    return this.http.get<OperatorRoute[]>(`${this.operatorBase(operatorId)}/routes`, {
+      params
+    });
+  }
+
+  getRoute(operatorId: string, routeId: string): Observable<OperatorRoute> {
+    return this.http.get<OperatorRoute>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}`
+    );
+  }
+
+  createRoute(
+    operatorId: string,
+    request: CreateOperatorRouteRequest
+  ): Observable<OperatorRoute> {
+    return this.http.post<OperatorRoute>(
+      `${this.operatorBase(operatorId)}/routes`,
+      request
+    );
+  }
+
+  updateRoute(
+    operatorId: string,
+    routeId: string,
+    request: UpdateOperatorRouteRequest
+  ): Observable<OperatorRoute> {
+    return this.http.patch<OperatorRoute>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}`,
+      request
+    );
+  }
+
+  activateRoute(operatorId: string, routeId: string): Observable<OperatorRoute> {
+    return this.changeRouteLifecycle(operatorId, routeId, 'activate');
+  }
+
+  deactivateRoute(operatorId: string, routeId: string): Observable<OperatorRoute> {
+    return this.changeRouteLifecycle(operatorId, routeId, 'deactivate');
+  }
+
+  addRouteStop(
+    operatorId: string,
+    routeId: string,
+    request: CreateOperatorRouteStopRequest
+  ): Observable<OperatorRouteStop> {
+    return this.http.post<OperatorRouteStop>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}/stops`,
+      request
+    );
+  }
+
+  updateRouteStop(
+    operatorId: string,
+    routeId: string,
+    stopId: string,
+    request: UpdateOperatorRouteStopRequest
+  ): Observable<OperatorRouteStop> {
+    return this.http.patch<OperatorRouteStop>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}/stops/${encodeURIComponent(stopId)}`,
+      request
+    );
+  }
+
+  addRoutePoint(
+    operatorId: string,
+    routeId: string,
+    stopId: string,
+    request: CreateOperatorRoutePointRequest
+  ): Observable<OperatorRoutePoint> {
+    return this.http.post<OperatorRoutePoint>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}/stops/${encodeURIComponent(stopId)}/points`,
+      request
+    );
+  }
+
+  updateRoutePoint(
+    operatorId: string,
+    routeId: string,
+    stopId: string,
+    pointId: string,
+    request: UpdateOperatorRoutePointRequest
+  ): Observable<OperatorRoutePoint> {
+    return this.http.patch<OperatorRoutePoint>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}/stops/${encodeURIComponent(stopId)}/points/${encodeURIComponent(pointId)}`,
+      request
+    );
+  }
+
+  activateRoutePoint(
+    operatorId: string,
+    routeId: string,
+    pointId: string
+  ): Observable<OperatorRoutePoint> {
+    return this.changeRoutePointLifecycle(operatorId, routeId, pointId, 'activate');
+  }
+
+  deactivateRoutePoint(
+    operatorId: string,
+    routeId: string,
+    pointId: string
+  ): Observable<OperatorRoutePoint> {
+    return this.changeRoutePointLifecycle(operatorId, routeId, pointId, 'deactivate');
+  }
+
   listTrips(operatorId: string, filters: OperatorTripFilters = {}): Observable<OperatorTrip[]> {
     let params = new HttpParams();
     if (filters.serviceDate) {
@@ -124,6 +246,29 @@ export class OperatorApiService {
   ): Observable<OperatorBus> {
     return this.http.post<OperatorBus>(
       `${this.operatorBase(operatorId)}/buses/${encodeURIComponent(busId)}/${action}`,
+      null
+    );
+  }
+
+  private changeRouteLifecycle(
+    operatorId: string,
+    routeId: string,
+    action: 'activate' | 'deactivate'
+  ): Observable<OperatorRoute> {
+    return this.http.post<OperatorRoute>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}/${action}`,
+      null
+    );
+  }
+
+  private changeRoutePointLifecycle(
+    operatorId: string,
+    routeId: string,
+    pointId: string,
+    action: 'activate' | 'deactivate'
+  ): Observable<OperatorRoutePoint> {
+    return this.http.post<OperatorRoutePoint>(
+      `${this.operatorBase(operatorId)}/routes/${encodeURIComponent(routeId)}/points/${encodeURIComponent(pointId)}/${action}`,
       null
     );
   }

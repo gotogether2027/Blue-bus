@@ -62,7 +62,7 @@ export const operatorMembershipGuard: CanActivateFn = (route, state) => {
  * Hides operator mutations from read-only members after the parent membership
  * guard has refreshed context. The backend remains authoritative for every write.
  */
-export const operatorAdminGuard: CanActivateFn = (route) => {
+export const operatorAdminGuard: CanActivateFn = (route, state) => {
   const context = inject(OperatorContextService);
   const router = inject(Router);
   const operatorId = findRouteParam(route, 'operatorId');
@@ -73,7 +73,8 @@ export const operatorAdminGuard: CanActivateFn = (route) => {
   if (context.membershipFor(operatorId)?.role === 'OPERATOR_ADMIN') {
     return true;
   }
-  return router.createUrlTree(['/operator', operatorId, 'buses'], {
+  const resource = state.url.includes('/routes') ? 'routes' : 'buses';
+  return router.createUrlTree(['/operator', operatorId, resource], {
     queryParams: { writeAccessDenied: 'true' }
   });
 };

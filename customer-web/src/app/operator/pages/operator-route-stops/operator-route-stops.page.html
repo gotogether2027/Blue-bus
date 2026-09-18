@@ -1,0 +1,206 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    @if (routeDetail; as currentRoute) {
+      <a class="back" [routerLink]="['/operator', operatorId, 'routes', currentRoute.id]">
+        ← Back to route detail
+      </a>
+    } @else {
+      <a class="back" [routerLink]="['/operator', operatorId, 'routes']">← Back to routes</a>
+    }
+  }
+
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Route management</p>
+      <h1>Manage stops</h1>
+      <p class="muted">
+        Add or update ordered stops and boarding points. The backend does not support deleting stops or points.
+      </p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading route stops"></div>
+  } @else if (pageError) {
+    <app-empty-state [title]="pageError.title" [message]="pageError.message">
+      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else {
+    @if (routeDetail; as currentRoute) {
+    @if (successMessage) {
+      <div class="operator-alert operator-alert-success" role="status">{{ successMessage }}</div>
+    }
+    @if (actionError) {
+      <div class="operator-alert operator-alert-danger" role="alert">
+        <strong>{{ actionError.title }}</strong>
+        <span>{{ actionError.message }}</span>
+      </div>
+    }
+    @if (hasTrips) {
+      <div class="operator-alert operator-alert-info" role="note">
+        {{ structuralRestriction }}
+      </div>
+    }
+
+    <div class="operator-content-grid">
+      <section class="card">
+        <div class="operator-section-head">
+          <h2>Ordered stops</h2>
+          @if (!hasTrips) {
+            <button type="button" class="btn" (click)="startAddStop()">Add stop</button>
+          }
+        </div>
+        @if (orderedStops.length === 0) {
+          <p class="muted">This route has no stops yet.</p>
+        } @else {
+          <ol class="operator-journey">
+            @for (stop of orderedStops; track stop.id; let last = $last) {
+              <li class="operator-journey-item" [class.operator-journey-item-last]="last">
+                <span class="operator-journey-index" aria-hidden="true">{{ stop.sequenceNumber }}</span>
+                <div>
+                  <strong>{{ locationLabel(stop.locationId) }}</strong>
+                  <small>{{ stop.stopKind }} · sequence {{ stop.sequenceNumber }}</small>
+                  <div class="operator-page-actions">
+                    <button
+                      type="button"
+                      class="btn"
+                      [attr.aria-pressed]="selectedStopId === stop.id"
+                      (click)="selectStop(stop.id)"
+                    >
+                      {{ selectedStopId === stop.id ? 'Selected' : 'Select stop' }}
+                    </button>
+                  </div>
+                </div>
+              </li>
+            }
+          </ol>
+        }
+      </section>
+
+      <section class="card operator-form">
+        <h2>{{ selectedStop ? 'Edit selected stop' : 'Add stop' }}</h2>
+        <p class="muted">
+          Sequence numbers must be unique. Changing sequence is how order is persisted; there is no separate reorder API.
+        </p>
+        @if (hasTrips) {
+          <p class="muted">Stop structure is locked because trips exist for this route.</p>
+        } @else {
+          <form [formGroup]="stopForm" (ngSubmit)="submitStop()" novalidate>
+            <div class="operator-form-grid">
+              <label class="field">
+                <span>Location</span>
+                <select formControlName="locationId">
+                  <option value="">Select location</option>
+                  @for (location of locations; track location.id) {
+                    <option [value]="location.id">
+                      {{ location.city }}{{ location.locality ? ' · ' + location.locality : '' }} · {{ location.state }}
+                    </option>
+                  }
+                </select>
+              </label>
+              <label class="field">
+                <span>Sequence</span>
+                <input type="number" formControlName="sequenceNumber" min="1" />
+              </label>
+              <label class="field">
+                <span>Stop kind</span>
+                <select formControlName="stopKind">
+                  @for (kind of stopKinds; track kind) {
+                    <option [value]="kind">{{ kind }}</option>
+                  }
+                </select>
+              </label>
+              <label class="field">
+                <span>Arrival offset (minutes)</span>
+                <input type="number" formControlName="arrivalOffsetMinutes" min="0" />
+              </label>
+              <label class="field">
+                <span>Departure offset (minutes)</span>
+                <input type="number" formControlName="departureOffsetMinutes" min="0" />
+              </label>
+              <label class="field">
+                <span>Distance (km)</span>
+                <input type="number" formControlName="distanceKm" min="0" step="0.01" />
+              </label>
+            </div>
+            @if (stopForm.touched && stopForm.hasError('departureBeforeArrival')) {
+              <small class="field-error">Departure offset cannot precede arrival offset.</small>
+            }
+            <div class="operator-page-actions">
+              <button type="submit" class="btn btn-primary" [disabled]="stopSubmitting">
+                {{ stopSubmitting ? 'Saving stop…' : selectedStop ? 'Save stop' : 'Add stop' }}
+              </button>
+            </div>
+          </form>
+        }
+      </section>
+    </div>
+
+    @if (selectedStop; as stop) {
+      <section class="card operator-form">
+        <h2>Points for sequence {{ stop.sequenceNumber }}</h2>
+        <p class="muted">Point order in the API is by name. Point details cannot be changed after trips exist.</p>
+        @if (stop.points.length === 0) {
+          <p class="muted">No boarding or dropping points on this stop.</p>
+        } @else {
+          <ul class="plain-list operator-point-list">
+            @for (point of stop.points; track point.id) {
+              <li>
+                <span>
+                  <strong>{{ point.name }}</strong>
+                  <small>{{ point.pointType }} · {{ point.active ? 'Active' : 'Inactive' }}</small>
+                </span>
+                @if (!hasTrips) {
+                  <button type="button" class="btn" (click)="startEditPoint(point)">Edit point</button>
+                }
+              </li>
+            }
+          </ul>
+        }
+
+        @if (!hasTrips) {
+          <form [formGroup]="pointForm" (ngSubmit)="submitPoint()" novalidate>
+            <h3>{{ editingPointId ? 'Edit point' : 'Add point' }}</h3>
+            <div class="operator-form-grid">
+              <label class="field">
+                <span>Point name</span>
+                <input type="text" formControlName="name" maxlength="160" />
+              </label>
+              <label class="field">
+                <span>Point type</span>
+                <select formControlName="pointType">
+                  @for (type of pointTypes; track type) {
+                    <option [value]="type">{{ type }}</option>
+                  }
+                </select>
+              </label>
+              <label class="field">
+                <span>Address</span>
+                <input type="text" formControlName="address" maxlength="255" />
+              </label>
+              <label class="field">
+                <span>Latitude</span>
+                <input type="number" formControlName="latitude" min="-90" max="90" step="0.000001" />
+              </label>
+              <label class="field">
+                <span>Longitude</span>
+                <input type="number" formControlName="longitude" min="-180" max="180" step="0.000001" />
+              </label>
+            </div>
+            <div class="operator-page-actions">
+              <button type="submit" class="btn btn-primary" [disabled]="pointSubmitting">
+                {{ pointSubmitting ? 'Saving point…' : editingPointId ? 'Save point' : 'Add point' }}
+              </button>
+              @if (editingPointId) {
+                <button type="button" class="btn" (click)="cancelEditPoint()">Cancel point edit</button>
+              }
+            </div>
+          </form>
+        }
+      </section>
+    }
+    }
+  }
+</section>

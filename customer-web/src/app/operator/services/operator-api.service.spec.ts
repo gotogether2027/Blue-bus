@@ -11,6 +11,8 @@ import {
   operatorBusTypeFixture,
   operatorMembershipFixture,
   operatorProfileFixture,
+  operatorRouteFixture,
+  operatorRouteStopFixture,
   operatorSeatLayoutFixture,
   operatorTripFixture
 } from '../../../testing/operator-fixtures';
@@ -115,6 +117,49 @@ describe('OperatorApiService', () => {
       expect(lifecycle.request.body).toBeNull();
       lifecycle.flush(operatorBusFixture());
     }
+  });
+
+  it('uses the exact operator route mutation contracts', () => {
+    const createRequest = {
+      code: 'HYD-VJA',
+      name: 'Hyderabad to Vijayawada',
+      sourceLocationId: 'location-hyd',
+      destinationLocationId: 'location-vja'
+    };
+    service.createRoute('operator-1', createRequest).subscribe();
+    const create = http.expectOne(`${environment.apiBaseUrl}/operator/operator-1/routes`);
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body).toEqual(createRequest);
+    create.flush(operatorRouteFixture());
+
+    service.updateRoute('operator-1', 'route-1', { name: 'Night Service' }).subscribe();
+    const update = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/routes/route-1`
+    );
+    expect(update.request.method).toBe('PATCH');
+    expect(update.request.body).toEqual({ name: 'Night Service' });
+    update.flush(operatorRouteFixture({ name: 'Night Service' }));
+
+    service
+      .addRouteStop('operator-1', 'route-1', {
+        locationId: 'location-hyd',
+        sequenceNumber: 1,
+        stopKind: 'SOURCE'
+      })
+      .subscribe();
+    const addStop = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/routes/route-1/stops`
+    );
+    expect(addStop.request.method).toBe('POST');
+    addStop.flush(operatorRouteStopFixture());
+
+    service.activateRoute('operator-1', 'route-1').subscribe();
+    const activate = http.expectOne(
+      `${environment.apiBaseUrl}/operator/operator-1/routes/route-1/activate`
+    );
+    expect(activate.request.method).toBe('POST');
+    expect(activate.request.body).toBeNull();
+    activate.flush(operatorRouteFixture());
   });
 
   it('forwards only supported trip filters', () => {

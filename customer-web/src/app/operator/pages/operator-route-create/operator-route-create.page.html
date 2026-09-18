@@ -1,0 +1,240 @@
+<section class="page operator-page">
+  @if (context.selectedOperatorId(); as operatorId) {
+    <a class="back" [routerLink]="['/operator', operatorId, 'routes']">← Back to routes</a>
+  }
+
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Route management</p>
+      <h1>Create route</h1>
+      <p class="muted">Add a route using active locations. Stops are optional at creation.</p>
+    </div>
+  </header>
+
+  @if (loading) {
+    <div class="skeleton card operator-large-skeleton" aria-label="Loading route form"></div>
+  } @else if (pageError) {
+    <app-empty-state [title]="pageError.title" [message]="pageError.message">
+      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
+        <button type="button" class="btn btn-primary" (click)="loadReferenceData()">
+          Try again
+        </button>
+      }
+    </app-empty-state>
+  } @else if (locations.length < 2) {
+    <app-empty-state
+      title="Not enough active locations"
+      message="At least two active locations are required before a route can be created."
+    />
+  } @else {
+    <form class="card operator-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div>
+        <h2>Route identity</h2>
+        <p class="muted">The operator and route code cannot be changed after creation.</p>
+      </div>
+
+      <div class="operator-form-grid">
+        <label class="field">
+          <span>Route code</span>
+          <input
+            type="text"
+            formControlName="code"
+            maxlength="60"
+            autocomplete="off"
+            spellcheck="false"
+            [attr.aria-invalid]="form.controls.code.touched && form.controls.code.invalid"
+            aria-describedby="route-code-help route-code-error"
+          />
+          <small id="route-code-help" class="field-hint">
+            Up to 60 characters. Uniqueness is checked for this operator when saved.
+          </small>
+          @if (form.controls.code.touched && form.controls.code.invalid) {
+            <small id="route-code-error" class="field-error">Enter a route code.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Route name</span>
+          <input
+            type="text"
+            formControlName="name"
+            maxlength="160"
+            autocomplete="off"
+            [attr.aria-invalid]="form.controls.name.touched && form.controls.name.invalid"
+            aria-describedby="route-name-error"
+          />
+          @if (form.controls.name.touched && form.controls.name.invalid) {
+            <small id="route-name-error" class="field-error">Enter a route name of 160 characters or fewer.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Source location</span>
+          <select
+            formControlName="sourceLocationId"
+            [attr.aria-invalid]="form.controls.sourceLocationId.touched && form.controls.sourceLocationId.invalid"
+            aria-describedby="source-help source-error"
+          >
+            <option value="">Select source</option>
+            @for (location of locations; track location.id) {
+              <option [value]="location.id">
+                {{ location.city }}{{ location.locality ? ' · ' + location.locality : '' }} · {{ location.state }}
+              </option>
+            }
+          </select>
+          <small id="source-help" class="field-hint">Only active locations are listed.</small>
+          @if (form.controls.sourceLocationId.touched && form.controls.sourceLocationId.invalid) {
+            <small id="source-error" class="field-error">Select a source location.</small>
+          }
+        </label>
+
+        <label class="field">
+          <span>Destination location</span>
+          <select
+            formControlName="destinationLocationId"
+            [attr.aria-invalid]="
+              form.controls.destinationLocationId.touched && form.controls.destinationLocationId.invalid
+            "
+            aria-describedby="destination-help destination-error"
+          >
+            <option value="">Select destination</option>
+            @for (location of locations; track location.id) {
+              <option [value]="location.id">
+                {{ location.city }}{{ location.locality ? ' · ' + location.locality : '' }} · {{ location.state }}
+              </option>
+            }
+          </select>
+          <small id="destination-help" class="field-hint">Source and destination must be different.</small>
+          @if (form.controls.destinationLocationId.touched && form.controls.destinationLocationId.invalid) {
+            <small id="destination-error" class="field-error">Select a destination location.</small>
+          }
+        </label>
+      </div>
+
+      @if (form.touched && form.hasError('sameLocations')) {
+        <div class="operator-alert operator-alert-danger" role="alert">
+          <strong>Source and destination must differ</strong>
+          <span>Choose two different locations before creating this route.</span>
+        </div>
+      }
+
+      <div>
+        <h2>Journey stops <small>(optional)</small></h2>
+        <p class="muted">
+          A route can be created with zero stops. Sequence numbers must be unique and start at 1.
+        </p>
+      </div>
+
+      <div formArrayName="stops" class="operator-stop-editor">
+        @for (stop of stops.controls; track stop; let stopIndex = $index) {
+          <section class="card operator-nested-card" [formGroupName]="stopIndex">
+            <div class="operator-section-head">
+              <h3>Stop {{ stopIndex + 1 }}</h3>
+              <button type="button" class="btn" (click)="removeStop(stopIndex)">Remove stop</button>
+            </div>
+            <div class="operator-form-grid">
+              <label class="field">
+                <span>Location</span>
+                <select formControlName="locationId">
+                  <option value="">Select location</option>
+                  @for (location of locations; track location.id) {
+                    <option [value]="location.id">
+                      {{ location.city }}{{ location.locality ? ' · ' + location.locality : '' }} · {{ location.state }}
+                    </option>
+                  }
+                </select>
+              </label>
+              <label class="field">
+                <span>Sequence</span>
+                <input type="number" formControlName="sequenceNumber" min="1" />
+              </label>
+              <label class="field">
+                <span>Stop kind</span>
+                <select formControlName="stopKind">
+                  @for (kind of stopKinds; track kind) {
+                    <option [value]="kind">{{ kind }}</option>
+                  }
+                </select>
+              </label>
+              <label class="field">
+                <span>Arrival offset (minutes)</span>
+                <input type="number" formControlName="arrivalOffsetMinutes" min="0" />
+              </label>
+              <label class="field">
+                <span>Departure offset (minutes)</span>
+                <input type="number" formControlName="departureOffsetMinutes" min="0" />
+              </label>
+              <label class="field">
+                <span>Distance (km)</span>
+                <input type="number" formControlName="distanceKm" min="0" step="0.01" />
+              </label>
+            </div>
+            @if (stop.touched && stop.hasError('departureBeforeArrival')) {
+              <small class="field-error">Departure offset cannot precede arrival offset.</small>
+            }
+
+            <div formArrayName="points">
+              <div class="operator-section-head">
+                <h4>Boarding / dropping points</h4>
+                <button type="button" class="btn" (click)="addPoint(stopIndex)">Add point</button>
+              </div>
+              @for (point of pointsOf(stopIndex).controls; track point; let pointIndex = $index) {
+                <div class="operator-form-grid" [formGroupName]="pointIndex">
+                  <label class="field">
+                    <span>Point name</span>
+                    <input type="text" formControlName="name" maxlength="160" />
+                  </label>
+                  <label class="field">
+                    <span>Point type</span>
+                    <select formControlName="pointType">
+                      @for (type of pointTypes; track type) {
+                        <option [value]="type">{{ type }}</option>
+                      }
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Address</span>
+                    <input type="text" formControlName="address" maxlength="255" />
+                  </label>
+                  <label class="field">
+                    <span>Latitude</span>
+                    <input type="number" formControlName="latitude" min="-90" max="90" step="0.000001" />
+                  </label>
+                  <label class="field">
+                    <span>Longitude</span>
+                    <input type="number" formControlName="longitude" min="-180" max="180" step="0.000001" />
+                  </label>
+                  <div class="operator-page-actions">
+                    <button type="button" class="btn" (click)="removePoint(stopIndex, pointIndex)">
+                      Remove point
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          </section>
+        }
+      </div>
+
+      <div class="operator-page-actions">
+        <button type="button" class="btn" (click)="addStop()">Add stop</button>
+      </div>
+
+      @if (actionError) {
+        <div class="operator-alert operator-alert-danger" role="alert">
+          <strong>{{ actionError.title }}</strong>
+          <span>{{ actionError.message }}</span>
+        </div>
+      }
+
+      <div class="operator-page-actions">
+        <button type="submit" class="btn btn-primary" [disabled]="submitting">
+          {{ submitting ? 'Creating route…' : 'Create route' }}
+        </button>
+        @if (context.selectedOperatorId(); as operatorId) {
+          <a class="btn" [routerLink]="['/operator', operatorId, 'routes']">Cancel</a>
+        }
+      </div>
+    </form>
+  }
+</section>

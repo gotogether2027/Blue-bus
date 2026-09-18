@@ -1,0 +1,118 @@
+<section class="page operator-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Network</p>
+      <h1>Routes</h1>
+      <p class="muted">
+        {{ context.canManageOperator()
+          ? 'Create and maintain operator-owned routes, stops, and boarding points.'
+          : 'Review route information. Your operator staff access is read-only.' }}
+      </p>
+    </div>
+    @if (context.canManageOperator()) {
+      <a
+        class="btn btn-primary"
+        [routerLink]="['/operator', selectedOperatorId, 'routes', 'new']"
+      >
+        Create route
+      </a>
+    }
+  </header>
+
+  @if (writeAccessDenied) {
+    <div class="operator-alert operator-alert-danger" role="alert">
+      Operator admin access is required to manage routes.
+    </div>
+  }
+
+  @if (loading) {
+    <div class="operator-card-grid" aria-label="Loading routes">
+      <div class="skeleton card"></div>
+      <div class="skeleton card"></div>
+    </div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      @if (error.kind !== 'unauthorized') {
+        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
+      }
+    </app-empty-state>
+  } @else if (routes.length === 0) {
+    <app-empty-state
+      title="No routes"
+      message="No routes are available in this operator workspace."
+    >
+      @if (context.canManageOperator()) {
+        <a
+          class="btn btn-primary"
+          [routerLink]="['/operator', selectedOperatorId, 'routes', 'new']"
+        >
+          Create the first route
+        </a>
+      }
+    </app-empty-state>
+  } @else {
+    <section class="card operator-filter-bar" aria-label="Filter routes">
+      <label class="field">
+        <span>Search routes</span>
+        <input
+          type="search"
+          [(ngModel)]="searchQuery"
+          placeholder="Code, name, or location"
+        />
+      </label>
+      <label class="field">
+        <span>Status</span>
+        <select [(ngModel)]="statusFilter">
+          <option value="ALL">All statuses</option>
+          @for (status of statusOptions; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </label>
+    </section>
+
+    @if (filteredRoutes.length === 0) {
+      <app-empty-state
+        title="No matching routes"
+        message="Change the search text or status filter to see more routes."
+      />
+    } @else {
+      <div class="operator-card-grid">
+        @for (route of filteredRoutes; track route.id) {
+          <article class="card operator-resource-card">
+            <div class="operator-section-head">
+              <span>
+                <strong>{{ route.name }}</strong>
+                <small>{{ route.code }}</small>
+              </span>
+              <app-status-badge [label]="route.status" [tone]="statusTone(route.status)" />
+            </div>
+            <dl class="operator-detail-list operator-detail-list-compact">
+              <div>
+                <dt>Source</dt>
+                <dd>{{ locationLabel(route.sourceLocationId) }}</dd>
+              </div>
+              <div>
+                <dt>Destination</dt>
+                <dd>{{ locationLabel(route.destinationLocationId) }}</dd>
+              </div>
+              <div>
+                <dt>Stops</dt>
+                <dd>{{ stopSummary(route) }}</dd>
+              </div>
+            </dl>
+            <div class="operator-page-actions">
+              <a
+                class="btn"
+                [attr.aria-label]="'View route ' + route.code"
+                [routerLink]="['/operator', selectedOperatorId, 'routes', route.id]"
+              >
+                View route
+              </a>
+            </div>
+          </article>
+        }
+      </div>
+    }
+  }
+</section>
