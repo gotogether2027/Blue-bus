@@ -134,6 +134,17 @@ export function bookingConfirmationLabel(status: BookingStatus): string {
   return status === 'CONFIRMED' ? 'Confirmed booking' : 'Not confirmed';
 }
 
+export function bookingHasItemStatus(
+  booking: OperatorBooking,
+  itemStatus: BookingItemStatus | 'ALL'
+): boolean {
+  return itemStatus === 'ALL' || booking.items.some((item) => item.status === itemStatus);
+}
+
+export function parseTripBookingView(value: string | null): 'bookings' | 'manifest' | 'boarding' {
+  return value === 'manifest' || value === 'boarding' || value === 'bookings' ? value : 'bookings';
+}
+
 export function uniqueOriginOptions(
   rows: OperatorPassengerManifestRow[]
 ): OperatorStopOption[] {

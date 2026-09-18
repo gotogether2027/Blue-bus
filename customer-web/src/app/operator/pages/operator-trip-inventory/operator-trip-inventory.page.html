@@ -32,6 +32,14 @@
         </div>
       </header>
 
+      @if (context.selectedOperatorId(); as operatorId) {
+        <app-operator-trip-ops-nav
+          [operatorId]="operatorId"
+          [tripId]="tripDetail.id"
+          active="inventory"
+        />
+      }
+
       <div class="operator-alert operator-alert-info" role="note">
         Physical seat status and passenger allocation are separate. A seat can be booked for one
         journey segment while remaining available for another. This screen shows physical

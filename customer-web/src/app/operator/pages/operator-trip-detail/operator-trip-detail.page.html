@@ -30,22 +30,17 @@
               Edit commercial terms
             </a>
           }
-          <a
-            class="btn btn-primary"
-            [attr.aria-label]="'Open bookings for trip ' + tripDetail.id"
-            [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'bookings']"
-          >
-            Bookings
-          </a>
-          <a
-            class="btn"
-            [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'inventory']"
-          >
-            Inventory
-          </a>
         }
       </div>
     </header>
+
+    @if (context.selectedOperatorId(); as operatorId) {
+      <app-operator-trip-ops-nav
+        [operatorId]="operatorId"
+        [tripId]="tripDetail.id"
+        active="detail"
+      />
+    }
 
     @if (successMessage) {
       <div class="operator-alert operator-alert-success" role="status">

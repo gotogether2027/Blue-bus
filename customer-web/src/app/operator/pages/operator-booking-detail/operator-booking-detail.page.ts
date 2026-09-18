@@ -5,10 +5,12 @@ import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
 import {
   bookingBelongsToOperatorTrip,
+  bookingConfirmationLabel,
   bookingPassenger,
   bookingStopLabel
 } from '../../components/operator-booking-references';
 import { operatorStatusTone } from '../../components/operator-status';
+import { OperatorTripOpsNavComponent } from '../../components/operator-trip-ops-nav';
 import {
   OperatorBooking,
   OperatorBookingPassenger
@@ -22,7 +24,7 @@ import {
 
 @Component({
   selector: 'app-operator-booking-detail-page',
-  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
   templateUrl: './operator-booking-detail.page.html'
 })
 export class OperatorBookingDetailPageComponent implements OnInit {
@@ -40,6 +42,7 @@ export class OperatorBookingDetailPageComponent implements OnInit {
   readonly formatInstant = formatInstant;
   readonly formatMoney = formatMoney;
   readonly statusTone = operatorStatusTone;
+  readonly confirmationLabel = bookingConfirmationLabel;
 
   ngOnInit(): void {
     this.tripId = this.route.snapshot.paramMap.get('tripId') ?? '';
@@ -53,7 +56,11 @@ export class OperatorBookingDetailPageComponent implements OnInit {
     const version = ++this.loadVersion;
     this.tripId = tripId;
     this.booking = null;
-    if (!operatorId || !tripId || !bookingId) {
+    if (!operatorId) {
+      this.showAccessDenied();
+      return;
+    }
+    if (!tripId || !bookingId) {
       this.loading = false;
       this.error = {
         kind: 'not-found',
@@ -104,5 +111,14 @@ export class OperatorBookingDetailPageComponent implements OnInit {
       return `Seq ${sequence}`;
     }
     return bookingStopLabel(this.booking, sequence);
+  }
+
+  private showAccessDenied(): void {
+    this.loading = false;
+    this.error = {
+      kind: 'forbidden',
+      title: 'Operator access denied',
+      message: "You don't have access to this operator."
+    };
   }
 }

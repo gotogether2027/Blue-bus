@@ -22,7 +22,10 @@
       <div>
         <p class="eyebrow">Booking detail</p>
         <h1>{{ bookingDetail.bookingReference }}</h1>
-        <p class="muted">Created {{ formatInstant(bookingDetail.createdAt, bookingDetail.trip.timeZone) }}</p>
+        <p class="muted">
+          {{ confirmationLabel(bookingDetail.status) }} · Created
+          {{ formatInstant(bookingDetail.createdAt, bookingDetail.trip.timeZone) }}
+        </p>
       </div>
       <app-status-badge
         [label]="bookingDetail.status"
@@ -30,19 +33,50 @@
       />
     </header>
 
+    @if (context.selectedOperatorId(); as operatorId) {
+      <app-operator-trip-ops-nav
+        [operatorId]="operatorId"
+        [tripId]="bookingDetail.tripId"
+        active="bookings"
+      />
+    }
+
     @if (!context.canManageOperator()) {
       <div class="operator-alert operator-alert-info" role="note">
         Your OPERATOR_STAFF membership provides read-only booking access.
       </div>
     }
 
+    <div class="operator-alert operator-alert-info" role="note">
+      CONFIRMED is a booking status, not a boarded or checked-in state. Ticket status is not
+      available in the operator booking data.
+    </div>
+
     <div class="operator-content-grid">
       <section class="card">
-        <h2>Journey</h2>
+        <h2>Booking</h2>
         <dl class="operator-detail-list">
           <div>
-            <dt>Route</dt>
-            <dd>{{ bookingDetail.trip.routeName }} ({{ bookingDetail.trip.routeCode }})</dd>
+            <dt>Booking reference</dt>
+            <dd>{{ bookingDetail.bookingReference }}</dd>
+          </div>
+          <div>
+            <dt>Booking status</dt>
+            <dd>
+              {{ bookingDetail.status }}
+              <small>{{ confirmationLabel(bookingDetail.status) }}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Trip</dt>
+            <dd>
+              @if (context.selectedOperatorId(); as operatorId) {
+                <a [routerLink]="['/operator', operatorId, 'trips', bookingDetail.tripId]">
+                  {{ bookingDetail.trip.routeCode }} · {{ bookingDetail.trip.routeName }}
+                </a>
+              }
+              <small><code>{{ bookingDetail.tripId }}</code></small>
+            </dd>
           </div>
           <div>
             <dt>Origin</dt>
@@ -74,6 +108,35 @@
             </dd>
           </div>
           <div>
+            <dt>Arrival</dt>
+            <dd>
+              {{
+                formatInstant(
+                  bookingDetail.trip.scheduledArrivalAt,
+                  bookingDetail.trip.timeZone
+                )
+              }}
+            </dd>
+          </div>
+          <div>
+            <dt>Created</dt>
+            <dd>{{ formatInstant(bookingDetail.createdAt, bookingDetail.trip.timeZone) }}</dd>
+          </div>
+          <div>
+            <dt>Currency</dt>
+            <dd>{{ bookingDetail.currency }}</dd>
+          </div>
+          <div>
+            <dt>Total amount</dt>
+            <dd>{{ formatMoney(bookingDetail.totalAmount, bookingDetail.currency) }}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2>Trip context</h2>
+        <dl class="operator-detail-list">
+          <div>
             <dt>Bus</dt>
             <dd>
               {{
@@ -83,74 +146,98 @@
               · {{ bookingDetail.trip.busRegistrationNumber }}
             </dd>
           </div>
-        </dl>
-      </section>
-
-      <section class="card">
-        <h2>Booking summary</h2>
-        <dl class="operator-detail-list">
           <div>
-            <dt>Booking reference</dt>
-            <dd>{{ bookingDetail.bookingReference }}</dd>
+            <dt>Route</dt>
+            <dd>{{ bookingDetail.trip.routeName }} ({{ bookingDetail.trip.routeCode }})</dd>
           </div>
           <div>
-            <dt>Booking status</dt>
-            <dd>{{ bookingDetail.status }}</dd>
-          </div>
-          <div>
-            <dt>Passengers</dt>
-            <dd>{{ bookingDetail.passengers.length }}</dd>
-          </div>
-          <div>
-            <dt>Total</dt>
-            <dd>{{ formatMoney(bookingDetail.totalAmount, bookingDetail.currency) }}</dd>
-          </div>
-          <div>
-            <dt>Created</dt>
-            <dd>{{ formatInstant(bookingDetail.createdAt, bookingDetail.trip.timeZone) }}</dd>
+            <dt>Trip status</dt>
+            <dd>{{ bookingDetail.trip.status }}</dd>
           </div>
         </dl>
       </section>
-    </div>
-
-    <div class="operator-alert operator-alert-info" role="note">
-      Ticket status is not available in the operator booking data.
     </div>
 
     <section class="card">
       <div class="operator-section-head">
         <div>
-          <p class="eyebrow">Manifest</p>
-          <h2>Passengers and seats</h2>
+          <p class="eyebrow">Passengers</p>
+          <h2>Passenger names</h2>
         </div>
         <span class="muted">{{ bookingDetail.passengers.length }} passengers</span>
       </div>
-      @if (bookingDetail.items.length === 0) {
-        <p class="muted">No passengers for this trip.</p>
+      @if (bookingDetail.passengers.length === 0) {
+        <p class="muted">No passengers were returned for this booking.</p>
       } @else {
-        <div class="operator-manifest">
-          @for (item of bookingDetail.items; track item.bookingItemId) {
-            <article>
-              <div>
-                <strong>{{ passengerFor(item.passengerId)?.fullName || 'Passenger not assigned' }}</strong>
-                <span class="muted">
-                  @if (passengerFor(item.passengerId); as passenger) {
-                    Age {{ passenger.age ?? '—' }} · {{ passenger.gender || 'Gender not provided' }}
-                  }
-                </span>
-              </div>
-              <div>
-                <strong>Seat {{ item.seatNumber }}</strong>
-                <span class="muted">{{ item.seatType }}</span>
-                <span class="muted">
-                  {{ stopLabel(item.originSequence) }}
-                  →
-                  {{ stopLabel(item.destinationSequence) }}
-                </span>
-              </div>
-              <app-status-badge [label]="item.status" [tone]="statusTone(item.status)" />
-            </article>
-          }
+        <div class="operator-table-wrap">
+          <table class="operator-data-table">
+            <caption class="visually-hidden">Passengers on this operator booking</caption>
+            <thead>
+              <tr>
+                <th scope="col">Passenger</th>
+                <th scope="col">Age</th>
+                <th scope="col">Gender</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (passenger of bookingDetail.passengers; track passenger.passengerId) {
+                <tr>
+                  <th scope="row">{{ passenger.fullName }}</th>
+                  <td>{{ passenger.age ?? '—' }}</td>
+                  <td>{{ passenger.gender || '—' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </section>
+
+    <section class="card">
+      <div class="operator-section-head">
+        <div>
+          <p class="eyebrow">Seats</p>
+          <h2>Booking items</h2>
+        </div>
+        <span class="muted">{{ bookingDetail.items.length }} items</span>
+      </div>
+      @if (bookingDetail.items.length === 0) {
+        <p class="muted">No booking items were returned for this booking.</p>
+      } @else {
+        <div class="operator-table-wrap">
+          <table class="operator-data-table">
+            <caption class="visually-hidden">Seats and item status for this operator booking</caption>
+            <thead>
+              <tr>
+                <th scope="col">Seat number</th>
+                <th scope="col">Seat type</th>
+                <th scope="col">Item status</th>
+                <th scope="col">Origin sequence</th>
+                <th scope="col">Destination sequence</th>
+                <th scope="col">Passenger</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (item of bookingDetail.items; track item.bookingItemId) {
+                <tr>
+                  <th scope="row">Seat {{ item.seatNumber }}</th>
+                  <td>{{ item.seatType }}</td>
+                  <td>
+                    <app-status-badge [label]="item.status" [tone]="statusTone(item.status)" />
+                  </td>
+                  <td>
+                    {{ item.originSequence }}
+                    <small>{{ stopLabel(item.originSequence) }}</small>
+                  </td>
+                  <td>
+                    {{ item.destinationSequence }}
+                    <small>{{ stopLabel(item.destinationSequence) }}</small>
+                  </td>
+                  <td>{{ passengerFor(item.passengerId)?.fullName || 'Passenger not assigned' }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
         </div>
       }
     </section>

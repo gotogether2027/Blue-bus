@@ -12,6 +12,7 @@ import {
   OperatorTripActionError,
   readOperatorTripActionError
 } from '../../components/operator-trip-errors';
+import { OperatorTripOpsNavComponent } from '../../components/operator-trip-ops-nav';
 import {
   busSummary,
   canCancelTrip,
@@ -29,7 +30,7 @@ import {
 
 @Component({
   selector: 'app-operator-trip-detail-page',
-  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
   templateUrl: './operator-trip-detail.page.html'
 })
 export class OperatorTripDetailPageComponent implements OnInit {

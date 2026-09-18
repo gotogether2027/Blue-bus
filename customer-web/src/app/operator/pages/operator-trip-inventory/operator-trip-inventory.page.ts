@@ -14,6 +14,7 @@ import {
   groupTripInventory
 } from '../../components/operator-inventory-references';
 import { operatorStatusTone } from '../../components/operator-status';
+import { OperatorTripOpsNavComponent } from '../../components/operator-trip-ops-nav';
 import {
   busSummary,
   canMutateTripInventory,
@@ -34,7 +35,7 @@ import {
 
 @Component({
   selector: 'app-operator-trip-inventory-page',
-  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
   templateUrl: './operator-trip-inventory.page.html'
 })
 export class OperatorTripInventoryPageComponent implements OnInit {

@@ -19,6 +19,7 @@ import {
 } from '../../../testing/operator-fixtures';
 import { routes } from '../../app.routes';
 import { AuthService } from '../../core/auth/auth.service';
+import { BOOKING_ITEM_STATUSES, BOOKING_STATUSES } from '../components/operator-booking-references';
 import { OperatorBooking } from '../models/operator.models';
 import { OperatorContextService } from '../services/operator-context.service';
 import { OperatorBookingDetailPageComponent } from './operator-booking-detail/operator-booking-detail.page';
@@ -337,7 +338,7 @@ describe('operator trip bookings', () => {
     expect(text).toContain('CONFIRMED');
     expect(text).toContain('ACTIVE');
     expect(text).not.toContain('Payment');
-    expect(text).not.toContain('Refund');
+    expect(text).not.toContain('Issue refund');
     expect(text).not.toContain('Customer email');
   });
 
@@ -448,7 +449,7 @@ describe('operator trip bookings', () => {
     expect(text).toContain('Boarding view');
     expect(text).not.toContain('Check-in');
     expect(text).not.toContain('Cancel booking');
-    expect(text).not.toContain('Refund');
+    expect(text).not.toContain('Issue refund');
   });
 
   it('keeps operator staff read-only on booking detail', async () => {
@@ -467,7 +468,7 @@ describe('operator trip bookings', () => {
     expect(text).toContain('read-only booking access');
     expect(text).not.toContain('Check-in');
     expect(text).not.toContain('Cancel booking');
-    expect(text).not.toContain('Refund');
+    expect(text).not.toContain('Issue refund');
   });
 
   it('does not expose mutation controls for operator admins', async () => {
@@ -642,6 +643,224 @@ describe('operator trip bookings', () => {
     );
     expect(pageText(fixture.nativeElement)).toContain('Bookings');
     expect(hrefs.some((href) => href.includes('/operator/operator-1/trips/trip-1/bookings'))).toBeTrue();
+    expect(hrefs.some((href) => href.includes('view=manifest'))).toBeTrue();
+    expect(hrefs.some((href) => href.includes('view=boarding'))).toBeTrue();
+    expect(hrefs.some((href) => href.includes('/operator/operator-1/trips/trip-1/inventory'))).toBeTrue();
+    expect(pageText(fixture.nativeElement)).toContain('Passenger manifest');
+    expect(pageText(fixture.nativeElement)).toContain('Boarding');
+  });
+
+  it('searches loaded bookings by passenger name on the client', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed, cancelled]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.searchQuery = 'Asha Rao';
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('BB-1001');
+    expect(text).not.toContain('BB-2002');
+    expect(text).toContain('Showing 1 of 2 loaded bookings');
+  });
+
+  it('filters loaded bookings by booking item status on the client', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed, cancelled]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.itemStatusFilter = 'ACTIVE';
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('BB-1001');
+    expect(text).not.toContain('BB-2002');
+  });
+
+  it('clears client-side filters and restores the loaded booking count', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed, cancelled]);
+    fixture.detectChanges();
+
+    fixture.componentInstance.searchQuery = 'BB-2002';
+    fixture.componentInstance.statusFilter = 'CANCELLED';
+    fixture.detectChanges();
+    expect(pageText(fixture.nativeElement)).not.toContain('BB-1001');
+
+    fixture.componentInstance.clearFilters();
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    expect(text).toContain('BB-1001');
+    expect(text).toContain('BB-2002');
+    expect(text).toContain('Showing 2 of 2 loaded bookings');
+    expect(fixture.componentInstance.searchQuery).toBe('');
+    expect(fixture.componentInstance.statusFilter).toBe('ALL');
+    expect(fixture.componentInstance.itemStatusFilter).toBe('ALL');
+  });
+
+  it('renders every operator booking status from the loaded list', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(
+      setup.http,
+      'operator-1',
+      BOOKING_STATUSES.map((status) =>
+        operatorBookingFixture({
+          bookingId: `booking-${status}`,
+          bookingReference: `REF-${status}`,
+          status
+        })
+      )
+    );
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    for (const status of BOOKING_STATUSES) {
+      expect(text).toContain(status);
+      expect(text).toContain(`REF-${status}`);
+    }
+    expect(text).not.toContain('BOARDED');
+    expect(text).not.toContain('CHECKED_IN');
+    expect(text).not.toContain('NO_SHOW');
+  });
+
+  it('renders every operator booking-item status on the manifest', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(
+      setup.http,
+      'operator-1',
+      BOOKING_ITEM_STATUSES.map((status, index) =>
+        operatorBookingFixture({
+          bookingId: `booking-item-${status}`,
+          bookingReference: `ITEM-${status}`,
+          items: [
+            {
+              bookingItemId: `item-${status}`,
+              passengerId: 'passenger-1',
+              seatNumber: `S${index + 1}`,
+              seatType: 'SLEEPER',
+              originSequence: 1,
+              destinationSequence: 2,
+              status
+            }
+          ]
+        })
+      )
+    );
+    fixture.detectChanges();
+
+    clickNamedButton(fixture.nativeElement, 'Passenger manifest');
+    fixture.detectChanges();
+
+    const text = pageText(fixture.nativeElement);
+    for (const status of BOOKING_ITEM_STATUSES) {
+      expect(text).toContain(status);
+      expect(text).toContain(`ITEM-${status}`);
+    }
+  });
+
+  it('opens the boarding view from the existing bookings query parameter', async () => {
+    const setup = await configure(
+      OperatorBookingsPageComponent,
+      { tripId: 'trip-1' },
+      true,
+      { view: 'boarding' }
+    );
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed]);
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.view).toBe('boarding');
+    expect(pageText(fixture.nativeElement)).toContain(
+      'Ticket status is not available in the operator booking data.'
+    );
+    expect(pageText(fixture.nativeElement)).toContain('Asha Rao');
+  });
+
+  it('does not issue child API requests when the selected operator is unavailable', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    setup.selectedOperatorId.set(null);
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+
+    setup.http.expectNone(() => true);
+    expect(fixture.componentInstance.bookings).toEqual([]);
+    expect(pageText(fixture.nativeElement)).toContain("You don't have access to this operator.");
+  });
+
+  it('does not call customer ticket, payment, or refund APIs', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    const pending = setup.http.match(() => true);
+    expect(
+      pending.every((request) => request.request.url.startsWith(`${base}/operator-1/`))
+    ).toBeTrue();
+    expect(pending.every((request) => request.request.method === 'GET')).toBeTrue();
+    expect(pending.some((request) => request.request.url.includes('/tickets'))).toBeFalse();
+    expect(pending.some((request) => request.request.url.includes('/payments'))).toBeFalse();
+    expect(pending.some((request) => request.request.url.includes('/refunds'))).toBeFalse();
+    pending.forEach((request) => {
+      if (request.request.url.endsWith('/trips/trip-1')) {
+        request.flush(operatorTripFixture());
+      } else if (request.request.url.endsWith('/bookings')) {
+        request.flush([confirmed]);
+      }
+    });
+    setup.http.expectOne(`${base}/operator-1/buses/bus-1`).flush(operatorBusFixture());
+    setup.http.expectOne(`${base}/operator-1/routes/route-1`).flush(operatorRouteFixture());
+    setup.http.expectNone((request) => request.url.includes('/ticket'));
+    setup.http.expectNone((request) => request.url.includes('/payments'));
+    setup.http.expectNone((request) => request.url.includes('/refunds'));
+  });
+
+  it('links booking detail back to bookings and the trip', async () => {
+    const setup = await configure(OperatorBookingDetailPageComponent, {
+      tripId: 'trip-1',
+      bookingId: 'booking-1'
+    });
+    const fixture = TestBed.createComponent(OperatorBookingDetailPageComponent);
+    fixture.detectChanges();
+    setup.http.expectOne(`${base}/operator-1/trips/trip-1/bookings/booking-1`).flush(confirmed);
+    fixture.detectChanges();
+
+    const hrefs = [...(fixture.nativeElement as HTMLElement).querySelectorAll('a')].map(
+      (anchor) => anchor.getAttribute('href') ?? ''
+    );
+    const text = pageText(fixture.nativeElement);
+    expect(hrefs).toContain('/operator/operator-1/trips/trip-1/bookings');
+    expect(hrefs).toContain('/operator/operator-1/trips/trip-1');
+    expect(text).toContain('INR');
+    expect(text).toContain('Arrival');
+    expect(text).toContain('Currency');
+    expect(text).toContain('Origin sequence');
+    expect(text).toContain('Destination sequence');
+    expect(text).not.toContain('BOARDED');
+  });
+
+  it('does not issue booking-detail child API requests when the operator is unavailable', async () => {
+    const setup = await configure(OperatorBookingDetailPageComponent, {
+      tripId: 'trip-1',
+      bookingId: 'booking-1'
+    });
+    setup.selectedOperatorId.set(null);
+    const fixture = TestBed.createComponent(OperatorBookingDetailPageComponent);
+    fixture.detectChanges();
+
+    setup.http.expectNone(() => true);
+    expect(fixture.componentInstance.booking).toBeNull();
+    expect(pageText(fixture.nativeElement)).toContain("You don't have access to this operator.");
   });
 
   it('leaves customer booking and payment routes unchanged', () => {
@@ -667,7 +886,8 @@ describe('operator trip bookings', () => {
   async function configure(
     component: Type<unknown>,
     params: Record<string, string> = {},
-    canManage = true
+    canManage = true,
+    queryParams: Record<string, string> = {}
   ): Promise<{
     http: HttpTestingController;
     selectedOperatorId: WritableSignal<string | null>;
@@ -699,7 +919,7 @@ describe('operator trip bookings', () => {
           useValue: {
             snapshot: {
               paramMap: convertToParamMap(params),
-              queryParamMap: convertToParamMap({})
+              queryParamMap: convertToParamMap(queryParams)
             }
           }
         }

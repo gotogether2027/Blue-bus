@@ -37,10 +37,18 @@
         <app-status-badge [label]="tripDetail.status" [tone]="statusTone(tripDetail.status)" />
       </header>
 
+      @if (context.selectedOperatorId(); as operatorId) {
+        <app-operator-trip-ops-nav
+          [operatorId]="operatorId"
+          [tripId]="tripDetail.id"
+          [active]="view === 'bookings' ? 'bookings' : view === 'manifest' ? 'manifest' : 'boarding'"
+        />
+      }
+
       <div class="operator-alert operator-alert-info" role="note">
         Passenger allocation comes from operator booking records for this trip. This view is
-        read-only and is separate from physical seat inventory. Confirmed is a booking status, not a
-        boarding record.
+        read-only and is separate from physical seat inventory. CONFIRMED is a booking status, not a
+        boarded or checked-in state.
       </div>
 
       @if (!context.canManageOperator()) {
@@ -100,16 +108,15 @@
 
       @if (bookings.length > 0) {
         <section
-          class="card operator-filter-bar"
-          [class.operator-filter-bar-ops]="view !== 'bookings'"
+          class="card operator-filter-bar operator-filter-bar-ops"
           aria-label="Filter loaded trip bookings"
         >
           <label class="field">
-            <span>Search loaded bookings</span>
+            <span>Search booking reference or passenger name</span>
             <input
               type="search"
               [(ngModel)]="searchQuery"
-              placeholder="Booking reference, passenger, seat, or city"
+              placeholder="BB-1001 or passenger name"
             />
           </label>
           <label class="field">
@@ -121,16 +128,16 @@
               }
             </select>
           </label>
+          <label class="field">
+            <span>Booking item status</span>
+            <select [(ngModel)]="itemStatusFilter">
+              <option value="ALL">All item statuses</option>
+              @for (status of itemStatuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+          </label>
           @if (view !== 'bookings') {
-            <label class="field">
-              <span>Booking item status</span>
-              <select [(ngModel)]="itemStatusFilter">
-                <option value="ALL">All item statuses</option>
-                @for (status of itemStatuses; track status) {
-                  <option [value]="status">{{ status }}</option>
-                }
-              </select>
-            </label>
             <label class="field">
               <span>Origin</span>
               <select [(ngModel)]="originFilter">
@@ -160,6 +167,16 @@
               </select>
             </label>
           }
+          <div class="operator-page-actions">
+            <button
+              type="button"
+              class="btn"
+              [disabled]="!hasActiveFilters"
+              (click)="clearFilters()"
+            >
+              Clear filters
+            </button>
+          </div>
           <p class="field-hint">
             Filters apply to the bookings already loaded for this trip. The operator booking API
             does not support server-side search.
@@ -180,6 +197,9 @@
           />
         } @else {
           <div class="stack">
+            <p class="muted" role="status">
+              Showing {{ filteredBookings.length }} of {{ bookings.length }} loaded bookings
+            </p>
             @for (booking of filteredBookings; track booking.bookingId) {
               <article class="card operator-booking-row">
                 <div>
@@ -264,7 +284,8 @@
                     <th scope="col">Gender</th>
                     <th scope="col">Segment</th>
                     <th scope="col">Booking</th>
-                    <th scope="col">Status</th>
+                    <th scope="col">Booking status</th>
+                    <th scope="col">Item status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -303,6 +324,13 @@
                         <app-status-badge
                           [label]="row.bookingStatus"
                           [tone]="statusTone(row.bookingStatus)"
+                        />
+                        <small>{{ confirmationLabel(row.bookingStatus) }}</small>
+                      </td>
+                      <td>
+                        <app-status-badge
+                          [label]="row.itemStatus"
+                          [tone]="statusTone(row.itemStatus)"
                         />
                       </td>
                     </tr>

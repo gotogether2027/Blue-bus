@@ -16,12 +16,15 @@ import {
   OperatorStopOption,
   bookingBelongsToOperatorTrip,
   bookingConfirmationLabel,
+  bookingHasItemStatus,
   groupPassengerManifestRows,
+  parseTripBookingView,
   passengerManifestRows,
   uniqueDestinationOptions,
   uniqueOriginOptions
 } from '../../components/operator-booking-references';
 import { operatorStatusTone } from '../../components/operator-status';
+import { OperatorTripOpsNavComponent } from '../../components/operator-trip-ops-nav';
 import { busSummary, routeSummary } from '../../components/operator-trip-references';
 import {
   OperatorBooking,
@@ -38,7 +41,7 @@ import {
 
 @Component({
   selector: 'app-operator-bookings-page',
-  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
   templateUrl: './operator-bookings.page.html'
 })
 export class OperatorBookingsPageComponent implements OnInit {
@@ -97,7 +100,20 @@ export class OperatorBookingsPageComponent implements OnInit {
 
   get filteredBookings(): OperatorBooking[] {
     return this.bookings.filter(
-      (booking) => this.matchesStatus(booking.status) && this.matchesQuery(this.bookingSearchText(booking))
+      (booking) =>
+        this.matchesStatus(booking.status) &&
+        bookingHasItemStatus(booking, this.itemStatusFilter) &&
+        this.matchesQuery(this.bookingSearchText(booking))
+    );
+  }
+
+  get hasActiveFilters(): boolean {
+    return (
+      this.searchQuery.trim() !== '' ||
+      this.statusFilter !== 'ALL' ||
+      this.itemStatusFilter !== 'ALL' ||
+      this.originFilter !== 'ALL' ||
+      this.destinationFilter !== 'ALL'
     );
   }
 
@@ -115,6 +131,7 @@ export class OperatorBookingsPageComponent implements OnInit {
 
   ngOnInit(): void {
     this.tripId = this.route.snapshot.paramMap.get('tripId') ?? '';
+    this.view = parseTripBookingView(this.route.snapshot.queryParamMap.get('view'));
     this.load();
   }
 
@@ -133,7 +150,11 @@ export class OperatorBookingsPageComponent implements OnInit {
     this.originFilter = 'ALL';
     this.destinationFilter = 'ALL';
     this.groupBy = 'seat';
-    if (!operatorId || !tripId) {
+    if (!operatorId) {
+      this.showAccessDenied();
+      return;
+    }
+    if (!tripId) {
       this.loading = false;
       this.error = {
         kind: 'not-found',
@@ -207,6 +228,14 @@ export class OperatorBookingsPageComponent implements OnInit {
     this.view = 'boarding';
   }
 
+  clearFilters(): void {
+    this.searchQuery = '';
+    this.statusFilter = 'ALL';
+    this.itemStatusFilter = 'ALL';
+    this.originFilter = 'ALL';
+    this.destinationFilter = 'ALL';
+  }
+
   busLabel(): string {
     return busSummary(this.bus ?? undefined, this.trip?.busId ?? '');
   }
@@ -234,6 +263,15 @@ export class OperatorBookingsPageComponent implements OnInit {
     return this.matchesQuery(this.manifestSearchText(row));
   }
 
+  private showAccessDenied(): void {
+    this.loading = false;
+    this.error = {
+      kind: 'forbidden',
+      title: 'Operator access denied',
+      message: "You don't have access to this operator."
+    };
+  }
+
   private matchesStatus(status: BookingStatus): boolean {
     return this.statusFilter === 'ALL' || status === this.statusFilter;
   }
@@ -246,13 +284,7 @@ export class OperatorBookingsPageComponent implements OnInit {
   private bookingSearchText(booking: OperatorBooking): string {
     return [
       booking.bookingReference,
-      booking.status,
-      booking.trip.origin.city,
-      booking.trip.destination.city,
-      booking.trip.routeCode,
-      booking.trip.routeName,
-      ...booking.passengers.map((passenger) => passenger.fullName),
-      ...booking.items.map((item) => item.seatNumber)
+      ...booking.passengers.map((passenger) => passenger.fullName)
     ]
       .join(' ')
       .toLocaleLowerCase();
