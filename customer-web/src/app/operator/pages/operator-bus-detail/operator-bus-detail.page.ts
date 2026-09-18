@@ -2,6 +2,7 @@ import { Component, HostListener, OnInit, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Observable, forkJoin } from 'rxjs';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import {
   OperatorBusActionError,
@@ -26,7 +27,7 @@ import {
 
 @Component({
   selector: 'app-operator-bus-detail-page',
-  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-bus-detail.page.html'
 })
 export class OperatorBusDetailPageComponent implements OnInit {
@@ -126,6 +127,9 @@ export class OperatorBusDetailPageComponent implements OnInit {
   }
 
   confirmLifecycle(): void {
+    if (this.lifecycleSubmitting) {
+      return;
+    }
     const action = this.pendingLifecycleAction;
     const operatorId = this.context.selectedOperatorId();
     const busId = this.route.snapshot.paramMap.get('busId');

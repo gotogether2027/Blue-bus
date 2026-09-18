@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { TripStatus } from '../../../core/api/models';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
 import { operatorStatusTone } from '../../components/operator-status';
@@ -22,7 +23,7 @@ import {
 
 @Component({
   selector: 'app-operator-trips-page',
-  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-trips.page.html'
 })
 export class OperatorTripsPageComponent implements OnInit {

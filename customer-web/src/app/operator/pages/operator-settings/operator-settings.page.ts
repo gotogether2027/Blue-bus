@@ -7,6 +7,7 @@ import {
 } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import {
   OperatorProfileActionError,
@@ -28,7 +29,7 @@ const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 
 @Component({
   selector: 'app-operator-settings-page',
-  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-settings.page.html'
 })
 export class OperatorSettingsPageComponent implements OnInit {

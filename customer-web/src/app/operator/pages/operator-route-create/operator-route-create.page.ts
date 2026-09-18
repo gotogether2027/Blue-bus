@@ -10,6 +10,7 @@ import { Router, RouterLink } from '@angular/router';
 import { CustomerLocation } from '../../../core/api/models';
 import { LocationsService } from '../../../core/api/locations.service';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import {
   OperatorRouteActionError,
   readOperatorRouteActionError
@@ -37,7 +38,7 @@ import {
 
 @Component({
   selector: 'app-operator-route-create-page',
-  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent],
+  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent],
   templateUrl: './operator-route-create.page.html'
 })
 export class OperatorRouteCreatePageComponent implements OnInit {

@@ -32,9 +32,7 @@
     </div>
   } @else if (error) {
     <app-empty-state [title]="error.title" [message]="error.message">
-      @if (error.kind !== 'unauthorized') {
-        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
-      }
+      <app-operator-retry-button [error]="error" (retry)="load()" />
     </app-empty-state>
   } @else if (trips.length === 0) {
     <app-empty-state
@@ -65,7 +63,7 @@
         <input
           type="date"
           [(ngModel)]="serviceDateFilter"
-          (ngModelChange)="load()"
+          (change)="load()"
         />
       </label>
       <label class="field">

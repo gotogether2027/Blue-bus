@@ -8,6 +8,7 @@ import {
 import { Router, RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import {
   OperatorBusActionError,
   readOperatorBusActionError
@@ -30,7 +31,7 @@ import {
 
 @Component({
   selector: 'app-operator-bus-create-page',
-  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent],
+  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent],
   templateUrl: './operator-bus-create.page.html'
 })
 export class OperatorBusCreatePageComponent implements OnInit {

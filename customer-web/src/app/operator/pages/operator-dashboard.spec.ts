@@ -440,6 +440,30 @@ describe('operator operations dashboard', () => {
 
     expect(fixture.componentInstance.operator).toBeNull();
     expect(pageText(fixture.nativeElement)).toContain("You don't have access to this operator.");
+    expect(pageText(fixture.nativeElement)).not.toContain('Try again');
+  });
+
+  it('maps a backend 401 to a session error without offering retry', async () => {
+    const setup = await configure();
+    const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
+    fixture.detectChanges();
+    flushDashboardError(setup.http, 'operator-1', 401, 'Unauthorized');
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.operator).toBeNull();
+    expect(pageText(fixture.nativeElement)).toContain('Your session has expired');
+    expect(pageText(fixture.nativeElement)).not.toContain('Try again');
+  });
+
+  it('offers retry for a transient dashboard GET failure', async () => {
+    const setup = await configure();
+    const fixture = TestBed.createComponent(OperatorDashboardPageComponent);
+    fixture.detectChanges();
+    flushDashboardError(setup.http, 'operator-1', 500, 'Server Error');
+    fixture.detectChanges();
+
+    expect(pageText(fixture.nativeElement)).toContain('Operator data is unavailable');
+    expect(pageText(fixture.nativeElement)).toContain('Try again');
   });
 
   it('maps a backend 404 to the existing resource-not-found state', async () => {
@@ -451,6 +475,7 @@ describe('operator operations dashboard', () => {
 
     expect(fixture.componentInstance.operator).toBeNull();
     expect(pageText(fixture.nativeElement)).toContain('Resource not found');
+    expect(pageText(fixture.nativeElement)).toContain('Try again');
   });
 
   it('does not issue child API requests when the selected operator is unavailable', async () => {

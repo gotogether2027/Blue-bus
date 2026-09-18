@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
 import {
@@ -29,7 +30,7 @@ import {
 
 @Component({
   selector: 'app-operator-reports-page',
-  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-reports.page.html'
 })
 export class OperatorReportsPageComponent implements OnInit {

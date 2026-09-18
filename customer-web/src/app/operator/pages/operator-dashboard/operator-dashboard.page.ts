@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
 import {
@@ -34,7 +35,7 @@ import {
 
 @Component({
   selector: 'app-operator-dashboard-page',
-  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-dashboard.page.html'
 })
 export class OperatorDashboardPageComponent implements OnInit {

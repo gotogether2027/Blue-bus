@@ -5,6 +5,7 @@ import { forkJoin } from 'rxjs';
 import { CustomerLocation } from '../../../core/api/models';
 import { LocationsService } from '../../../core/api/locations.service';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import {
   operatorLocationLabel,
@@ -24,7 +25,7 @@ import {
 
 @Component({
   selector: 'app-operator-routes-page',
-  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-routes.page.html'
 })
 export class OperatorRoutesPageComponent implements OnInit {

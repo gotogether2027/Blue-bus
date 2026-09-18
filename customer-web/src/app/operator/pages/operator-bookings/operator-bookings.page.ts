@@ -1,9 +1,10 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { EMPTY, forkJoin, of, switchMap } from 'rxjs';
+import { EMPTY, Subscription, forkJoin, of, switchMap } from 'rxjs';
 import { BookingItemStatus, BookingStatus } from '../../../core/api/models';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
 import {
@@ -41,15 +42,16 @@ import {
 
 @Component({
   selector: 'app-operator-bookings-page',
-  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
+  imports: [FormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
   templateUrl: './operator-bookings.page.html'
 })
-export class OperatorBookingsPageComponent implements OnInit {
+export class OperatorBookingsPageComponent implements OnInit, OnDestroy {
   private readonly api = inject(OperatorApiService);
   readonly context = inject(OperatorContextService);
   private readonly errors = inject(OperatorErrorService);
   private readonly route = inject(ActivatedRoute);
   private loadVersion = 0;
+  private viewSubscription: Subscription | null = null;
 
   loading = true;
   error: OperatorPageError | null = null;
@@ -132,7 +134,17 @@ export class OperatorBookingsPageComponent implements OnInit {
   ngOnInit(): void {
     this.tripId = this.route.snapshot.paramMap.get('tripId') ?? '';
     this.view = parseTripBookingView(this.route.snapshot.queryParamMap.get('view'));
+    const queryParams = this.route.queryParamMap;
+    if (queryParams && typeof queryParams.subscribe === 'function') {
+      this.viewSubscription = queryParams.subscribe((params) => {
+        this.view = parseTripBookingView(params.get('view'));
+      });
+    }
     this.load();
+  }
+
+  ngOnDestroy(): void {
+    this.viewSubscription?.unsubscribe();
   }
 
   load(): void {

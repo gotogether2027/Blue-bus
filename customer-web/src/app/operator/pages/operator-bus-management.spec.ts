@@ -337,6 +337,21 @@ describe('operator bus management', () => {
     expect(text).toContain('MAINTENANCE');
   });
 
+  it('does not automatically retry a lifecycle mutation', async () => {
+    const setup = await configure(OperatorBusDetailPageComponent, { busId: 'bus-1' });
+    const fixture = TestBed.createComponent(OperatorBusDetailPageComponent);
+    fixture.detectChanges();
+    flushBusDetail(setup.http, 'operator-1');
+
+    fixture.componentInstance.requestLifecycle('deactivate');
+    fixture.componentInstance.confirmLifecycle();
+    fixture.componentInstance.confirmLifecycle();
+    const requests = setup.http.match(`${base}/operator-1/buses/bus-1/deactivate`);
+    expect(requests.length).toBe(1);
+    expect(requests[0].request.method).toBe('POST');
+    requests[0].flush(operatorBusFixture({ status: 'INACTIVE' }));
+  });
+
   it('handles a 403 after a previously accessible bus list', async () => {
     const setup = await configure(OperatorBusesPageComponent);
     const fixture = TestBed.createComponent(OperatorBusesPageComponent);
@@ -393,6 +408,7 @@ describe('operator bus management', () => {
     });
     expect(fixture.componentInstance.bus).toBeNull();
     expect(pageText(fixture.nativeElement)).toContain('Your session has expired');
+    expect(pageText(fixture.nativeElement)).not.toContain('Try again');
   });
 
   it('clears the previous operator list before loading a newly selected operator', async () => {

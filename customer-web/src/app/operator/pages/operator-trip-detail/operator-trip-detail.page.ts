@@ -4,6 +4,7 @@ import { EMPTY, Observable, forkJoin, of, switchMap } from 'rxjs';
 import { CustomerLocation } from '../../../core/api/models';
 import { LocationsService } from '../../../core/api/locations.service';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
 import { operatorLocationLabel } from '../../components/operator-route-references';
@@ -30,7 +31,7 @@ import {
 
 @Component({
   selector: 'app-operator-trip-detail-page',
-  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
+  imports: [RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
   templateUrl: './operator-trip-detail.page.html'
 })
 export class OperatorTripDetailPageComponent implements OnInit {
@@ -168,6 +169,9 @@ export class OperatorTripDetailPageComponent implements OnInit {
   }
 
   confirmLifecycle(): void {
+    if (this.lifecycleSubmitting) {
+      return;
+    }
     const action = this.pendingLifecycleAction;
     const operatorId = this.context.selectedOperatorId();
     const tripId = this.route.snapshot.paramMap.get('tripId');

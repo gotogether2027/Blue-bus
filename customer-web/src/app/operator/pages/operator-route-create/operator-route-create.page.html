@@ -15,11 +15,7 @@
     <div class="skeleton card operator-large-skeleton" aria-label="Loading route form"></div>
   } @else if (pageError) {
     <app-empty-state [title]="pageError.title" [message]="pageError.message">
-      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
-        <button type="button" class="btn btn-primary" (click)="loadReferenceData()">
-          Try again
-        </button>
-      }
+      <app-operator-retry-button [error]="pageError" (retry)="loadReferenceData()" />
     </app-empty-state>
   } @else if (locations.length < 2) {
     <app-empty-state

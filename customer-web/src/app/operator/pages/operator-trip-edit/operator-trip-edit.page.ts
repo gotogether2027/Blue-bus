@@ -8,6 +8,7 @@ import {
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { EMPTY, forkJoin, of, switchMap } from 'rxjs';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import {
   OperatorTripActionError,
   readOperatorTripActionError
@@ -36,7 +37,7 @@ import {
 
 @Component({
   selector: 'app-operator-trip-edit-page',
-  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent],
+  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent],
   templateUrl: './operator-trip-edit.page.html'
 })
 export class OperatorTripEditPageComponent implements OnInit {

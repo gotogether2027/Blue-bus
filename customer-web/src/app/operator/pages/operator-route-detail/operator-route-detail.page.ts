@@ -4,6 +4,7 @@ import { Observable, forkJoin } from 'rxjs';
 import { CustomerLocation } from '../../../core/api/models';
 import { LocationsService } from '../../../core/api/locations.service';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import {
   OperatorRouteActionError,
@@ -30,7 +31,7 @@ import {
 
 @Component({
   selector: 'app-operator-route-detail-page',
-  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-route-detail.page.html'
 })
 export class OperatorRouteDetailPageComponent implements OnInit {
@@ -143,6 +144,9 @@ export class OperatorRouteDetailPageComponent implements OnInit {
   }
 
   confirmLifecycle(): void {
+    if (this.lifecycleSubmitting) {
+      return;
+    }
     const action = this.pendingAction;
     const operatorId = this.context.selectedOperatorId();
     const routeId = this.route.snapshot.paramMap.get('routeId');

@@ -53,7 +53,11 @@ describe('operator resource pages', () => {
         },
         {
           provide: AuthService,
-          useValue: { clearSession: jasmine.createSpy('clearSession') }
+          useValue: {
+            clearSession: jasmine.createSpy('clearSession'),
+            accessToken: () => null,
+            hasRefreshToken: () => false
+          }
         },
         {
           provide: ActivatedRoute,

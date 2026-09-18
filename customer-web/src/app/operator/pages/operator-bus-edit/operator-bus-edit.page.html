@@ -21,9 +21,7 @@
     <div class="skeleton card operator-large-skeleton" aria-label="Loading bus form"></div>
   } @else if (pageError) {
     <app-empty-state [title]="pageError.title" [message]="pageError.message">
-      @if (pageError.kind !== 'unauthorized' && pageError.kind !== 'forbidden') {
-        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
-      }
+      <app-operator-retry-button [error]="pageError" (retry)="load()" />
     </app-empty-state>
   } @else {
     @if (bus; as currentBus) {

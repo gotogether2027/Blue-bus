@@ -1,16 +1,19 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { Observable, finalize, of, shareReplay, tap } from 'rxjs';
+import { AuthService } from '../../core/auth/auth.service';
 import { OperatorMembership } from '../models/operator.models';
 import { OperatorApiService } from './operator-api.service';
 
 @Injectable({ providedIn: 'root' })
 export class OperatorContextService {
   private readonly api = inject(OperatorApiService);
+  private readonly auth = inject(AuthService);
   private readonly membershipsState = signal<OperatorMembership[]>([]);
   private readonly selectedOperatorIdState = signal<string | null>(null);
   private readonly loadedState = signal(false);
   private readonly loadingState = signal(false);
   private membershipsRequest: Observable<OperatorMembership[]> | null = null;
+  private hadSession = false;
 
   readonly memberships = this.membershipsState.asReadonly();
   readonly selectedOperatorId = this.selectedOperatorIdState.asReadonly();
@@ -28,6 +31,28 @@ export class OperatorContextService {
     () => this.currentMembership()?.role === 'OPERATOR_ADMIN'
   );
   readonly hasMultipleMemberships = computed(() => this.membershipsState().length > 1);
+
+  constructor() {
+    effect(() => {
+      if (this.hasSession()) {
+        this.hadSession = true;
+        return;
+      }
+      if (this.hadSession) {
+        this.hadSession = false;
+        this.reset();
+      }
+    });
+  }
+
+  private hasSession(): boolean {
+    const accessToken = this.auth.accessToken;
+    const hasRefreshToken = this.auth.hasRefreshToken;
+    return (
+      (typeof accessToken === 'function' && !!accessToken()) ||
+      (typeof hasRefreshToken === 'function' && hasRefreshToken())
+    );
+  }
 
   loadMemberships(force = false): Observable<OperatorMembership[]> {
     if (!force && this.loadedState()) {

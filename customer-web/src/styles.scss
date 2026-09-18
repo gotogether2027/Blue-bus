@@ -133,7 +133,7 @@ input, select {
 .operator-identity { display: flex; align-items: center; gap: 0.65rem; color: #fff; margin-right: auto; }
 .operator-nav { margin-left: auto; }
 .operator-main {
-  flex: 1; width: min(1240px, calc(100% - 2rem)); margin: 1.25rem auto 2rem;
+  flex: 1; width: min(1240px, calc(100% - 2rem)); margin: 1.25rem auto 2rem; min-width: 0;
 }
 .operator-access-main { width: min(900px, calc(100% - 2rem)); padding-top: 2rem; }
 .operator-access-nav { margin-left: auto; }
@@ -317,7 +317,7 @@ input, select {
   .operator-switcher select { width: 100%; }
   .operator-trip-times { grid-template-columns: 1fr; }
   .operator-detail-list > div { grid-template-columns: 1fr; gap: 0.2rem; }
-  .operator-form-grid, .operator-filter-bar { grid-template-columns: 1fr; }
+  .operator-form-grid, .operator-filter-bar, .operator-filter-bar-trips { grid-template-columns: 1fr; }
   .operator-manifest article { grid-template-columns: 1fr auto; }
   .operator-manifest article > div:first-child { grid-column: 1 / -1; }
   .operator-access-nav .nav-user { display: none; }

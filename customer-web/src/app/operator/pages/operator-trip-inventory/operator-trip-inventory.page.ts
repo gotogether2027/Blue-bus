@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { EMPTY, Observable, forkJoin, of, switchMap } from 'rxjs';
 import { TripSeatInventoryStatus } from '../../../core/api/models';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import {
   OperatorInventoryActionError,
@@ -35,7 +36,7 @@ import {
 
 @Component({
   selector: 'app-operator-trip-inventory-page',
-  imports: [FormsModule, RouterLink, EmptyStateComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
+  imports: [FormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent, OperatorTripOpsNavComponent],
   templateUrl: './operator-trip-inventory.page.html'
 })
 export class OperatorTripInventoryPageComponent implements OnInit {
@@ -226,6 +227,9 @@ export class OperatorTripInventoryPageComponent implements OnInit {
   }
 
   confirmPending(): void {
+    if (this.submitting) {
+      return;
+    }
     const action = this.pendingAction;
     const seat = this.pendingSeat;
     const operatorId = this.context.selectedOperatorId();
@@ -262,6 +266,9 @@ export class OperatorTripInventoryPageComponent implements OnInit {
   }
 
   private submitMutation(request: Observable<OperatorTripSeatInventory>): void {
+    if (this.submitting) {
+      return;
+    }
     this.submitting = true;
     this.actionError = null;
     request.subscribe({

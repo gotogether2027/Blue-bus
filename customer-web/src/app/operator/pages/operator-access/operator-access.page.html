@@ -26,9 +26,7 @@
         </div>
       } @else if (error) {
         <app-empty-state [title]="error.title" [message]="error.message">
-          @if (error.kind !== 'unauthorized') {
-            <button type="button" class="btn btn-primary" (click)="loadMemberships()">Try again</button>
-          }
+          <app-operator-retry-button [error]="error" (retry)="loadMemberships()" />
         </app-empty-state>
       } @else if (context.memberships().length === 0) {
         <app-empty-state

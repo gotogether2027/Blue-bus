@@ -7,9 +7,7 @@
     <div class="skeleton card operator-large-skeleton" aria-label="Loading route"></div>
   } @else if (error) {
     <app-empty-state [title]="error.title" [message]="error.message">
-      @if (error.kind !== 'unauthorized') {
-        <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
-      }
+      <app-operator-retry-button [error]="error" (retry)="load()" />
     </app-empty-state>
   } @else {
     @if (routeDetail; as currentRoute) {

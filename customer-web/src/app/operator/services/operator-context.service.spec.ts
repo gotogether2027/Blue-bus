@@ -4,7 +4,9 @@ import {
   provideHttpClientTesting
 } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { environment } from '../../../environments/environment';
+import { TokenStorageService } from '../../core/auth/token-storage.service';
 import { operatorMembershipFixture } from '../../../testing/operator-fixtures';
 import { OperatorContextService } from './operator-context.service';
 
@@ -13,14 +15,18 @@ describe('OperatorContextService', () => {
   let http: HttpTestingController;
 
   beforeEach(() => {
+    sessionStorage.clear();
     TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()]
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])]
     });
     context = TestBed.inject(OperatorContextService);
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    http.verify();
+    sessionStorage.clear();
+  });
 
   it('represents zero memberships without selecting an operator', () => {
     context.loadMemberships().subscribe();
@@ -89,5 +95,24 @@ describe('OperatorContextService', () => {
 
     expect(context.selectedOperatorId()).toBeNull();
     expect(context.currentMembership()).toBeNull();
+  });
+
+  it('clears operator context after a previously authenticated session is lost', () => {
+    const tokens = TestBed.inject(TokenStorageService);
+    tokens.save('access-1', 'refresh-1');
+    TestBed.flushEffects();
+    const membership = operatorMembershipFixture();
+    context.loadMemberships().subscribe();
+    http
+      .expectOne(`${environment.apiBaseUrl}/auth/operator-memberships`)
+      .flush([membership]);
+    expect(context.selectedOperatorId()).toBe(membership.operatorId);
+
+    tokens.clear();
+    TestBed.flushEffects();
+
+    expect(context.memberships()).toEqual([]);
+    expect(context.selectedOperatorId()).toBeNull();
+    expect(context.loaded()).toBeFalse();
   });
 });

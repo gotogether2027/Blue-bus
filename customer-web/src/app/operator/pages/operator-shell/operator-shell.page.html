@@ -17,11 +17,12 @@
       class="menu-toggle"
       type="button"
       (click)="menuOpen = !menuOpen"
+      aria-controls="operator-nav"
       [attr.aria-expanded]="menuOpen"
     >
       Menu
     </button>
-    <nav class="nav operator-nav" [class.open]="menuOpen">
+    <nav id="operator-nav" class="nav operator-nav" [class.open]="menuOpen">
       @if (context.currentMembership(); as membership) {
         <a
           [routerLink]="['/operator', membership.operatorId]"

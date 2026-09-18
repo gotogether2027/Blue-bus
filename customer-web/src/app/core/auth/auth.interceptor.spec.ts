@@ -87,4 +87,23 @@ describe('authInterceptor', () => {
     expect(tokens.accessToken()).toBeNull();
     expect(identityFixture.email).toBe('asha@example.com');
   });
+
+  it('propagates a 401 when no refresh token is available', () => {
+    tokens.save('expired', '');
+    let status = 0;
+    http.get(`${environment.apiBaseUrl}/operator/operator-1`).subscribe({
+      next: () => fail('expected error'),
+      error: (error) => {
+        status = error.status;
+      }
+    });
+
+    httpMock.expectOne(`${environment.apiBaseUrl}/operator/operator-1`).flush(
+      { message: 'Unauthorized' },
+      { status: 401, statusText: 'Unauthorized' }
+    );
+    httpMock.expectNone(`${environment.apiBaseUrl}/auth/refresh`);
+    expect(status).toBe(401);
+    expect(tokens.accessToken()).toBeNull();
+  });
 });

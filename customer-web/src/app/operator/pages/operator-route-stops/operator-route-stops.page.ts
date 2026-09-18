@@ -10,6 +10,7 @@ import { forkJoin } from 'rxjs';
 import { CustomerLocation } from '../../../core/api/models';
 import { LocationsService } from '../../../core/api/locations.service';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import {
   OperatorRouteActionError,
   readOperatorRouteActionError
@@ -43,7 +44,7 @@ import {
 
 @Component({
   selector: 'app-operator-route-stops-page',
-  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent],
+  imports: [ReactiveFormsModule, RouterLink, EmptyStateComponent, OperatorRetryButtonComponent],
   templateUrl: './operator-route-stops.page.html'
 })
 export class OperatorRouteStopsPageComponent implements OnInit {

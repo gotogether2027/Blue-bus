@@ -5,9 +5,19 @@ import { readApiError } from '../../core/api/api-error';
 import { AuthService } from '../../core/auth/auth.service';
 
 export interface OperatorPageError {
-  kind: 'unauthorized' | 'forbidden' | 'not-found' | 'network' | 'server' | 'request';
+  kind: 'unauthorized' | 'forbidden' | 'not-found' | 'conflict' | 'network' | 'server' | 'request';
   title: string;
   message: string;
+}
+
+export function canRetryOperatorLoad(error: OperatorPageError | null | undefined): boolean {
+  return (
+    !!error &&
+    (error.kind === 'network' ||
+      error.kind === 'server' ||
+      error.kind === 'request' ||
+      error.kind === 'not-found')
+  );
 }
 
 @Injectable({ providedIn: 'root' })
@@ -19,7 +29,9 @@ export class OperatorErrorService {
     if (error instanceof HttpErrorResponse) {
       if (error.status === 401) {
         this.auth.clearSession();
-        void this.router.navigate(['/login'], { queryParams: { returnUrl } });
+        if (!this.router.url.startsWith('/login')) {
+          void this.router.navigate(['/login'], { queryParams: { returnUrl } });
+        }
         return {
           kind: 'unauthorized',
           title: 'Sign in required',
@@ -38,6 +50,13 @@ export class OperatorErrorService {
           kind: 'not-found',
           title: 'Resource not found',
           message: 'The requested operator resource was not found.'
+        };
+      }
+      if (error.status === 409) {
+        return {
+          kind: 'conflict',
+          title: 'Operator data is out of date',
+          message: readApiError(error)
         };
       }
       if (error.status === 0) {

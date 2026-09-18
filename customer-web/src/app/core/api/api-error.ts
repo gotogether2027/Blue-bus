@@ -15,10 +15,10 @@ export function readApiError(error: unknown): string {
         return violations.join(' ');
       }
       if (body.message) {
-        return body.message;
+        return sanitizeApiMessage(body.message);
       }
       if (body.error) {
-        return body.error;
+        return sanitizeApiMessage(body.error);
       }
     }
     if (error.status === 401) {
@@ -33,4 +33,11 @@ export function readApiError(error: unknown): string {
     return error.statusText || 'Request failed.';
   }
   return 'Something went wrong. Please try again.';
+}
+
+function sanitizeApiMessage(message: string): string {
+  if (message.includes('\tat ') || message.includes('Caused by:')) {
+    return 'Something went wrong. Please try again.';
+  }
+  return message;
 }

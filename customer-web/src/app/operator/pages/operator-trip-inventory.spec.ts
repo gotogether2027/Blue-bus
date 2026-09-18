@@ -105,6 +105,7 @@ describe('operator trip inventory', () => {
     fixture.detectChanges();
     expect(setup.clearSession).toHaveBeenCalled();
     expect(pageText(fixture.nativeElement)).toContain('Your session has expired');
+    expect(pageText(fixture.nativeElement)).not.toContain('Try again');
   });
 
   it('handles a 403 inventory request', async () => {
@@ -118,6 +119,7 @@ describe('operator trip inventory', () => {
     );
     fixture.detectChanges();
     expect(pageText(fixture.nativeElement)).toContain("You don't have access to this operator.");
+    expect(pageText(fixture.nativeElement)).not.toContain('Try again');
   });
 
   it('handles a 404 inventory request', async () => {
@@ -131,6 +133,7 @@ describe('operator trip inventory', () => {
     );
     fixture.detectChanges();
     expect(pageText(fixture.nativeElement)).toContain('Resource not found');
+    expect(pageText(fixture.nativeElement)).toContain('Try again');
   });
 
   it('handles a 500 inventory request', async () => {
@@ -144,6 +147,7 @@ describe('operator trip inventory', () => {
     );
     fixture.detectChanges();
     expect(pageText(fixture.nativeElement)).toContain('Operator data is unavailable');
+    expect(pageText(fixture.nativeElement)).toContain('Try again');
   });
 
   it('keeps operator staff read-only', async () => {
@@ -213,6 +217,29 @@ describe('operator trip inventory', () => {
 
     expect(pageText(fixture.nativeElement)).toContain('Seat U1 is physically blocked.');
     expect(pageText(fixture.nativeElement)).toContain('Broken recliner');
+  });
+
+  it('does not automatically retry a seat block mutation', async () => {
+    const setup = await configure(OperatorTripInventoryPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorTripInventoryPageComponent);
+    fixture.detectChanges();
+    flushInventoryPage(setup.http, 'operator-1', [availableSeat]);
+
+    fixture.componentInstance.requestBlock(availableSeat);
+    fixture.componentInstance.blockReason = 'Broken recliner';
+    fixture.componentInstance.confirmPending();
+    fixture.componentInstance.confirmPending();
+    const requests = setup.http.match(
+      `${base}/operator-1/trips/trip-1/inventory/inventory-1/block`
+    );
+    expect(requests.length).toBe(1);
+    expect(requests[0].request.method).toBe('POST');
+    requests[0].flush(
+      operatorTripSeatInventoryFixture({
+        physicalStatus: 'BLOCKED',
+        blockReason: 'Broken recliner'
+      })
+    );
   });
 
   it('shows backend 400 and 409 block errors', async () => {

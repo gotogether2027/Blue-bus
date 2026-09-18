@@ -6,6 +6,7 @@ import {
 import { Type, WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { locationFixture } from '../../../testing/fixtures';
 import {
@@ -650,6 +651,26 @@ describe('operator trip bookings', () => {
     expect(pageText(fixture.nativeElement)).toContain('Boarding');
   });
 
+  it('switches bookings, manifest, and boarding from query params without extra API calls', async () => {
+    const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
+    const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
+    fixture.detectChanges();
+    flushBookingsPage(setup.http, 'operator-1', [confirmed]);
+    fixture.detectChanges();
+    expect(pageText(fixture.nativeElement)).toContain('Trip bookings');
+
+    setup.queryParams$.next(convertToParamMap({ view: 'manifest' }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.view).toBe('manifest');
+    expect(pageText(fixture.nativeElement)).toContain('Passenger manifest');
+
+    setup.queryParams$.next(convertToParamMap({ view: 'boarding' }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.view).toBe('boarding');
+    expect(pageText(fixture.nativeElement)).toContain('Boarding view');
+    setup.http.expectNone(() => true);
+  });
+
   it('searches loaded bookings by passenger name on the client', async () => {
     const setup = await configure(OperatorBookingsPageComponent, { tripId: 'trip-1' });
     const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
@@ -892,10 +913,12 @@ describe('operator trip bookings', () => {
     http: HttpTestingController;
     selectedOperatorId: WritableSignal<string | null>;
     clearSession: jasmine.Spy<() => void>;
+    queryParams$: BehaviorSubject<ReturnType<typeof convertToParamMap>>;
   }> {
     const selectedOperatorId = signal<string | null>('operator-1');
     const canManageOperator = signal(canManage);
     const clearSession = jasmine.createSpy('clearSession');
+    const queryParams$ = new BehaviorSubject(convertToParamMap(queryParams));
 
     await TestBed.configureTestingModule({
       imports: [component],
@@ -920,7 +943,8 @@ describe('operator trip bookings', () => {
             snapshot: {
               paramMap: convertToParamMap(params),
               queryParamMap: convertToParamMap(queryParams)
-            }
+            },
+            queryParamMap: queryParams$
           }
         }
       ]
@@ -931,7 +955,8 @@ describe('operator trip bookings', () => {
     return {
       http: TestBed.inject(HttpTestingController),
       selectedOperatorId,
-      clearSession
+      clearSession,
+      queryParams$
     };
   }
 

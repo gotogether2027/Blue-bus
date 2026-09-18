@@ -2,6 +2,7 @@ import { Component, OnInit, inject } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { operatorRoleLabel, operatorStatusTone } from '../../components/operator-status';
 import { OperatorContextService } from '../../services/operator-context.service';
@@ -12,7 +13,7 @@ import {
 
 @Component({
   selector: 'app-operator-access-page',
-  imports: [RouterLink, EmptyStateComponent, StatusBadgeComponent],
+  imports: [RouterLink, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-access.page.html'
 })
 export class OperatorAccessPageComponent implements OnInit {

@@ -7,6 +7,7 @@ import {
   Validators
 } from '@angular/forms';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
+import { OperatorRetryButtonComponent } from '../../components/operator-retry-button';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import {
   OperatorMemberActionError,
@@ -32,7 +33,7 @@ const UUID_PATTERN =
 
 @Component({
   selector: 'app-operator-members-page',
-  imports: [FormsModule, ReactiveFormsModule, EmptyStateComponent, StatusBadgeComponent],
+  imports: [FormsModule, ReactiveFormsModule, EmptyStateComponent, OperatorRetryButtonComponent, StatusBadgeComponent],
   templateUrl: './operator-members.page.html'
 })
 export class OperatorMembersPageComponent implements OnInit {

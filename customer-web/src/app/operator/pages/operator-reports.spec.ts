@@ -246,6 +246,7 @@ describe('operator reports', () => {
     fixture.detectChanges();
 
     expect(pageText(fixture.nativeElement)).toContain("You don't have access to this operator.");
+    expect(pageText(fixture.nativeElement)).not.toContain('Try again');
   });
 
   it('shows a recoverable error when a report API fails', async () => {

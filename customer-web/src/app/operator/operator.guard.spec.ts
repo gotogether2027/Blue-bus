@@ -41,7 +41,11 @@ describe('operatorMembershipGuard', () => {
         },
         {
           provide: AuthService,
-          useValue: { clearSession }
+          useValue: {
+            clearSession,
+            accessToken: () => null,
+            hasRefreshToken: () => false
+          }
         }
       ]
     });

@@ -73,6 +73,17 @@ describe('OperatorShellComponent', () => {
     expect(hrefs).toContain('/profile');
   });
 
+  it('connects the mobile menu toggle to the operator navigation', () => {
+    const toggle = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>(
+      '.menu-toggle'
+    );
+    const nav = (fixture.nativeElement as HTMLElement).querySelector('#operator-nav');
+
+    expect(toggle?.getAttribute('aria-controls')).toBe('operator-nav');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(nav).not.toBeNull();
+  });
+
   it('labels the operator workspace without calling it read-only', () => {
     expect(pageText(fixture.nativeElement)).toContain(
       'BLUE BUS Operator Portal · Operations workspace'
