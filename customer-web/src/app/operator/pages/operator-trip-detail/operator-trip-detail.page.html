@@ -32,6 +32,7 @@
           }
           <a
             class="btn btn-primary"
+            [attr.aria-label]="'Open bookings for trip ' + tripDetail.id"
             [routerLink]="['/operator', operatorId, 'trips', tripDetail.id, 'bookings']"
           >
             Bookings

@@ -287,3 +287,48 @@ export const operatorBookingFixture = (
   },
   ...overrides
 });
+
+export const operatorCancelledMultiPassengerBookingFixture = (
+  overrides: Partial<OperatorBooking> = {}
+): OperatorBooking =>
+  operatorBookingFixture({
+    bookingId: 'booking-2',
+    bookingReference: 'BB-2002',
+    status: 'CANCELLED',
+    totalAmount: 2498,
+    items: [
+      {
+        bookingItemId: 'item-2',
+        passengerId: 'passenger-2',
+        seatNumber: 'L2',
+        seatType: 'SLEEPER',
+        originSequence: 1,
+        destinationSequence: 2,
+        status: 'CANCELLED'
+      },
+      {
+        bookingItemId: 'item-3',
+        passengerId: 'passenger-3',
+        seatNumber: 'L3',
+        seatType: 'SLEEPER',
+        originSequence: 1,
+        destinationSequence: 2,
+        status: 'CANCELLED'
+      }
+    ],
+    passengers: [
+      {
+        passengerId: 'passenger-2',
+        fullName: 'Ravi Kumar',
+        age: 41,
+        gender: 'MALE'
+      },
+      {
+        passengerId: 'passenger-3',
+        fullName: 'Meera Iyer',
+        age: 28,
+        gender: 'FEMALE'
+      }
+    ],
+    ...overrides
+  });

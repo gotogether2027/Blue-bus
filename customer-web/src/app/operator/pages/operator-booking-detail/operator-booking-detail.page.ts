@@ -3,6 +3,11 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { EmptyStateComponent } from '../../../shared/empty-state.component';
 import { StatusBadgeComponent } from '../../../shared/status-badge.component';
 import { formatDate, formatInstant, formatMoney } from '../../../shared/format';
+import {
+  bookingBelongsToOperatorTrip,
+  bookingPassenger,
+  bookingStopLabel
+} from '../../components/operator-booking-references';
 import { operatorStatusTone } from '../../components/operator-status';
 import {
   OperatorBooking,
@@ -25,6 +30,7 @@ export class OperatorBookingDetailPageComponent implements OnInit {
   readonly context = inject(OperatorContextService);
   private readonly errors = inject(OperatorErrorService);
   private readonly route = inject(ActivatedRoute);
+  private loadVersion = 0;
 
   loading = true;
   error: OperatorPageError | null = null;
@@ -42,8 +48,12 @@ export class OperatorBookingDetailPageComponent implements OnInit {
 
   load(): void {
     const operatorId = this.context.selectedOperatorId();
+    const tripId = this.route.snapshot.paramMap.get('tripId') ?? '';
     const bookingId = this.route.snapshot.paramMap.get('bookingId');
-    if (!operatorId || !this.tripId || !bookingId) {
+    const version = ++this.loadVersion;
+    this.tripId = tripId;
+    this.booking = null;
+    if (!operatorId || !tripId || !bookingId) {
       this.loading = false;
       this.error = {
         kind: 'not-found',
@@ -55,12 +65,27 @@ export class OperatorBookingDetailPageComponent implements OnInit {
 
     this.loading = true;
     this.error = null;
-    this.api.getTripBooking(operatorId, this.tripId, bookingId).subscribe({
+    this.api.getTripBooking(operatorId, tripId, bookingId).subscribe({
       next: (booking) => {
+        if (version !== this.loadVersion) {
+          return;
+        }
+        if (!bookingBelongsToOperatorTrip(booking, operatorId, tripId)) {
+          this.loading = false;
+          this.error = {
+            kind: 'not-found',
+            title: 'Booking not found',
+            message: 'This booking does not belong to the selected operator trip.'
+          };
+          return;
+        }
         this.booking = booking;
         this.loading = false;
       },
       error: (error: unknown) => {
+        if (version !== this.loadVersion) {
+          return;
+        }
         this.loading = false;
         this.error = this.errors.handle(error);
       }
@@ -68,12 +93,16 @@ export class OperatorBookingDetailPageComponent implements OnInit {
   }
 
   passengerFor(passengerId: string | null): OperatorBookingPassenger | null {
-    if (!passengerId) {
+    if (!this.booking) {
       return null;
     }
-    return (
-      this.booking?.passengers.find((passenger) => passenger.passengerId === passengerId) ??
-      null
-    );
+    return bookingPassenger(this.booking, passengerId);
+  }
+
+  stopLabel(sequence: number): string {
+    if (!this.booking) {
+      return `Seq ${sequence}`;
+    }
+    return bookingStopLabel(this.booking, sequence);
   }
 }

@@ -1,15 +1,13 @@
 <section class="page operator-page">
   @if (context.selectedOperatorId(); as operatorId) {
-    <a class="back" [routerLink]="['/operator', operatorId, 'trips', tripId]">← Back to trip</a>
+    @if (trip; as currentTrip) {
+      <a class="back" [routerLink]="['/operator', operatorId, 'trips', currentTrip.id]">
+        ← Back to trip
+      </a>
+    } @else {
+      <a class="back" [routerLink]="['/operator', operatorId, 'trips']">← Back to trips</a>
+    }
   }
-
-  <header class="page-head">
-    <div>
-      <p class="eyebrow">Passenger operations</p>
-      <h1>Trip bookings</h1>
-      <p class="muted">Trip {{ tripId }}</p>
-    </div>
-  </header>
 
   @if (loading) {
     <div class="stack" aria-label="Loading trip bookings">
@@ -22,46 +20,235 @@
         <button type="button" class="btn btn-primary" (click)="load()">Try again</button>
       }
     </app-empty-state>
-  } @else if (bookings.length === 0) {
-    <app-empty-state
-      title="No bookings"
-      message="No operational bookings are available for this trip."
-    />
   } @else {
-    @if (context.selectedOperatorId(); as operatorId) {
-      <div class="stack">
-        @for (booking of bookings; track booking.bookingId) {
-          <a
-            class="card operator-booking-row"
-            [routerLink]="[
-              '/operator',
-              operatorId,
-              'trips',
-              tripId,
-              'bookings',
-              booking.bookingId
-            ]"
-          >
-            <div>
-              <p class="muted">{{ booking.bookingReference }}</p>
-              <h2>
-                {{ booking.trip.origin.city }}
-                →
-                {{ booking.trip.destination.city }}
-              </h2>
-              <p class="muted">
-                {{ formatDate(booking.trip.serviceDate) }} ·
-                {{ booking.items.length }} seat{{ booking.items.length === 1 ? '' : 's' }} ·
-                {{ booking.passengers.length }} passenger{{ booking.passengers.length === 1 ? '' : 's' }}
-              </p>
-            </div>
-            <div class="booking-meta">
-              <app-status-badge [label]="booking.status" [tone]="statusTone(booking.status)" />
-              <strong>{{ formatMoney(booking.totalAmount, booking.currency) }}</strong>
-            </div>
-          </a>
-        }
+    @if (trip; as tripDetail) {
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">Passenger operations</p>
+          <h1>Trip bookings</h1>
+          <p class="muted">
+            {{ busLabel() }} · {{ routeLabel() }} · {{ formatDate(tripDetail.serviceDate) }} ·
+            {{ formatInstant(tripDetail.scheduledDepartureAt, tripDetail.timeZone) }} ·
+            Trip {{ tripDetail.id }}
+          </p>
+        </div>
+        <app-status-badge [label]="tripDetail.status" [tone]="statusTone(tripDetail.status)" />
+      </header>
+
+      <div class="operator-alert operator-alert-info" role="note">
+        Passenger allocation comes from operator booking records for this trip. This view is
+        read-only and is separate from physical seat inventory.
       </div>
+
+      @if (!context.canManageOperator()) {
+        <div class="operator-alert operator-alert-info" role="note">
+          Your OPERATOR_STAFF membership provides read-only booking access.
+        </div>
+      }
+
+      <section class="operator-metric-grid">
+        <article class="card operator-metric-card">
+          <small>Bookings</small>
+          <strong>{{ bookings.length }}</strong>
+        </article>
+        <article class="card operator-metric-card">
+          <small>Passengers</small>
+          <strong>{{ passengerCount }}</strong>
+        </article>
+      </section>
+
+      <div class="operator-page-actions" role="group" aria-label="Trip booking views">
+        <button
+          type="button"
+          class="btn"
+          [class.btn-primary]="view === 'bookings'"
+          [attr.aria-pressed]="view === 'bookings'"
+          (click)="showBookings()"
+        >
+          Bookings
+        </button>
+        <button
+          type="button"
+          class="btn"
+          [class.btn-primary]="view === 'manifest'"
+          [attr.aria-pressed]="view === 'manifest'"
+          (click)="showManifest()"
+        >
+          Passenger manifest
+        </button>
+      </div>
+
+      @if (bookings.length > 0) {
+        <section class="card operator-filter-bar" aria-label="Filter loaded trip bookings">
+          <label class="field">
+            <span>Search loaded bookings</span>
+            <input
+              type="search"
+              [(ngModel)]="searchQuery"
+              placeholder="Booking reference, passenger, seat, or city"
+            />
+          </label>
+          <label class="field">
+            <span>Booking status</span>
+            <select [(ngModel)]="statusFilter">
+              <option value="ALL">All statuses</option>
+              @for (status of bookingStatuses; track status) {
+                <option [value]="status">{{ status }}</option>
+              }
+            </select>
+          </label>
+          <p class="field-hint">
+            Filters apply to the bookings already loaded for this trip. The operator booking API
+            does not support server-side search.
+          </p>
+        </section>
+      }
+
+      @if (view === 'bookings') {
+        @if (bookings.length === 0) {
+          <app-empty-state
+            title="No bookings for this trip."
+            message="No operator bookings were returned for this trip."
+          />
+        } @else if (filteredBookings.length === 0) {
+          <app-empty-state
+            title="No matching bookings"
+            message="Change the search text or booking status filter to see more bookings."
+          />
+        } @else {
+          <div class="stack">
+            @for (booking of filteredBookings; track booking.bookingId) {
+              <article class="card operator-booking-row">
+                <div>
+                  <div class="operator-badge-row">
+                    <app-status-badge
+                      [label]="booking.status"
+                      [tone]="statusTone(booking.status)"
+                    />
+                    <span class="muted">{{ booking.bookingReference }}</span>
+                  </div>
+                  <h2>
+                    {{ booking.trip.origin.city }}
+                    →
+                    {{ booking.trip.destination.city }}
+                  </h2>
+                  <p class="muted">
+                    Seq {{ booking.originSequence }} → {{ booking.destinationSequence }} ·
+                    {{ booking.passengers.length }} passenger{{
+                      booking.passengers.length === 1 ? '' : 's'
+                    }}
+                    · {{ booking.items.length }} seat{{ booking.items.length === 1 ? '' : 's' }}
+                  </p>
+                  @if (context.selectedOperatorId(); as operatorId) {
+                    <div class="operator-page-actions">
+                      <a
+                        class="btn"
+                        [attr.aria-label]="'View booking ' + booking.bookingReference"
+                        [routerLink]="[
+                          '/operator',
+                          operatorId,
+                          'trips',
+                          tripId,
+                          'bookings',
+                          booking.bookingId
+                        ]"
+                      >
+                        View booking
+                      </a>
+                    </div>
+                  }
+                </div>
+                <div class="booking-meta">
+                  <small>Total</small>
+                  <strong>{{ formatMoney(booking.totalAmount, booking.currency) }}</strong>
+                  <small>{{ formatDate(booking.trip.serviceDate) }}</small>
+                </div>
+              </article>
+            }
+          </div>
+        }
+      } @else {
+        @if (manifestRows.length === 0) {
+          <app-empty-state
+            title="No passengers for this trip."
+            message="No passenger or seat rows were returned with the operator bookings for this trip."
+          />
+        } @else if (filteredManifest.length === 0) {
+          <app-empty-state
+            title="No matching passengers"
+            message="Change the search text or booking status filter to see more passengers."
+          />
+        } @else {
+          <section class="card">
+            <div class="operator-section-head">
+              <div>
+                <p class="eyebrow">Boarding list</p>
+                <h2>Passenger manifest</h2>
+              </div>
+              <span class="muted">{{ filteredManifest.length }} passengers</span>
+            </div>
+            <div class="operator-table-wrap">
+              <table class="operator-data-table">
+                <caption class="visually-hidden">
+                  Passengers travelling on this trip from operator booking records
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Seat</th>
+                    <th scope="col">Passenger</th>
+                    <th scope="col">Age</th>
+                    <th scope="col">Gender</th>
+                    <th scope="col">Segment</th>
+                    <th scope="col">Booking</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of filteredManifest; track row.key) {
+                    <tr>
+                      <th scope="row">
+                        {{ row.seatNumber }}
+                        <small>{{ row.seatType }}</small>
+                      </th>
+                      <td>{{ row.passengerName || 'Passenger not assigned' }}</td>
+                      <td>{{ row.age ?? '—' }}</td>
+                      <td>{{ row.gender || '—' }}</td>
+                      <td>
+                        {{ row.originLabel }}
+                        →
+                        {{ row.destinationLabel }}
+                        <small>Seq {{ row.originSequence }} → {{ row.destinationSequence }}</small>
+                      </td>
+                      <td>
+                        @if (context.selectedOperatorId(); as operatorId) {
+                          <a
+                            [routerLink]="[
+                              '/operator',
+                              operatorId,
+                              'trips',
+                              tripId,
+                              'bookings',
+                              row.bookingId
+                            ]"
+                          >
+                            {{ row.bookingReference }}
+                          </a>
+                        }
+                      </td>
+                      <td>
+                        <app-status-badge
+                          [label]="row.bookingStatus"
+                          [tone]="statusTone(row.bookingStatus)"
+                        />
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </section>
+        }
+      }
     }
   }
 </section>

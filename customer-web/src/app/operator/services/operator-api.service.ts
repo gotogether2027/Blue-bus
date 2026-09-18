@@ -295,6 +295,7 @@ export class OperatorApiService {
     );
   }
 
+  /** GET /api/v1/operator/{operatorId}/trips/{tripId}/bookings — no query params. */
   listTripBookings(operatorId: string, tripId: string): Observable<OperatorBooking[]> {
     return this.http.get<OperatorBooking[]>(
       `${this.operatorBase(operatorId)}/trips/${encodeURIComponent(tripId)}/bookings`

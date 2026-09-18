@@ -263,21 +263,21 @@ describe('OperatorApiService', () => {
   });
 
   it('loads trip bookings and booking detail from the trip namespace', () => {
-    service.listTripBookings('operator-1', 'trip-1').subscribe((result) => {
+    service.listTripBookings('operator-1', 'trip/1').subscribe((result) => {
       expect(result[0].bookingReference).toBe('BB-1001');
     });
     http
       .expectOne(
-        `${environment.apiBaseUrl}/operator/operator-1/trips/trip-1/bookings`
+        `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/bookings`
       )
       .flush([operatorBookingFixture()]);
 
-    service.getTripBooking('operator-1', 'trip-1', 'booking-1').subscribe((result) => {
+    service.getTripBooking('operator-1', 'trip/1', 'booking/1').subscribe((result) => {
       expect(result.passengers[0].fullName).toBe('Asha Rao');
     });
     http
       .expectOne(
-        `${environment.apiBaseUrl}/operator/operator-1/trips/trip-1/bookings/booking-1`
+        `${environment.apiBaseUrl}/operator/operator-1/trips/trip%2F1/bookings/booking%2F1`
       )
       .flush(operatorBookingFixture());
   });

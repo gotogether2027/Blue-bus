@@ -108,7 +108,10 @@ describe('operator resource pages', () => {
   it('loads and renders trip bookings without customer contact or payment data', () => {
     const fixture = TestBed.createComponent(OperatorBookingsPageComponent);
     fixture.detectChanges();
+    http.expectOne(`${base}/trips/trip-1`).flush(operatorTripFixture());
     http.expectOne(`${base}/trips/trip-1/bookings`).flush([operatorBookingFixture()]);
+    http.expectOne(`${base}/buses/bus-1`).flush(operatorBusFixture());
+    http.expectOne(`${base}/routes/route-1`).flush(operatorRouteFixture());
     fixture.detectChanges();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';

@@ -30,6 +30,12 @@
       />
     </header>
 
+    @if (!context.canManageOperator()) {
+      <div class="operator-alert operator-alert-info" role="note">
+        Your OPERATOR_STAFF membership provides read-only booking access.
+      </div>
+    }
+
     <div class="operator-content-grid">
       <section class="card">
         <h2>Journey</h2>
@@ -39,11 +45,17 @@
             <dd>{{ bookingDetail.trip.routeName }} ({{ bookingDetail.trip.routeCode }})</dd>
           </div>
           <div>
-            <dt>Journey</dt>
+            <dt>Origin</dt>
             <dd>
               {{ bookingDetail.trip.origin.city }}
-              →
+              <small>Seq {{ bookingDetail.originSequence }}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Destination</dt>
+            <dd>
               {{ bookingDetail.trip.destination.city }}
+              <small>Seq {{ bookingDetail.destinationSequence }}</small>
             </dd>
           </div>
           <div>
@@ -82,16 +94,20 @@
             <dd>{{ bookingDetail.bookingReference }}</dd>
           </div>
           <div>
-            <dt>Booking ID</dt>
-            <dd><code>{{ bookingDetail.bookingId }}</code></dd>
+            <dt>Booking status</dt>
+            <dd>{{ bookingDetail.status }}</dd>
           </div>
           <div>
-            <dt>Trip ID</dt>
-            <dd><code>{{ bookingDetail.tripId }}</code></dd>
+            <dt>Passengers</dt>
+            <dd>{{ bookingDetail.passengers.length }}</dd>
           </div>
           <div>
             <dt>Total</dt>
             <dd>{{ formatMoney(bookingDetail.totalAmount, bookingDetail.currency) }}</dd>
+          </div>
+          <div>
+            <dt>Created</dt>
+            <dd>{{ formatInstant(bookingDetail.createdAt, bookingDetail.trip.timeZone) }}</dd>
           </div>
         </dl>
       </section>
@@ -105,25 +121,34 @@
         </div>
         <span class="muted">{{ bookingDetail.passengers.length }} passengers</span>
       </div>
-      <div class="operator-manifest">
-        @for (item of bookingDetail.items; track item.bookingItemId) {
-          <article>
-            <div>
-              <strong>{{ passengerFor(item.passengerId)?.fullName || 'Passenger not assigned' }}</strong>
-              <span class="muted">
-                @if (passengerFor(item.passengerId); as passenger) {
-                  Age {{ passenger.age ?? '—' }} · {{ passenger.gender || 'Gender not provided' }}
-                }
-              </span>
-            </div>
-            <div>
-              <strong>Seat {{ item.seatNumber }}</strong>
-              <span class="muted">{{ item.seatType }}</span>
-            </div>
-            <app-status-badge [label]="item.status" [tone]="statusTone(item.status)" />
-          </article>
-        }
-      </div>
+      @if (bookingDetail.items.length === 0) {
+        <p class="muted">No passengers for this trip.</p>
+      } @else {
+        <div class="operator-manifest">
+          @for (item of bookingDetail.items; track item.bookingItemId) {
+            <article>
+              <div>
+                <strong>{{ passengerFor(item.passengerId)?.fullName || 'Passenger not assigned' }}</strong>
+                <span class="muted">
+                  @if (passengerFor(item.passengerId); as passenger) {
+                    Age {{ passenger.age ?? '—' }} · {{ passenger.gender || 'Gender not provided' }}
+                  }
+                </span>
+              </div>
+              <div>
+                <strong>Seat {{ item.seatNumber }}</strong>
+                <span class="muted">{{ item.seatType }}</span>
+                <span class="muted">
+                  {{ stopLabel(item.originSequence) }}
+                  →
+                  {{ stopLabel(item.destinationSequence) }}
+                </span>
+              </div>
+              <app-status-badge [label]="item.status" [tone]="statusTone(item.status)" />
+            </article>
+          }
+        </div>
+      }
     </section>
     }
   }
