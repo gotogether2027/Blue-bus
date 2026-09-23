@@ -72,7 +72,7 @@ class RazorpayApiClient {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("amount", paise);
         JsonNode response = post(
-                "/v1/payments/" + providerPaymentId + "/refunds",
+                "/v1/payments/" + providerPaymentId + "/refund",
                 body,
                 idempotencyKey);
         String refundProviderId = text(response, "id");
