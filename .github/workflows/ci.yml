@@ -36,7 +36,7 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
       - name: Run backend tests
-        run: ./mvnw -B test
+        run: ./mvnw -B -DforkCount=1 -DreuseForks=false test
 
   frontend:
     name: Frontend
