@@ -862,7 +862,7 @@ class TripCancellationPassengerHandlingPostgresIntegrationTest {
                 handleOrder(exchange, request);
                 return;
             }
-            if (path.contains("/refunds")) {
+            if (path.contains("/refund")) {
                 handleRefund(exchange, path, request);
                 return;
             }
@@ -889,7 +889,7 @@ class TripCancellationPassengerHandlingPostgresIntegrationTest {
             String refundId = refunds.computeIfAbsent(
                     idempotency, key -> "rfnd_" + Integer.toHexString(key.hashCode()));
             String paymentId = path.contains("/payments/")
-                    ? path.substring(path.indexOf("/payments/") + 10, path.indexOf("/refunds"))
+                    ? path.substring(path.indexOf("/payments/") + 10, path.indexOf("/refund"))
                     : "pay_unknown";
             if (failRefunds) {
                 write(exchange, 200, """
