@@ -1473,7 +1473,8 @@ class RazorpayPaymentPostgresIntegrationTest {
 
         PaymentAttempt after = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
         assertThat(after.getAttemptCount()).isEqualTo(1);
-        assertThat(GATEWAY.orderHttpCalls()).isEqualTo(httpBefore + 1);
+        assertThat(GATEWAY.getOrderHttpCalls()).isEqualTo(1);
+        assertThat(GATEWAY.orderHttpCalls()).isEqualTo(httpBefore);
         assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
         assertThat(GATEWAY.lastOrderIdempotencyKey()).isEqualTo(stuck.getId().toString());
         assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
@@ -1731,6 +1732,161 @@ class RazorpayPaymentPostgresIntegrationTest {
                 .andExpect(jsonPath("$.paymentAttemptId").value(attemptId.toString()))
                 .andExpect(jsonPath("$.providerOrderId").value(recovered.get("providerOrderId").asText()));
         assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+    }
+
+    @Test
+    void getOrderReconciliationPersistsMatchingOrderWithoutConfirmingBooking() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "reconcile-match");
+        markStaleForRecovery(stuck.getId());
+        int postBefore = GATEWAY.orderHttpCalls();
+
+        InitiatingPaymentRecoveryService.InitiatingPaymentRecoveryResult result =
+                initiatingPaymentRecoveryService.processDueRecoveries();
+        assertThat(result.claimed()).isEqualTo(1);
+        assertThat(result.completed()).isEqualTo(1);
+        assertThat(GATEWAY.getOrderHttpCalls()).isEqualTo(1);
+        assertThat(GATEWAY.orderHttpCalls()).isEqualTo(postBefore);
+
+        PaymentAttempt recovered = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(recovered.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(recovered.getProviderOrderId()).isEqualTo(GATEWAY.orderIdFor(stuck.getId().toString()));
+        assertThat(recovered.getCheckoutReference()).isEqualTo(KEY_ID);
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+        assertThat(ticketRepository.findByBookingId(booking.bookingId())).isEmpty();
+
+        mockMvc.perform(get("/api/v1/payments/{id}", stuck.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.providerOrderId").value(recovered.getProviderOrderId()));
+    }
+
+    @Test
+    void getOrderNotFoundLeavesInitiatingEligibleForCreateRetry() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "reconcile-miss");
+        markStaleForRecovery(stuck.getId());
+        GATEWAY.emptyGetOrders = true;
+        int postBefore = GATEWAY.orderHttpCalls();
+
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        GATEWAY.emptyGetOrders = false;
+
+        PaymentAttempt recovered = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(recovered.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(recovered.getProviderOrderId()).isEqualTo(GATEWAY.orderIdFor(stuck.getId().toString()));
+        assertThat(GATEWAY.getOrderHttpCalls()).isEqualTo(1);
+        assertThat(GATEWAY.orderHttpCalls()).isEqualTo(postBefore + 1);
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(GATEWAY.lastOrderIdempotencyKey()).isEqualTo(stuck.getId().toString());
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+    }
+
+    @Test
+    void getOrderTimeoutKeepsInitiatingWithoutInventingAnOrderId() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "reconcile-timeout");
+        markStaleForRecovery(stuck.getId());
+        GATEWAY.delayGets = true;
+        Instant before = Instant.now();
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        GATEWAY.delayGets = false;
+
+        PaymentAttempt retried = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(retried.getStatus()).isEqualTo(PaymentStatus.INITIATING);
+        assertThat(retried.getProviderOrderId()).isNull();
+        assertThat(retried.getAttemptCount()).isEqualTo(1);
+        assertThat(retried.getNextRetryAt()).isAfter(before);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isZero();
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+        assertThat(ticketRepository.findByBookingId(booking.bookingId())).isEmpty();
+    }
+
+    @Test
+    void getOrderServerErrorKeepsInitiatingWithoutInventingAnOrderId() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "reconcile-5xx");
+        markStaleForRecovery(stuck.getId());
+        GATEWAY.orderStatus = 503;
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        GATEWAY.orderStatus = 200;
+
+        PaymentAttempt retried = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(retried.getStatus()).isEqualTo(PaymentStatus.INITIATING);
+        assertThat(retried.getProviderOrderId()).isNull();
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isZero();
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+        assertThat(bookingRepository.findById(booking.bookingId()).orElseThrow().getStatus())
+                .isEqualTo(BookingStatus.PENDING_PAYMENT);
+    }
+
+    @Test
+    void alreadyPendingAttemptIsNotReconciledAgain() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        JsonNode initiated = initiate(booking, "reconcile-already");
+        UUID attemptId = UUID.fromString(initiated.get("paymentAttemptId").asText());
+        markStaleForRecovery(attemptId);
+        int getBefore = GATEWAY.getOrderHttpCalls();
+        int postBefore = GATEWAY.orderHttpCalls();
+        long eventsBefore = outboxCount("PAYMENT_INITIATED", attemptId);
+
+        assertThat(initiatingPaymentRecoveryService.processDueRecoveries().claimed()).isZero();
+        PaymentAttempt pending = paymentAttemptRepository.findById(attemptId).orElseThrow();
+        assertThat(pending.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(pending.getProviderOrderId()).isEqualTo(initiated.get("providerOrderId").asText());
+        assertThat(GATEWAY.getOrderHttpCalls()).isEqualTo(getBefore);
+        assertThat(GATEWAY.orderHttpCalls()).isEqualTo(postBefore);
+        assertThat(outboxCount("PAYMENT_INITIATED", attemptId)).isEqualTo(eventsBefore);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+    }
+
+    @Test
+    void mismatchedGetOrderIsNotAssociatedAndCreateIsNotRetried() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "reconcile-mismatch");
+        markStaleForRecovery(stuck.getId());
+        GATEWAY.mismatchGetOrders = true;
+        int postBefore = GATEWAY.orderHttpCalls();
+
+        initiatingPaymentRecoveryService.processDueRecoveries();
+        GATEWAY.mismatchGetOrders = false;
+
+        PaymentAttempt retried = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(retried.getStatus()).isEqualTo(PaymentStatus.INITIATING);
+        assertThat(retried.getProviderOrderId()).isNull();
+        assertThat(GATEWAY.getOrderHttpCalls()).isEqualTo(1);
+        assertThat(GATEWAY.orderHttpCalls()).isEqualTo(postBefore);
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isZero();
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
+    }
+
+    @Test
+    void concurrentReconciliationCannotDuplicatePendingTransition() throws Exception {
+        CreatedBooking booking = createPendingBooking();
+        PaymentAttempt stuck = leaveStuckInitiating(booking, "reconcile-lease");
+        markStaleForRecovery(stuck.getId());
+        runConcurrent(
+                () -> initiatingPaymentRecoveryService.processDueRecoveries(),
+                () -> initiatingPaymentRecoveryService.processDueRecoveries());
+
+        PaymentAttempt recovered = paymentAttemptRepository.findById(stuck.getId()).orElseThrow();
+        assertThat(recovered.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(recovered.getAttemptCount()).isEqualTo(1);
+        assertThat(recovered.getProviderOrderId()).isEqualTo(GATEWAY.orderIdFor(stuck.getId().toString()));
+        assertThat(GATEWAY.getOrderHttpCalls()).isEqualTo(1);
+        assertThat(GATEWAY.uniqueOrderCount()).isEqualTo(1);
+        assertThat(outboxCount("PAYMENT_INITIATED", stuck.getId())).isEqualTo(1);
+        assertThat(outboxCount("BOOKING_CONFIRMED", booking.bookingId())).isZero();
     }
 
     private JsonNode initiate(CreatedBooking booking, String key) throws Exception {
@@ -2124,8 +2280,10 @@ class RazorpayPaymentPostgresIntegrationTest {
     static final class RazorpayFakeGateway {
         private final HttpServer server;
         private final Map<String, String> orders = new ConcurrentHashMap<>();
+        private final Map<String, StoredOrder> orderDetails = new ConcurrentHashMap<>();
         private final Map<String, String> refunds = new ConcurrentHashMap<>();
         private final AtomicInteger orderHttpCalls = new AtomicInteger();
+        private final AtomicInteger getOrderHttpCalls = new AtomicInteger();
         private final AtomicInteger refundHttpCalls = new AtomicInteger();
         private final AtomicInteger totalHttpCalls = new AtomicInteger();
         private final AtomicInteger inFlight = new AtomicInteger();
@@ -2135,9 +2293,12 @@ class RazorpayPaymentPostgresIntegrationTest {
         private final AtomicReference<String> lastOrderIdempotencyKey = new AtomicReference<>();
         private final AtomicReference<String> lastAuth = new AtomicReference<>();
         volatile boolean delayOrders;
+        volatile boolean delayGets;
         volatile boolean delayRefunds;
         volatile boolean failRefunds;
         volatile boolean malformedOrders;
+        volatile boolean emptyGetOrders;
+        volatile boolean mismatchGetOrders;
         volatile int orderStatus = 200;
 
         private RazorpayFakeGateway(HttpServer server) {
@@ -2167,8 +2328,10 @@ class RazorpayPaymentPostgresIntegrationTest {
         void reset() {
             awaitIdle();
             orders.clear();
+            orderDetails.clear();
             refunds.clear();
             orderHttpCalls.set(0);
+            getOrderHttpCalls.set(0);
             refundHttpCalls.set(0);
             totalHttpCalls.set(0);
             lastOrderAmountPaise.set(0);
@@ -2176,9 +2339,12 @@ class RazorpayPaymentPostgresIntegrationTest {
             lastRefundIdempotencyKey.set(null);
             lastOrderIdempotencyKey.set(null);
             delayOrders = false;
+            delayGets = false;
             delayRefunds = false;
             failRefunds = false;
             malformedOrders = false;
+            emptyGetOrders = false;
+            mismatchGetOrders = false;
             orderStatus = 200;
         }
 
@@ -2192,6 +2358,10 @@ class RazorpayPaymentPostgresIntegrationTest {
 
         int orderHttpCalls() {
             return orderHttpCalls.get();
+        }
+
+        int getOrderHttpCalls() {
+            return getOrderHttpCalls.get();
         }
 
         int refundHttpCalls() {
@@ -2240,7 +2410,16 @@ class RazorpayPaymentPostgresIntegrationTest {
                 totalHttpCalls.incrementAndGet();
                 lastAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
                 String path = exchange.getRequestURI().getPath();
+                String method = exchange.getRequestMethod();
                 byte[] request = exchange.getRequestBody().readAllBytes();
+                if (path.equals("/v1/orders") && "GET".equalsIgnoreCase(method)) {
+                    handleGetOrders(exchange);
+                    return;
+                }
+                if (path.startsWith("/v1/orders/") && "GET".equalsIgnoreCase(method)) {
+                    handleGetOrderById(exchange, path.substring("/v1/orders/".length()));
+                    return;
+                }
                 if (path.equals("/v1/orders")) {
                     handleOrder(exchange, request);
                     return;
@@ -2265,8 +2444,8 @@ class RazorpayPaymentPostgresIntegrationTest {
             lastOrderIdempotencyKey.set(idempotency);
             String json = new String(request, StandardCharsets.UTF_8);
             lastOrderAmountPaise.set(readAmount(json));
+            StoredOrder stored = storeOrder(idempotency, json, lastOrderAmountPaise.get());
             if (delayOrders) {
-                orders.computeIfAbsent(idempotency, key -> "order_" + Integer.toHexString(key.hashCode()));
                 Thread.sleep(3000);
             }
             if (orderStatus != 200) {
@@ -2277,11 +2456,80 @@ class RazorpayPaymentPostgresIntegrationTest {
                 write(exchange, 200, "{not-json");
                 return;
             }
+            write(exchange, 200, stored.toJson());
+        }
+
+        private void handleGetOrders(com.sun.net.httpserver.HttpExchange exchange)
+                throws IOException, InterruptedException {
+            getOrderHttpCalls.incrementAndGet();
+            if (delayGets) {
+                Thread.sleep(3000);
+            }
+            if (orderStatus != 200) {
+                write(exchange, orderStatus, "{\"error\":\"provider\"}");
+                return;
+            }
+            if (emptyGetOrders) {
+                write(exchange, 200, "{\"entity\":\"collection\",\"count\":0,\"items\":[]}");
+                return;
+            }
+            if (mismatchGetOrders) {
+                write(exchange, 200, """
+                        {"entity":"collection","count":1,"items":[{
+                          "id":"order_wrong","entity":"order","amount":1,"currency":"INR","receipt":"OTHER",
+                          "status":"created","notes":{"payment_attempt_id":"00000000-0000-0000-0000-000000000000",
+                          "merchant_reference":"OTHER"}}]}
+                        """);
+                return;
+            }
+            String receipt = queryParam(exchange, "receipt");
+            List<StoredOrder> matches = orderDetails.values().stream()
+                    .filter(order -> receipt != null && receipt.equals(order.receipt()))
+                    .toList();
+            StringBuilder items = new StringBuilder("[");
+            for (int i = 0; i < matches.size(); i++) {
+                if (i > 0) {
+                    items.append(',');
+                }
+                items.append(matches.get(i).toJson());
+            }
+            items.append(']');
+            write(exchange, 200, """
+                    {"entity":"collection","count":%d,"items":%s}
+                    """.formatted(matches.size(), items));
+        }
+
+        private void handleGetOrderById(com.sun.net.httpserver.HttpExchange exchange, String orderId)
+                throws IOException, InterruptedException {
+            getOrderHttpCalls.incrementAndGet();
+            if (delayGets) {
+                Thread.sleep(3000);
+            }
+            if (orderStatus != 200) {
+                write(exchange, orderStatus, "{\"error\":\"provider\"}");
+                return;
+            }
+            StoredOrder stored = orderDetails.get(orderId);
+            if (stored == null) {
+                write(exchange, 404, "{\"error\":\"not_found\"}");
+                return;
+            }
+            write(exchange, 200, stored.toJson());
+        }
+
+        private StoredOrder storeOrder(String idempotency, String json, long amount) {
             String orderId = orders.computeIfAbsent(
                     idempotency, key -> "order_" + Integer.toHexString(key.hashCode()));
-            write(exchange, 200, """
-                    {"id":"%s","entity":"order","amount":%d,"currency":"INR","status":"created"}
-                    """.formatted(orderId, lastOrderAmountPaise.get()));
+            StoredOrder stored = new StoredOrder(
+                    orderId,
+                    readJsonString(json, "receipt"),
+                    readJsonString(json, "payment_attempt_id"),
+                    readJsonString(json, "merchant_reference"),
+                    amount,
+                    "INR",
+                    "created");
+            orderDetails.put(orderId, stored);
+            return stored;
         }
 
         private void handleRefund(com.sun.net.httpserver.HttpExchange exchange, String path, byte[] request)
@@ -2308,6 +2556,59 @@ class RazorpayPaymentPostgresIntegrationTest {
             write(exchange, 200, """
                     {"id":"%s","entity":"refund","amount":%d,"payment_id":"%s","status":"processed"}
                     """.formatted(refundId, lastRefundAmountPaise.get(), paymentId));
+        }
+
+        private static String queryParam(com.sun.net.httpserver.HttpExchange exchange, String name) {
+            String query = exchange.getRequestURI().getRawQuery();
+            if (query == null || name == null) {
+                return null;
+            }
+            for (String part : query.split("&")) {
+                int eq = part.indexOf('=');
+                String key = eq < 0 ? part : part.substring(0, eq);
+                if (name.equals(java.net.URLDecoder.decode(key, StandardCharsets.UTF_8))) {
+                    return eq < 0 ? "" : java.net.URLDecoder.decode(part.substring(eq + 1), StandardCharsets.UTF_8);
+                }
+            }
+            return null;
+        }
+
+        private static String readJsonString(String json, String field) {
+            String token = "\"" + field + "\"";
+            int idx = json.indexOf(token);
+            if (idx < 0) {
+                return null;
+            }
+            int colon = json.indexOf(':', idx + token.length());
+            int start = json.indexOf('"', colon + 1);
+            if (start < 0) {
+                return null;
+            }
+            int end = json.indexOf('"', start + 1);
+            return end < 0 ? null : json.substring(start + 1, end);
+        }
+
+        private record StoredOrder(
+                String orderId,
+                String receipt,
+                String paymentAttemptId,
+                String merchantReference,
+                long amount,
+                String currency,
+                String status) {
+            String toJson() {
+                return """
+                        {"id":"%s","entity":"order","amount":%d,"currency":"%s","receipt":"%s","status":"%s",
+                         "notes":{"payment_attempt_id":"%s","merchant_reference":"%s"}}
+                        """.formatted(
+                        orderId,
+                        amount,
+                        currency,
+                        receipt == null ? "" : receipt,
+                        status,
+                        paymentAttemptId == null ? "" : paymentAttemptId,
+                        merchantReference == null ? "" : merchantReference).replace("\n", "");
+            }
         }
 
         private static String header(com.sun.net.httpserver.HttpExchange exchange, String name) {

@@ -15,9 +15,10 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 /**
- * Discovers stale INITIATING payment attempts and completes Razorpay order creation
- * outside booking locks. Never confirms a booking. Restart-safe: PostgreSQL
- * {@code SKIP LOCKED} plus Razorpay {@code payment_attempt_id} idempotency.
+ * Discovers stale INITIATING payment attempts and recovers the provider order
+ * outside booking locks. GET-order reconciliation runs before create-order retry.
+ * Never confirms a booking. Restart-safe: PostgreSQL {@code SKIP LOCKED} plus
+ * Razorpay receipt / {@code payment_attempt_id} matching.
  */
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)

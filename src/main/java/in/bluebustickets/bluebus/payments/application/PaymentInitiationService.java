@@ -37,6 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 @ConditionalOnProperty(prefix = "blue-bus.admin-master-data", name = "enabled", matchIfMissing = true)
 public class PaymentInitiationService {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentInitiationService.class);
+
     private final PaymentAttemptRepository paymentAttemptRepository;
     private final PaymentProviderRegistry providerRegistry;
     private final PaymentProperties properties;
@@ -94,8 +96,9 @@ public class PaymentInitiationService {
     }
 
     /**
-     * Worker recovery: reuse the same provider initiation path and Razorpay
-     * {@code payment_attempt_id} idempotency key. Never confirms a booking.
+     * Worker/customer recovery for an INITIATING attempt whose provider order id
+     * was never persisted. GET-order reconciliation runs first; create-order is
+     * only retried when the provider reports not-found. Never confirms a booking.
      */
     public void recoverProviderOrder(UUID attemptId) {
         PaymentAttempt attempt = paymentAttemptRepository.findById(attemptId)
@@ -104,7 +107,7 @@ public class PaymentInitiationService {
             return;
         }
         PaymentProvider provider = providerRegistry.require(attempt.getProvider());
-        completeProviderOrder(attempt, provider);
+        recoverOrCreateProviderOrder(attempt, provider);
     }
 
     private PaymentInitiationResponse resumeOrReturn(
@@ -118,9 +121,49 @@ public class PaymentInitiationService {
                     "Idempotency key was reused with a different payment request.");
         }
         if (needsProviderRecovery(existing)) {
-            return completeProviderOrder(existing, provider);
+            return recoverOrCreateProviderOrder(existing, provider);
         }
         return toInitiationResponse(existing);
+    }
+
+    private PaymentInitiationResponse recoverOrCreateProviderOrder(
+            PaymentAttempt attempt,
+            PaymentProvider provider) {
+        Object lock = providerCallLocks.computeIfAbsent(attempt.getId(), id -> new Object());
+        try {
+            synchronized (lock) {
+                PaymentAttempt current = paymentAttemptRepository.findById(attempt.getId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Payment attempt was not found."));
+                if (!needsProviderRecovery(current)) {
+                    return toInitiationResponse(current);
+                }
+                PaymentProvider.ProviderInitiationCommand command = initiationCommand(current);
+                PaymentProvider.ProviderOrderLookup lookup = provider.findExistingOrder(command);
+                if (lookup.isMatched()) {
+                    log.info(
+                            "Reconciled existing provider order paymentAttemptId={} bookingId={} provider={} providerOrderId={}",
+                            current.getId(),
+                            current.getBookingId(),
+                            current.getProvider(),
+                            lookup.order().providerOrderId());
+                    return toInitiationResponse(worker.completeInitiation(
+                            current.getId(), lookup.order(), clock.instant()));
+                }
+                if (lookup.isMismatched()) {
+                    log.warn(
+                            "Provider order lookup did not match expected payment identity paymentAttemptId={} bookingId={} provider={}",
+                            current.getId(),
+                            current.getBookingId(),
+                            current.getProvider());
+                    return toInitiationResponse(current);
+                }
+                PaymentProvider.ProviderInitiationResult providerResult = provider.initiate(command);
+                return toInitiationResponse(worker.completeInitiation(
+                        current.getId(), providerResult, clock.instant()));
+            }
+        } finally {
+            providerCallLocks.remove(attempt.getId(), lock);
+        }
     }
 
     private PaymentInitiationResponse completeProviderOrder(PaymentAttempt attempt, PaymentProvider provider) {
@@ -133,18 +176,22 @@ public class PaymentInitiationService {
                     return toInitiationResponse(current);
                 }
                 PaymentProvider.ProviderInitiationResult providerResult = provider.initiate(
-                        new PaymentProvider.ProviderInitiationCommand(
-                                current.getId(),
-                                current.getMerchantReference(),
-                                current.getRequestedAmount(),
-                                current.getCurrency(),
-                                current.getBookingPaymentExpiresAt()));
+                        initiationCommand(current));
                 return toInitiationResponse(worker.completeInitiation(
                         current.getId(), providerResult, clock.instant()));
             }
         } finally {
             providerCallLocks.remove(attempt.getId(), lock);
         }
+    }
+
+    private static PaymentProvider.ProviderInitiationCommand initiationCommand(PaymentAttempt attempt) {
+        return new PaymentProvider.ProviderInitiationCommand(
+                attempt.getId(),
+                attempt.getMerchantReference(),
+                attempt.getRequestedAmount(),
+                attempt.getCurrency(),
+                attempt.getBookingPaymentExpiresAt());
     }
 
     private static boolean needsProviderRecovery(PaymentAttempt attempt) {

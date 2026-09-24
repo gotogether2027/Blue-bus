@@ -16,6 +16,15 @@ public interface PaymentProvider {
 
     ProviderInitiationResult initiate(ProviderInitiationCommand command);
 
+    /**
+     * Looks up an already-created provider order for an INITIATING attempt whose
+     * {@code provider_order_id} was never persisted. Default is not-found so create-order
+     * recovery can proceed. Must never confirm a payment or booking.
+     */
+    default ProviderOrderLookup findExistingOrder(ProviderInitiationCommand command) {
+        return ProviderOrderLookup.notFound();
+    }
+
     WebhookVerificationResult verifyAndNormalize(byte[] rawBody, Map<String, List<String>> headers);
 
     default WebhookVerificationResult verifyCheckout(CheckoutVerificationCommand command) {
@@ -38,6 +47,37 @@ public interface PaymentProvider {
             String providerOrderId,
             String providerStatus,
             String checkoutReference) {
+    }
+
+    record ProviderOrderLookup(LookupStatus status, ProviderInitiationResult order) {
+        public static ProviderOrderLookup notFound() {
+            return new ProviderOrderLookup(LookupStatus.NOT_FOUND, null);
+        }
+
+        public static ProviderOrderLookup matched(ProviderInitiationResult order) {
+            if (order == null || order.providerOrderId() == null || order.providerOrderId().isBlank()) {
+                throw new IllegalArgumentException("Matched order requires providerOrderId");
+            }
+            return new ProviderOrderLookup(LookupStatus.MATCHED, order);
+        }
+
+        public static ProviderOrderLookup mismatched() {
+            return new ProviderOrderLookup(LookupStatus.MISMATCHED, null);
+        }
+
+        public boolean isMatched() {
+            return status == LookupStatus.MATCHED;
+        }
+
+        public boolean isMismatched() {
+            return status == LookupStatus.MISMATCHED;
+        }
+    }
+
+    enum LookupStatus {
+        NOT_FOUND,
+        MATCHED,
+        MISMATCHED
     }
 
     record CheckoutVerificationCommand(
