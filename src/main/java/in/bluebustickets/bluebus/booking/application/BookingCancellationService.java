@@ -21,6 +21,7 @@ import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEvent;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEventRepository;
 import in.bluebustickets.bluebus.payments.application.RefundApplicationService;
+import in.bluebustickets.bluebus.payments.application.RefundOutboxWriter;
 import in.bluebustickets.bluebus.payments.application.RefundRetryProperties;
 import in.bluebustickets.bluebus.payments.domain.PaymentAttempt;
 import in.bluebustickets.bluebus.payments.domain.PaymentStatus;
@@ -375,6 +376,7 @@ public class BookingCancellationService {
                 refundReason,
                 now);
         refundRepository.saveAndFlush(refund);
+        RefundOutboxWriter.writeRequested(outboxEventRepository, refund, now);
     }
 
     private void scheduleRefundAfterCommit(

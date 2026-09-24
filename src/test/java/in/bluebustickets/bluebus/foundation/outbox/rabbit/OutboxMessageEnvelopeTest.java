@@ -73,4 +73,21 @@ class OutboxMessageEnvelopeTest {
                 .isInstanceOf(MalformedOutboxMessageException.class)
                 .hasMessageContaining("eventId");
     }
+
+    @Test
+    void rejectsBlankEventType() {
+        assertThatThrownBy(() -> BookingConfirmedRabbitConsumer.validate(
+                new OutboxMessageEnvelope(
+                        UUID.randomUUID(),
+                        "   ",
+                        "BOOKING",
+                        UUID.randomUUID(),
+                        1,
+                        null,
+                        null,
+                        Instant.now(),
+                        null)))
+                .isInstanceOf(MalformedOutboxMessageException.class)
+                .hasMessageContaining("eventType");
+    }
 }

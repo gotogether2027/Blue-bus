@@ -62,7 +62,7 @@ public class OutboxRabbitPublisher {
             CorrelationData correlation = new CorrelationData(event.getId().toString());
             rabbitTemplate.send(
                     properties.getExchange(),
-                    properties.getRoutingKey(),
+                    properties.routingKeyFor(event.getEventType()),
                     message,
                     correlation);
             CorrelationData.Confirm confirm = correlation.getFuture()

@@ -384,14 +384,16 @@ class AutomaticTicketIssuancePostgresIntegrationTest {
         long providerEventsBefore = paymentProviderEventRepository.count();
         long refundsBefore = refundRepository.count();
 
+        long notificationsBefore = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM notifications", Long.class);
+
         outboxProcessorService.processPendingBookingConfirmed();
 
         assertThat(paymentAttemptRepository.count()).isEqualTo(paymentsBefore);
         assertThat(paymentProviderEventRepository.count()).isEqualTo(providerEventsBefore);
         assertThat(refundRepository.count()).isEqualTo(refundsBefore);
         assertThat(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'notifications'",
-                Integer.class)).isEqualTo(0);
+                "SELECT COUNT(*) FROM notifications", Long.class)).isEqualTo(notificationsBefore);
     }
 
     @Test

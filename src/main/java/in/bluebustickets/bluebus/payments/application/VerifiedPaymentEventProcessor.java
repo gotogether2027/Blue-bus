@@ -274,6 +274,7 @@ public class VerifiedPaymentEventProcessor {
         } else {
             locked.markFailed(event.getProviderStatus(), event.getFailureCode(), now);
             event.complete("REFUND_FAILED", now);
+            RefundOutboxWriter.writeFailed(outboxEventRepository, locked, now);
         }
         return new PaymentProcessingResult(
                 attempt.getId(), attempt.getStatus(), attempt.getDisposition(),
@@ -392,6 +393,7 @@ public class VerifiedPaymentEventProcessor {
                 now);
         try {
             refundRepository.saveAndFlush(refund);
+            RefundOutboxWriter.writeRequested(outboxEventRepository, refund, now);
         } catch (DataIntegrityViolationException ignored) {
             // Concurrent duplicate success already inserted (payment_attempt_id, idempotency_key).
         }
