@@ -75,7 +75,7 @@
         <p class="field-error">{{ actionError }}</p>
       }
       @if (hasTicket(booking.ticketId, booking.ticketStatus)) {
-        <button type="button" class="btn" (click)="loadTicket()">View ticket</button>
+        <a class="btn" [routerLink]="['/bookings', booking.bookingId, 'ticket']">View full ticket</a>
       }
       @if (booking.paymentAttemptId || booking.paymentStatus) {
         <button type="button" class="btn" (click)="loadPayments()">View payment history</button>
@@ -93,16 +93,6 @@
         </button>
       }
     </section>
-
-    @if (ticket) {
-      <section class="card stack">
-        <h2>Ticket {{ ticket.ticketNumber }}</h2>
-        <p>{{ ticket.journey.origin }} → {{ ticket.journey.destination }}</p>
-        <p>{{ ticket.status }} · {{ formatMoney(ticket.amount, ticket.currency) }}</p>
-      </section>
-    } @else if (ticketError) {
-      <p class="field-error">{{ ticketError }}</p>
-    }
 
     @if (payments) {
       <section class="card stack">

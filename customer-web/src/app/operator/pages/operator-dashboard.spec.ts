@@ -4,7 +4,7 @@ import {
   TestRequest,
   provideHttpClientTesting
 } from '@angular/common/http/testing';
-import { WritableSignal, signal } from '@angular/core';
+import { Component, WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { environment } from '../../../environments/environment';
@@ -26,6 +26,12 @@ import { OperatorMembership, OperatorTrip } from '../models/operator.models';
 import { OPERATOR_ROUTES } from '../operator.routes';
 import { OperatorContextService } from '../services/operator-context.service';
 import { OperatorDashboardPageComponent } from './operator-dashboard/operator-dashboard.page';
+
+@Component({
+  standalone: true,
+  template: ''
+})
+class TestLoginComponent {}
 
 describe('operator operations dashboard', () => {
   const base = `${environment.apiBaseUrl}/operator`;
@@ -596,6 +602,7 @@ describe('operator operations dashboard', () => {
       'register',
       'bookings',
       'bookings/:bookingId/confirmation',
+      'bookings/:bookingId/ticket',
       'bookings/:bookingId',
       'profile',
       'trips/:tripId/seats',
@@ -663,7 +670,7 @@ describe('operator operations dashboard', () => {
     await TestBed.configureTestingModule({
       imports: [OperatorDashboardPageComponent],
       providers: [
-        provideRouter([]),
+        provideRouter([{ path: 'login', component: TestLoginComponent }]),
         provideHttpClient(),
         provideHttpClientTesting(),
         {

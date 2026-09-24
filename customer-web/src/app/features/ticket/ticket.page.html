@@ -1,0 +1,117 @@
+<section class="page ticket-page">
+  <div class="ticket-toolbar">
+    @if (bookingId) {
+      <a class="back" [routerLink]="['/bookings', bookingId]">← Booking details</a>
+    } @else {
+      <a class="back" routerLink="/bookings">← My bookings</a>
+    }
+    @if (ticket) {
+      <button type="button" class="btn" (click)="printTicket()">Print ticket</button>
+    }
+  </div>
+
+  @if (loading) {
+    <div class="skeleton card"></div>
+    <p class="muted">Loading your ticket...</p>
+  } @else if (notFound) {
+    <app-empty-state title="Ticket is not available yet." message="Your ticket may still be preparing. Return to booking details and try again shortly.">
+      @if (bookingId) {
+        <a class="btn" [routerLink]="['/bookings', bookingId]">Back to booking details</a>
+      }
+    </app-empty-state>
+  } @else if (error || !ticket) {
+    <app-empty-state title="Unable to load your ticket. Please try again." message="Check your connection, then open this page from booking details.">
+      @if (bookingId) {
+        <a class="btn" [routerLink]="['/bookings', bookingId]">Back to booking details</a>
+      }
+    </app-empty-state>
+  } @else {
+    <article class="ticket-sheet">
+      <header class="ticket-brand">
+        <div>
+          <h1 class="ticket-brand-heading">
+            <span class="ticket-brand-mark">BLUE BUS</span>
+            <span class="ticket-brand-sub">Digital Ticket</span>
+          </h1>
+        </div>
+        <app-status-badge [label]="ticket.status" [tone]="badgeTone(ticket.status)" />
+      </header>
+
+      <div class="ticket-body">
+        <div class="ticket-refs">
+          <div>
+            <p class="eyebrow">Booking reference</p>
+            <p class="ticket-ref">{{ ticket.bookingReference }}</p>
+          </div>
+          <div>
+            <p class="eyebrow">Ticket number</p>
+            <p class="ticket-ref">{{ ticket.ticketNumber }}</p>
+          </div>
+        </div>
+
+        <div class="ticket-main">
+          <div class="ticket-journey">
+            <div class="ticket-stop">
+              <p class="eyebrow">Origin</p>
+              <p class="ticket-city">{{ ticket.journey.origin }}</p>
+              <p class="muted">{{ formatInstant(ticket.journey.departure) }}</p>
+            </div>
+            <div class="ticket-arrow" aria-hidden="true">↓</div>
+            <div class="ticket-stop">
+              <p class="eyebrow">Destination</p>
+              <p class="ticket-city">{{ ticket.journey.destination }}</p>
+              <p class="muted">{{ formatInstant(ticket.journey.arrival) }}</p>
+            </div>
+          </div>
+
+          <aside class="ticket-qr">
+            @if (qrDataUrl) {
+              <img [src]="qrDataUrl" width="220" height="220" [alt]="'QR code for ticket ' + ticket.ticketNumber" />
+            }
+            <p class="ticket-qr-label">Scan to verify ticket</p>
+            <p class="ticket-qr-id">{{ ticket.ticketNumber }}</p>
+          </aside>
+        </div>
+
+        <dl class="ticket-meta">
+          <div>
+            <dt>Operator</dt>
+            <dd>{{ ticket.operator.name }}</dd>
+          </div>
+          <div>
+            <dt>Issued</dt>
+            <dd>{{ formatInstant(ticket.issuedAt) }}</dd>
+          </div>
+        </dl>
+
+        <section class="ticket-passengers">
+          <h2>Passengers</h2>
+          <ul>
+            @for (passenger of ticket.passengers; track $index) {
+              <li>
+                <div>
+                  <strong>{{ passenger.name }}</strong>
+                  <p class="muted">
+                    Seat {{ passenger.seat }}
+                    @if (passenger.age !== null) {
+                      · Age {{ passenger.age }}
+                    }
+                    @if (passenger.gender) {
+                      · {{ passenger.gender }}
+                    }
+                  </p>
+                </div>
+                <strong>{{ formatMoney(passenger.fareAmount, passenger.currency) }}</strong>
+              </li>
+            }
+          </ul>
+        </section>
+
+        <footer class="ticket-total">
+          <span>Total amount</span>
+          <strong>{{ formatMoney(ticket.amount, ticket.currency) }}</strong>
+        </footer>
+      </div>
+    </article>
+  }
+</section>

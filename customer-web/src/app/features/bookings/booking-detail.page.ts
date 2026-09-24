@@ -4,8 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { BookingsService } from '../../core/api/bookings.service';
 import { PaymentsService } from '../../core/api/payments.service';
 import { RefundsService } from '../../core/api/refunds.service';
-import { TicketsService } from '../../core/api/tickets.service';
-import { Booking, PaymentAttempt, Refund, Ticket } from '../../core/api/models';
+import { Booking, PaymentAttempt, Refund } from '../../core/api/models';
 import { readApiError } from '../../core/api/api-error';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
@@ -21,7 +20,6 @@ export class BookingDetailPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly bookingsApi = inject(BookingsService);
   private readonly paymentsApi = inject(PaymentsService);
-  private readonly ticketsApi = inject(TicketsService);
   private readonly refundsApi = inject(RefundsService);
 
   loading = true;
@@ -30,8 +28,6 @@ export class BookingDetailPageComponent implements OnInit {
   booking: Booking | null = null;
   payments: PaymentAttempt[] | null = null;
   refunds: Refund[] | null = null;
-  ticket: Ticket | null = null;
-  ticketError = '';
   cancelReason = '';
   cancelling = false;
 
@@ -80,17 +76,6 @@ export class BookingDetailPageComponent implements OnInit {
     this.refundsApi.listByBooking(this.booking.bookingId).subscribe({
       next: (rows) => (this.refunds = rows),
       error: (err) => (this.actionError = readApiError(err))
-    });
-  }
-
-  loadTicket(): void {
-    if (!this.booking) {
-      return;
-    }
-    this.ticketError = '';
-    this.ticketsApi.getByBooking(this.booking.bookingId).subscribe({
-      next: (ticket) => (this.ticket = ticket),
-      error: (err) => (this.ticketError = readApiError(err))
     });
   }
 

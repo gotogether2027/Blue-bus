@@ -1,4 +1,4 @@
-import { Booking, CustomerIdentity, CustomerLocation, TripSearchResult } from '../app/core/api/models';
+import { Booking, CustomerIdentity, CustomerLocation, Ticket, TripSearchResult } from '../app/core/api/models';
 
 export const identityFixture: CustomerIdentity = {
   userId: 'user-1',
@@ -138,5 +138,34 @@ export const bookingFixture = (overrides: Partial<Booking> = {}): Booking => ({
   ticketStatus: null,
   latestRefundStatus: null,
   latestRefundAmount: null,
+  ...overrides
+});
+
+export const ticketFixture = (overrides: Partial<Ticket> = {}): Ticket => ({
+  ticketId: 'ticket-1',
+  ticketNumber: 'T-1001',
+  status: 'ACTIVE',
+  issuedAt: '2026-09-17T10:20:00Z',
+  bookingReference: 'BB-1001',
+  bookingId: 'booking-1',
+  operator: { name: 'Coastal Travels' },
+  journey: {
+    origin: 'Visakhapatnam',
+    destination: 'Hyderabad',
+    departure: '2026-09-18T01:30:00Z',
+    arrival: '2026-09-18T07:30:00Z'
+  },
+  passengers: [
+    {
+      name: 'Asha Rao',
+      age: 32,
+      gender: 'FEMALE',
+      seat: 'U1',
+      fareAmount: 1299,
+      currency: 'INR'
+    }
+  ],
+  amount: 1299,
+  currency: 'INR',
   ...overrides
 });

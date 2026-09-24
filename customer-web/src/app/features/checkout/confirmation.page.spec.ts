@@ -5,7 +5,7 @@ import { provideRouter } from '@angular/router';
 import { convertToParamMap } from '@angular/router';
 import { ActivatedRoute } from '@angular/router';
 import { environment } from '../../../environments/environment';
-import { bookingFixture } from '../../../testing/fixtures';
+import { bookingFixture, ticketFixture } from '../../../testing/fixtures';
 import { ConfirmationPageComponent } from './confirmation.page';
 
 describe('ConfirmationPageComponent', () => {
@@ -53,6 +53,26 @@ describe('ConfirmationPageComponent', () => {
     );
     fixture.detectChanges();
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Ticket is being prepared');
+    fixture.destroy();
+  });
+
+  it('links to the digital ticket page after a ticket is issued', () => {
+    const fixture = TestBed.createComponent(ConfirmationPageComponent);
+    fixture.detectChanges();
+    http.expectOne(`${environment.apiBaseUrl}/bookings/booking-1`).flush(
+      bookingFixture({
+        status: 'CONFIRMED',
+        ticketId: 'ticket-1',
+        ticketNumber: 'T-1001',
+        ticketStatus: 'ACTIVE',
+        paymentStatus: 'SUCCEEDED'
+      })
+    );
+    http.expectOne(`${environment.apiBaseUrl}/bookings/booking-1/ticket`).flush(ticketFixture());
+    fixture.detectChanges();
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('View digital ticket');
+    expect(text).toContain('T-1001');
     fixture.destroy();
   });
 });

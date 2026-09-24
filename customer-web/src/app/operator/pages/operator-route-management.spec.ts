@@ -452,6 +452,7 @@ describe('operator route management', () => {
       'register',
       'bookings',
       'bookings/:bookingId/confirmation',
+      'bookings/:bookingId/ticket',
       'bookings/:bookingId',
       'profile',
       'trips/:tripId/seats',

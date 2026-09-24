@@ -91,6 +91,7 @@ input, select {
 .fare { font-size: 1.3rem; font-weight: 800; }
 .operator { font-weight: 700; color: var(--bb-navy); margin-bottom: 0.2rem; }
 .booking-row { color: inherit; }
+.booking-row-main { color: inherit; display: grid; gap: 0.2rem; }
 .plain-list { margin: 0; padding-left: 1.1rem; }
 .back { color: var(--bb-muted); }
 
@@ -308,6 +309,30 @@ input, select {
   .operator-access-nav {
     display: flex; position: static; flex-direction: row; align-items: center; padding: 0;
     background: transparent;
+  }
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  .progress,
+  .topbar,
+  .footer,
+  .ticket-toolbar {
+    display: none !important;
+  }
+  .shell,
+  .main {
+    display: block;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    min-height: 0;
+  }
+  .page {
+    gap: 0;
   }
 }
 

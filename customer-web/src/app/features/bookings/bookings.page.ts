@@ -6,7 +6,7 @@ import { readApiError } from '../../core/api/api-error';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { formatDate, formatMoney, locationLabel } from '../../shared/format';
-import { badgeTone } from './booking-status';
+import { badgeTone, hasTicket } from './booking-status';
 
 @Component({
   selector: 'app-bookings-page',
@@ -22,6 +22,7 @@ export class BookingsPageComponent implements OnInit {
   readonly formatMoney = formatMoney;
   readonly locationLabel = locationLabel;
   readonly badgeTone = badgeTone;
+  readonly hasTicket = hasTicket;
 
   ngOnInit(): void {
     this.bookingsApi.list().subscribe({
