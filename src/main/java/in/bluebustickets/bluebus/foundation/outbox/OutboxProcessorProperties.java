@@ -3,7 +3,8 @@ package in.bluebustickets.bluebus.foundation.outbox;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Database outbox local processor settings (Phase 9.4B). RabbitMQ publishing remains deferred.
+ * Database outbox local processor settings (Phase 9.4B).
+ * {@code published_at} means local handler completion, not RabbitMQ delivery.
  */
 @ConfigurationProperties(prefix = "blue-bus.outbox.processor")
 public class OutboxProcessorProperties {

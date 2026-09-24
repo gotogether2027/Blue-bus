@@ -33,6 +33,59 @@ class ProductionConfigurationGuardTest {
     }
 
     @Test
+    void rejectsRabbitConsumerWithoutCoreApi() {
+        MockEnvironment environment = localEnvironment();
+        environment.setProperty("blue-bus.admin-master-data.enabled", "false");
+        environment.setProperty("blue-bus.outbox.enabled", "false");
+        environment.setProperty("blue-bus.outbox.processor.enabled", "false");
+        environment.setProperty("blue-bus.rabbitmq.enabled", "true");
+        environment.setProperty("blue-bus.rabbitmq.consumer-enabled", "true");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(ProductionConfigurationGuard.RABBITMQ_CONSUMER_WITHOUT_TICKET_HANDLER);
+    }
+
+    @Test
+    void allowsRabbitPublisherWithoutCoreApiWhenConsumerDisabled() {
+        MockEnvironment environment = localEnvironment();
+        environment.setProperty("blue-bus.admin-master-data.enabled", "false");
+        environment.setProperty("blue-bus.outbox.enabled", "false");
+        environment.setProperty("blue-bus.outbox.processor.enabled", "false");
+        environment.setProperty("blue-bus.rabbitmq.enabled", "true");
+        environment.setProperty("blue-bus.rabbitmq.consumer-enabled", "false");
+
+        assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void productionPlusRabbitMqWithoutHostFailsFast() {
+        MockEnvironment environment = productionProfileEnvironment();
+        environment.setProperty("blue-bus.rabbitmq.enabled", "true");
+
+        assertThatThrownBy(() -> ProductionConfigurationGuard.validate(environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(ProductionConfigurationGuard.RABBITMQ_UNCONFIGURED_WHEN_ENABLED);
+    }
+
+    @Test
+    void productionPlusRabbitMqWithHostSucceeds() {
+        MockEnvironment environment = productionProfileEnvironment();
+        environment.setProperty("blue-bus.rabbitmq.enabled", "true");
+        environment.setProperty("spring.rabbitmq.host", "rabbitmq.internal");
+
+        assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void localAllowsRabbitMqWithoutExplicitHost() {
+        MockEnvironment environment = localEnvironment();
+        environment.setProperty("blue-bus.rabbitmq.enabled", "true");
+
+        assertThatCode(() -> ProductionConfigurationGuard.validate(environment)).doesNotThrowAnyException();
+    }
+
+    @Test
     void rejectsOutboxProcessorWithoutCoreApi() {
         MockEnvironment environment = localEnvironment();
         environment.setProperty("blue-bus.admin-master-data.enabled", "false");

@@ -5,6 +5,8 @@
 # - demo data enabled
 # - blue-bus.admin-master-data.enabled=false (core API kill switch)
 # - outbox processor enabled while the core API / ticket handler is disabled
+# - RabbitMQ enabled without exchange/queue/routing-key/host
+# - RabbitMQ consumer enabled while the core API / ticket handler is disabled
 # - PAYMENT_PROVIDER missing or UNCONFIGURED
 # - PAYMENT_PROVIDER=RAZORPAY with incomplete Razorpay secrets
 # - cors.require-allowed-origins=true with an empty allow-list

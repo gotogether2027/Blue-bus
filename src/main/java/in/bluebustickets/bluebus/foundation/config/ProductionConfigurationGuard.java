@@ -33,6 +33,11 @@ public class ProductionConfigurationGuard implements InitializingBean {
     public static final String OUTBOX_WITHOUT_TICKET_HANDLER =
             "blue-bus.outbox.processor cannot be enabled while blue-bus.admin-master-data.enabled=false "
                     + "because BOOKING_CONFIRMED ticket handling would be missing.";
+    public static final String RABBITMQ_CONSUMER_WITHOUT_TICKET_HANDLER =
+            "blue-bus.rabbitmq.consumer cannot be enabled while blue-bus.admin-master-data.enabled=false "
+                    + "because BOOKING_CONFIRMED ticket handling would be missing.";
+    public static final String RABBITMQ_UNCONFIGURED_WHEN_ENABLED =
+            "blue-bus.rabbitmq.enabled=true requires exchange, queue, routing-key, and a broker host.";
     public static final String PAYMENTS_UNCONFIGURED_IN_PROD =
             "PAYMENT_PROVIDER must be RAZORPAY when production is active.";
     public static final String RAZORPAY_SECRETS_MISSING_IN_PROD =
@@ -72,6 +77,10 @@ public class ProductionConfigurationGuard implements InitializingBean {
         boolean outboxEnabled = environment.getProperty("blue-bus.outbox.enabled", Boolean.class, Boolean.TRUE);
         boolean outboxProcessorEnabled = environment.getProperty(
                 "blue-bus.outbox.processor.enabled", Boolean.class, Boolean.TRUE);
+        boolean rabbitEnabled = environment.getProperty(
+                "blue-bus.rabbitmq.enabled", Boolean.class, Boolean.FALSE);
+        boolean rabbitConsumerEnabled = environment.getProperty(
+                "blue-bus.rabbitmq.consumer-enabled", Boolean.class, Boolean.TRUE);
         boolean demoDataEnabled =
                 environment.getProperty("blue-bus.demo-data.enabled", Boolean.class, Boolean.FALSE);
         boolean requireCorsOrigins = environment.getProperty(
@@ -83,6 +92,12 @@ public class ProductionConfigurationGuard implements InitializingBean {
         }
         if (outboxEnabled && outboxProcessorEnabled && !apiEnabled) {
             throw new IllegalStateException(OUTBOX_WITHOUT_TICKET_HANDLER);
+        }
+        if (rabbitEnabled && rabbitConsumerEnabled && !apiEnabled) {
+            throw new IllegalStateException(RABBITMQ_CONSUMER_WITHOUT_TICKET_HANDLER);
+        }
+        if (rabbitEnabled && !rabbitConfigured(environment, production)) {
+            throw new IllegalStateException(RABBITMQ_UNCONFIGURED_WHEN_ENABLED);
         }
         if (production && demoDataEnabled) {
             throw new IllegalStateException(DEMO_DATA_IN_PROD);
@@ -134,5 +149,18 @@ public class ProductionConfigurationGuard implements InitializingBean {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static boolean rabbitConfigured(Environment environment, boolean production) {
+        if (!hasText(environment.getProperty("blue-bus.rabbitmq.exchange", "blue-bus.events"))
+                || !hasText(environment.getProperty("blue-bus.rabbitmq.queue", "blue-bus.booking-confirmed"))
+                || !hasText(environment.getProperty("blue-bus.rabbitmq.routing-key", "booking.confirmed"))) {
+            return false;
+        }
+        if (!production) {
+            return true;
+        }
+        return hasText(environment.getProperty("blue-bus.rabbitmq.host"))
+                || hasText(environment.getProperty("spring.rabbitmq.host"));
     }
 }
