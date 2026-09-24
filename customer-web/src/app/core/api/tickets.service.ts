@@ -12,4 +12,10 @@ export class TicketsService {
   getByBooking(bookingId: string): Observable<Ticket> {
     return this.http.get<Ticket>(`${this.base}/bookings/${bookingId}/ticket`);
   }
+
+  downloadPdf(bookingId: string): Observable<Blob> {
+    return this.http.get(`${this.base}/bookings/${bookingId}/ticket/pdf`, {
+      responseType: 'blob'
+    });
+  }
 }

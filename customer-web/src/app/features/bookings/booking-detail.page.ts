@@ -4,8 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { BookingsService } from '../../core/api/bookings.service';
 import { PaymentsService } from '../../core/api/payments.service';
 import { RefundsService } from '../../core/api/refunds.service';
+import { TicketsService } from '../../core/api/tickets.service';
 import { Booking, PaymentAttempt, Refund } from '../../core/api/models';
 import { readApiError } from '../../core/api/api-error';
+import { readPdfDownloadError, savePdfBlob, ticketPdfFilename } from '../../core/api/ticket-pdf';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { formatInstant, formatMoney, locationLabel } from '../../shared/format';
@@ -21,6 +23,7 @@ export class BookingDetailPageComponent implements OnInit {
   private readonly bookingsApi = inject(BookingsService);
   private readonly paymentsApi = inject(PaymentsService);
   private readonly refundsApi = inject(RefundsService);
+  private readonly ticketsApi = inject(TicketsService);
 
   loading = true;
   error = '';
@@ -30,6 +33,7 @@ export class BookingDetailPageComponent implements OnInit {
   refunds: Refund[] | null = null;
   cancelReason = '';
   cancelling = false;
+  downloadingPdf = false;
 
   readonly formatInstant = formatInstant;
   readonly formatMoney = formatMoney;
@@ -53,6 +57,28 @@ export class BookingDetailPageComponent implements OnInit {
       error: (err) => {
         this.loading = false;
         this.error = readApiError(err);
+      }
+    });
+  }
+
+  downloadPdf(): void {
+    if (!this.booking || this.downloadingPdf) {
+      return;
+    }
+    this.downloadingPdf = true;
+    this.actionError = '';
+    this.ticketsApi.downloadPdf(this.booking.bookingId).subscribe({
+      next: (blob) => {
+        this.downloadingPdf = false;
+        const booking = this.booking;
+        if (!booking) {
+          return;
+        }
+        savePdfBlob(blob, ticketPdfFilename(booking.ticketNumber, booking.bookingId));
+      },
+      error: (err) => {
+        this.downloadingPdf = false;
+        this.actionError = readPdfDownloadError(err);
       }
     });
   }

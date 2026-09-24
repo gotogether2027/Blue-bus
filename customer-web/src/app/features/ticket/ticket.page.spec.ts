@@ -50,6 +50,7 @@ describe('TicketPageComponent', () => {
     expect(text).toContain('Asha Rao');
     expect(text).toContain('Scan to verify ticket');
     expect(text).toContain('Print ticket');
+    expect(text).toContain('Download PDF');
 
     const qr = root.querySelector('img');
     expect(qr).withContext('QR image').not.toBeNull();
@@ -108,6 +109,64 @@ describe('TicketPageComponent', () => {
     expect(text).toContain('Unable to load your ticket. Please try again.');
     expect(text).not.toContain('boom');
     expect(text).not.toContain('Server Error');
+    fixture.destroy();
+  });
+
+  it('downloads the official PDF for the current booking', async () => {
+    const createObjectURL = spyOn(URL, 'createObjectURL').and.returnValue('blob:ticket-pdf');
+    const revokeObjectURL = spyOn(URL, 'revokeObjectURL');
+    const click = spyOn(HTMLAnchorElement.prototype, 'click');
+
+    const fixture = TestBed.createComponent(TicketPageComponent);
+    fixture.detectChanges();
+    http.expectOne(`${environment.apiBaseUrl}/bookings/booking-1/ticket`).flush(ticketFixture());
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const download = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button')
+    ).find((button) => button.textContent?.includes('Download PDF'));
+    expect(download).withContext('Download PDF button').toBeTruthy();
+    download?.click();
+    fixture.detectChanges();
+
+    const req = http.expectOne(`${environment.apiBaseUrl}/bookings/booking-1/ticket/pdf`);
+    expect(req.request.method).toBe('GET');
+    expect(req.request.responseType).toBe('blob');
+    req.flush(new Blob(['%PDF-1.4 ticket'], { type: 'application/pdf' }));
+    fixture.detectChanges();
+
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:ticket-pdf');
+    fixture.destroy();
+  });
+
+  it('shows a download error without exposing HTTP details', async () => {
+    const createObjectURL = spyOn(URL, 'createObjectURL');
+    const fixture = TestBed.createComponent(TicketPageComponent);
+    fixture.detectChanges();
+    http.expectOne(`${environment.apiBaseUrl}/bookings/booking-1/ticket`).flush(ticketFixture());
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const download = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('button')
+    ).find((button) => button.textContent?.includes('Download PDF'));
+    download?.click();
+    fixture.detectChanges();
+    http.expectOne(`${environment.apiBaseUrl}/bookings/booking-1/ticket/pdf`).flush(
+      new Blob(['not found'], { type: 'application/json' }),
+      { status: 404, statusText: 'Not Found' }
+    );
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Ticket PDF is not available.');
+    expect(text).not.toContain('not found');
+    expect(createObjectURL).not.toHaveBeenCalled();
     fixture.destroy();
   });
 });

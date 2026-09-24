@@ -52,10 +52,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import in.bluebustickets.bluebus.ticket.application.TicketPdfAssertions;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -262,6 +266,102 @@ class TicketPostgresIntegrationTest {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/v1/bookings/{id}/tickets", booking.bookingId()).with(anonymous()))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void confirmedBookingDownloadsOfficialPdf() throws Exception {
+        CreatedBooking booking = createPendingBooking(2);
+        bookingLifecycleService.confirmPendingPayment(booking.bookingId());
+        JsonNode ticket = read(mockMvc.perform(post("/api/v1/bookings/{id}/tickets", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isCreated())
+                .andReturn());
+        String ticketNumber = ticket.get("ticketNumber").asText();
+
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.ticketNumber").value(ticketNumber))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.passengers.length()").value(2));
+
+        MvcResult pdf = mockMvc.perform(get("/api/v1/bookings/{id}/ticket/pdf", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
+                        org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("attachment"),
+                                org.hamcrest.Matchers.containsString("BlueBus-Ticket-" + ticketNumber + ".pdf"))))
+                .andReturn();
+
+        byte[] bytes = pdf.getResponse().getContentAsByteArray();
+        String text = TicketPdfAssertions.pdfText(bytes);
+        assertThat(text).contains("BLUE BUS");
+        assertThat(text).contains("E-TICKET");
+        assertThat(text).contains(ticketNumber);
+        assertThat(text).contains(ticket.get("bookingReference").asText());
+        assertThat(text).contains("ACTIVE");
+        assertThat(text).contains("Rider 1");
+        assertThat(text).contains("Rider 2");
+        assertThat(TicketPdfAssertions.decodeQr(bytes)).isEqualTo(ticketNumber);
+    }
+
+    @Test
+    void pdfEndpointEnforcesOwnershipAuthenticationAndMissingTicket() throws Exception {
+        CreatedBooking withoutTicket = createPendingBooking(1);
+        bookingLifecycleService.confirmPendingPayment(withoutTicket.bookingId());
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket/pdf", withoutTicket.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket", withoutTicket.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isNotFound());
+
+        CreatedBooking booking = createPendingBooking(1);
+        bookingLifecycleService.confirmPendingPayment(booking.bookingId());
+        mockMvc.perform(post("/api/v1/bookings/{id}/tickets", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isCreated());
+
+        String otherToken = createOtherCustomer();
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket/pdf", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + otherToken))
+                .andExpect(status().isNotFound());
+
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket/pdf", booking.bookingId()).with(anonymous()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket", booking.bookingId()).with(anonymous()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void cancelledTicketPdfUsesExistingStatus() throws Exception {
+        CreatedBooking booking = createPendingBooking(1);
+        bookingLifecycleService.confirmPendingPayment(booking.bookingId());
+        JsonNode ticket = read(mockMvc.perform(post("/api/v1/bookings/{id}/tickets", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isCreated())
+                .andReturn());
+        jdbcTemplate.update("UPDATE tickets SET status = 'CANCELLED' WHERE id = ?",
+                UUID.fromString(ticket.get("ticketId").asText()));
+
+        mockMvc.perform(get("/api/v1/bookings/{id}/ticket", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        MvcResult pdf = mockMvc.perform(get("/api/v1/bookings/{id}/ticket/pdf", booking.bookingId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andReturn();
+        assertThat(TicketPdfAssertions.pdfText(pdf.getResponse().getContentAsByteArray()))
+                .contains("CANCELLED");
     }
 
     private CreatedBooking createPendingBooking(int seatCount) throws Exception {
