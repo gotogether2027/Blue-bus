@@ -6,6 +6,7 @@ import { EMPTY, catchError, switchMap } from 'rxjs';
 import QRCode from 'qrcode';
 import { TicketsService } from '../../core/api/tickets.service';
 import { Ticket } from '../../core/api/models';
+import { readPdfDownloadError, savePdfBlob, ticketPdfFilename } from '../../core/api/ticket-pdf';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { StatusBadgeComponent } from '../../shared/status-badge.component';
 import { formatInstant, formatMoney } from '../../shared/format';
@@ -29,6 +30,8 @@ export class TicketPageComponent implements OnInit {
   error = false;
   ticket: Ticket | null = null;
   qrDataUrl = '';
+  downloading = false;
+  downloadError = '';
 
   readonly formatInstant = formatInstant;
   readonly formatMoney = formatMoney;
@@ -48,6 +51,8 @@ export class TicketPageComponent implements OnInit {
           this.qrDataUrl = '';
           this.notFound = false;
           this.error = false;
+          this.downloading = false;
+          this.downloadError = '';
           if (!bookingId) {
             this.loading = false;
             this.error = true;
@@ -78,6 +83,24 @@ export class TicketPageComponent implements OnInit {
 
   printTicket(): void {
     window.print();
+  }
+
+  downloadPdf(): void {
+    if (!this.bookingId || this.downloading) {
+      return;
+    }
+    this.downloading = true;
+    this.downloadError = '';
+    this.ticketsApi.downloadPdf(this.bookingId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (blob) => {
+        this.downloading = false;
+        savePdfBlob(blob, ticketPdfFilename(this.ticket?.ticketNumber, this.bookingId));
+      },
+      error: (err) => {
+        this.downloading = false;
+        this.downloadError = readPdfDownloadError(err);
+      }
+    });
   }
 
   private renderQr(ticketNumber: string): void {

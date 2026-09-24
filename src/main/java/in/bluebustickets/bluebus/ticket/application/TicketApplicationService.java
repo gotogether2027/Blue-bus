@@ -48,6 +48,7 @@ public class TicketApplicationService {
     private final TripStopRepository tripStopRepository;
     private final TicketNumberGenerator ticketNumberGenerator;
     private final TicketIssuanceWorker issuanceWorker;
+    private final TicketPdfService ticketPdfService;
     private final Clock clock;
 
     public TicketApplicationService(
@@ -58,6 +59,7 @@ public class TicketApplicationService {
             TripStopRepository tripStopRepository,
             TicketNumberGenerator ticketNumberGenerator,
             TicketIssuanceWorker issuanceWorker,
+            TicketPdfService ticketPdfService,
             Clock clock) {
         this.bookingRepository = bookingRepository;
         this.bookingApplicationService = bookingApplicationService;
@@ -66,6 +68,7 @@ public class TicketApplicationService {
         this.tripStopRepository = tripStopRepository;
         this.ticketNumberGenerator = ticketNumberGenerator;
         this.issuanceWorker = issuanceWorker;
+        this.ticketPdfService = ticketPdfService;
         this.clock = clock;
     }
 
@@ -149,6 +152,12 @@ public class TicketApplicationService {
             throw new ResourceNotFoundException("Ticket was not found.");
         }
         return toResponse(ticket);
+    }
+
+    @Transactional(readOnly = true)
+    public TicketPdf pdfForOwnedBooking(UUID userId, UUID bookingId) {
+        TicketResponse ticket = getOwnedByBooking(userId, bookingId);
+        return new TicketPdf(ticket.ticketNumber(), ticketPdfService.render(ticket));
     }
 
     private UUID persistWithRetries(UUID bookingId, Instant issuedAt, JourneySnapshot journey) {

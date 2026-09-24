@@ -5,8 +5,13 @@ import java.util.UUID;
 import in.bluebustickets.bluebus.identity.application.CurrentUserService;
 import in.bluebustickets.bluebus.ticket.api.dto.TicketResponse;
 import in.bluebustickets.bluebus.ticket.application.TicketApplicationService;
+import in.bluebustickets.bluebus.ticket.application.TicketPdf;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,6 +50,21 @@ public class TicketController {
             @PathVariable UUID bookingId) {
         UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
         return ticketApplicationService.getOwnedByBooking(userId, bookingId);
+    }
+
+    @GetMapping("/bookings/{bookingId}/ticket/pdf")
+    public ResponseEntity<byte[]> pdfByBooking(
+            Authentication authentication,
+            @PathVariable UUID bookingId) {
+        UUID userId = currentUserService.requireAuthenticatedUserId(authentication);
+        TicketPdf pdf = ticketApplicationService.pdfForOwnedBooking(userId, bookingId);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(pdf.filename())
+                        .build()
+                        .toString())
+                .body(pdf.content());
     }
 
     @GetMapping("/tickets/{ticketId}")

@@ -76,6 +76,9 @@
       }
       @if (hasTicket(booking.ticketId, booking.ticketStatus)) {
         <a class="btn" [routerLink]="['/bookings', booking.bookingId, 'ticket']">View full ticket</a>
+        <button type="button" class="btn" [disabled]="downloadingPdf" (click)="downloadPdf()">
+          {{ downloadingPdf ? 'Downloading…' : 'Download PDF' }}
+        </button>
       }
       @if (booking.paymentAttemptId || booking.paymentStatus) {
         <button type="button" class="btn" (click)="loadPayments()">View payment history</button>

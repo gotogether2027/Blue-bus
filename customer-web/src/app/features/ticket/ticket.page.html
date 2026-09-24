@@ -6,9 +6,17 @@
       <a class="back" routerLink="/bookings">← My bookings</a>
     }
     @if (ticket) {
-      <button type="button" class="btn" (click)="printTicket()">Print ticket</button>
+      <div class="ticket-toolbar-actions">
+        <button type="button" class="btn" (click)="printTicket()">Print ticket</button>
+        <button type="button" class="btn" [disabled]="downloading" (click)="downloadPdf()">
+          {{ downloading ? 'Downloading…' : 'Download PDF' }}
+        </button>
+      </div>
     }
   </div>
+  @if (downloadError) {
+    <p class="field-error ticket-download-error">{{ downloadError }}</p>
+  }
 
   @if (loading) {
     <div class="skeleton card"></div>

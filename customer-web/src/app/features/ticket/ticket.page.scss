@@ -6,6 +6,12 @@
   flex-wrap: wrap;
 }
 
+.ticket-toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .ticket-sheet {
   background: #fff;
   border: 1px solid var(--bb-line);
@@ -224,5 +230,9 @@
 
   .ticket-qr img {
     width: 180px;
+  }
+
+  .ticket-download-error {
+    display: none;
   }
 }
