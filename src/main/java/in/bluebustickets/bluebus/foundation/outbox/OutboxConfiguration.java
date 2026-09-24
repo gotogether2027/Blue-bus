@@ -11,6 +11,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * Ticket handling for {@code BOOKING_CONFIRMED} still requires the core API flag
  * ({@code blue-bus.admin-master-data.enabled}); ProductionConfigurationGuard rejects
  * processor-on + API-off so confirmed bookings cannot skip ticket issuance.
+ * <p>
+ * RabbitMQ AMQP beans stay gated by {@code blue-bus.rabbitmq.enabled}.
  */
 @Configuration
 @EnableConfigurationProperties(OutboxProcessorProperties.class)

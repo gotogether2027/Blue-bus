@@ -518,6 +518,45 @@ class FlywayPostgresIntegrationTest {
     }
 
     @Test
+    void appliesRabbitmqOutboxMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '22'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("22");
+            assertThat(migration.get("description")).hasToString("rabbitmq outbox");
+            assertThat(migration.get("script")).hasToString("V22__rabbitmq_outbox.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(columnExists("outbox_events", "published_at")).isTrue();
+        assertThat(columnExists("outbox_events", "rabbit_published_at")).isTrue();
+        assertThat(columnExists("outbox_events", "rabbit_attempt_count")).isTrue();
+        assertThat(columnExists("outbox_events", "rabbit_next_retry_at")).isTrue();
+        assertThat(tableExists("processed_events")).isTrue();
+        assertThat(indexExists("ix_outbox_events_rabbit_unpublished")).isTrue();
+        assertThat(indexExists("ix_outbox_events_rabbit_retry")).isTrue();
+
+        String attemptCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_outbox_events_rabbit_attempt_count'
+                """, String.class);
+        assertThat(attemptCheck).contains("rabbit_attempt_count");
+
+        String unpublishedDef = jdbcTemplate.queryForObject("""
+                SELECT indexdef
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ix_outbox_events_rabbit_unpublished'
+                """, String.class);
+        assertThat(unpublishedDef).contains("rabbit_published_at");
+        assertThat(unpublishedDef).contains("occurred_at");
+    }
+
+    @Test
     void appliesTicketFoundationMigration() {
         List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
                 SELECT version, description, script, success

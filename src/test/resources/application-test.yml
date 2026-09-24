@@ -33,6 +33,11 @@ blue-bus:
       enabled: false
       poll-interval-ms: 5000
       batch-size: 50
+  rabbitmq:
+    enabled: false
+    consumer-enabled: false
+    publisher:
+      enabled: false
   payments:
     refund-retry:
       enabled: false

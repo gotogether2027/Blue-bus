@@ -19,6 +19,18 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
             @Param("eventType") String eventType,
             Pageable pageable);
 
+    @Query("""
+            select e.id from OutboxEvent e
+            where e.rabbitPublishedAt is null
+              and e.eventType = :eventType
+              and (e.rabbitNextRetryAt is null or e.rabbitNextRetryAt <= :now)
+            order by e.occurredAt asc
+            """)
+    List<UUID> findUnpublishedRabbitIdsByEventType(
+            @Param("eventType") String eventType,
+            @Param("now") java.time.Instant now,
+            Pageable pageable);
+
     boolean existsByEventTypeAndAggregateId(String eventType, UUID aggregateId);
 
     long countByEventTypeAndAggregateId(String eventType, UUID aggregateId);

@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import in.bluebustickets.bluebus.foundation.outbox.rabbit.RabbitMqProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -13,7 +14,11 @@ import org.springframework.stereotype.Service;
 
 /**
  * Local database outbox consumer for Phase 9.4B. Claims unpublished supported events in
- * bounded batches using PostgreSQL row locks. Broker publishing (RabbitMQ) remains deferred.
+ * bounded batches using PostgreSQL row locks.
+ * <p>
+ * {@code published_at} is local-handler completion only. RabbitMQ delivery uses
+ * {@code rabbit_published_at}. When the RabbitMQ BOOKING_CONFIRMED consumer is
+ * enabled, this processor skips that event type so the two paths do not race.
  */
 @Service
 @ConditionalOnProperty(prefix = "blue-bus.outbox", name = "enabled", matchIfMissing = true)
@@ -27,16 +32,19 @@ public class OutboxProcessorService {
     private final OutboxEventProcessor outboxEventProcessor;
     private final OutboxProcessorProperties properties;
     private final Clock clock;
+    private final RabbitMqProperties rabbitMqProperties;
 
     public OutboxProcessorService(
             OutboxEventRepository outboxEventRepository,
             OutboxEventProcessor outboxEventProcessor,
             OutboxProcessorProperties properties,
-            Clock clock) {
+            Clock clock,
+            RabbitMqProperties rabbitMqProperties) {
         this.outboxEventRepository = outboxEventRepository;
         this.outboxEventProcessor = outboxEventProcessor;
         this.properties = properties;
         this.clock = clock;
+        this.rabbitMqProperties = rabbitMqProperties;
     }
 
     public OutboxProcessingResult processPendingBookingConfirmed() {
@@ -46,6 +54,12 @@ public class OutboxProcessorService {
     public OutboxProcessingResult processPendingBookingConfirmed(Instant now) {
         if (now == null) {
             throw new IllegalArgumentException("now instant is required");
+        }
+
+        if (rabbitMqProperties.isBookingConfirmedConsumerAuthoritative()) {
+            log.debug(
+                    "Skipping local BOOKING_CONFIRMED processing; RabbitMQ consumer is authoritative");
+            return OutboxProcessingResult.empty();
         }
 
         OutboxProcessingResult total = OutboxProcessingResult.empty();

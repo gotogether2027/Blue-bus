@@ -45,6 +45,15 @@ public class OutboxEvent {
     @Column(name = "attempt_count", nullable = false)
     private int attemptCount;
 
+    @Column(name = "rabbit_published_at")
+    private Instant rabbitPublishedAt;
+
+    @Column(name = "rabbit_attempt_count", nullable = false)
+    private int rabbitAttemptCount;
+
+    @Column(name = "rabbit_next_retry_at")
+    private Instant rabbitNextRetryAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -70,6 +79,7 @@ public class OutboxEvent {
         this.correlationId = correlationId;
         this.causationId = causationId;
         this.attemptCount = 0;
+        this.rabbitAttemptCount = 0;
     }
 
     public void markPublished(Instant at) {
@@ -87,6 +97,42 @@ public class OutboxEvent {
 
     public boolean isPublished() {
         return publishedAt != null;
+    }
+
+    /**
+     * Broker confirm received. Does not mark {@link #publishedAt}; that timestamp
+     * remains the local outbox-processor completion signal.
+     */
+    public void markRabbitPublished(Instant at) {
+        if (at == null) {
+            throw new IllegalArgumentException("rabbitPublishedAt is required");
+        }
+        if (this.rabbitPublishedAt == null) {
+            this.rabbitPublishedAt = at;
+            this.rabbitNextRetryAt = null;
+        }
+    }
+
+    public void claimRabbitPublish(Instant leaseUntil) {
+        if (leaseUntil == null) {
+            throw new IllegalArgumentException("rabbit leaseUntil is required");
+        }
+        this.rabbitAttemptCount++;
+        this.rabbitNextRetryAt = leaseUntil;
+    }
+
+    public void scheduleRabbitRetry(Instant nextRetryAt) {
+        if (nextRetryAt == null) {
+            throw new IllegalArgumentException("rabbitNextRetryAt is required");
+        }
+        if (this.rabbitPublishedAt != null) {
+            return;
+        }
+        this.rabbitNextRetryAt = nextRetryAt;
+    }
+
+    public boolean isRabbitPublished() {
+        return rabbitPublishedAt != null;
     }
 
     public UUID getId() {
@@ -131,6 +177,18 @@ public class OutboxEvent {
 
     public int getAttemptCount() {
         return attemptCount;
+    }
+
+    public Instant getRabbitPublishedAt() {
+        return rabbitPublishedAt;
+    }
+
+    public int getRabbitAttemptCount() {
+        return rabbitAttemptCount;
+    }
+
+    public Instant getRabbitNextRetryAt() {
+        return rabbitNextRetryAt;
     }
 
     public Instant getCreatedAt() {
