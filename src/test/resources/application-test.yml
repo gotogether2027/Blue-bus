@@ -36,7 +36,13 @@ blue-bus:
   rabbitmq:
     enabled: false
     consumer-enabled: false
+    notification-consumer-enabled: false
     publisher:
+      enabled: false
+  notifications:
+    processor:
+      enabled: false
+    delivery:
       enabled: false
   payments:
     refund-retry:

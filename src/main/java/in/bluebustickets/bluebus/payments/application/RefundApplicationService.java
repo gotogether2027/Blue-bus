@@ -16,7 +16,6 @@ import in.bluebustickets.bluebus.booking.application.BookingPaymentPort;
 import in.bluebustickets.bluebus.booking.domain.BookingStatus;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
 import in.bluebustickets.bluebus.foundation.api.error.ResourceNotFoundException;
-import in.bluebustickets.bluebus.foundation.outbox.OutboxEvent;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEventRepository;
 import in.bluebustickets.bluebus.payments.api.dto.RefundResponse;
 import in.bluebustickets.bluebus.payments.domain.PaymentAttempt;
@@ -371,7 +370,9 @@ public class RefundApplicationService {
                     attempt.getCurrency(),
                     reason,
                     now);
-            return refundRepository.saveAndFlush(refund);
+            refund = refundRepository.saveAndFlush(refund);
+            RefundOutboxWriter.writeRequested(outboxEventRepository, refund, now);
+            return refund;
         }
 
         @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -391,6 +392,7 @@ public class RefundApplicationService {
             if (isFailed(providerStatus)) {
                 if (refund.getStatus() != RefundStatus.SUCCEEDED) {
                     refund.markFailed(providerStatus, "PROVIDER_FAILED", now);
+                    RefundOutboxWriter.writeFailed(outboxEventRepository, refund, now);
                 }
                 return refundRepository.saveAndFlush(refund);
             }
@@ -399,15 +401,7 @@ public class RefundApplicationService {
                 refund.markSucceeded(result.providerRefundId(), providerStatus, now);
                 if (previous != RefundStatus.SUCCEEDED) {
                     bookingPaymentPort.markRefunded(refund.getBookingId());
-                    outboxEventRepository.save(new OutboxEvent(
-                            "REFUND_SUCCEEDED",
-                            "PAYMENT_ATTEMPT",
-                            refund.getPaymentAttemptId(),
-                            "{\"refundId\":\"" + refund.getId()
-                                    + "\",\"paymentAttemptId\":\"" + refund.getPaymentAttemptId() + "\"}",
-                            now,
-                            refund.getIdempotencyKey(),
-                            refund.getId().toString()));
+                    RefundOutboxWriter.writeSucceeded(outboxEventRepository, refund, now);
                 }
                 return refundRepository.saveAndFlush(refund);
             }

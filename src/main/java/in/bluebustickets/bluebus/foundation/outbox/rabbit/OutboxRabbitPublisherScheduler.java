@@ -26,7 +26,7 @@ public class OutboxRabbitPublisherScheduler {
     @Scheduled(fixedDelayString = "${blue-bus.rabbitmq.publisher.poll-interval-ms:5000}")
     public void publishDueEvents() {
         try {
-            publisherService.publishPendingBookingConfirmed();
+            publisherService.publishPending();
         } catch (RuntimeException exception) {
             log.warn("RabbitMQ publisher pass failed: {}", exception.getMessage());
         }

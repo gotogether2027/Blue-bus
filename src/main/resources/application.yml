@@ -76,9 +76,11 @@ blue-bus:
     # BOOKING_CONFIRMED tickets and the local processor skips that event type.
     enabled: ${BLUE_BUS_RABBITMQ_ENABLED:false}
     consumer-enabled: ${BLUE_BUS_RABBITMQ_CONSUMER_ENABLED:true}
+    notification-consumer-enabled: ${BLUE_BUS_RABBITMQ_NOTIFICATION_CONSUMER_ENABLED:true}
     host: ${BLUE_BUS_RABBITMQ_HOST:}
     exchange: ${BLUE_BUS_RABBITMQ_EXCHANGE:blue-bus.events}
     queue: ${BLUE_BUS_RABBITMQ_QUEUE:blue-bus.booking-confirmed}
+    notification-queue: ${BLUE_BUS_RABBITMQ_NOTIFICATION_QUEUE:blue-bus.notifications}
     routing-key: ${BLUE_BUS_RABBITMQ_ROUTING_KEY:booking.confirmed}
     prefetch: ${BLUE_BUS_RABBITMQ_PREFETCH:10}
     publisher-confirm-timeout-ms: ${BLUE_BUS_RABBITMQ_PUBLISHER_CONFIRM_TIMEOUT_MS:5000}
@@ -91,6 +93,23 @@ blue-bus:
       lease-ms: ${BLUE_BUS_RABBITMQ_PUBLISHER_LEASE_MS:45000}
       initial-backoff-ms: ${BLUE_BUS_RABBITMQ_PUBLISHER_INITIAL_BACKOFF_MS:5000}
       max-backoff-ms: ${BLUE_BUS_RABBITMQ_PUBLISHER_MAX_BACKOFF_MS:900000}
+  notifications:
+    processor:
+      # Local DB consumer for outbox → notification rows.
+      # Stays authoritative when RabbitMQ is off, and when RabbitMQ is on but
+      # notification-consumer-enabled is false. Skips only when that consumer is authoritative.
+      enabled: true
+      poll-interval-ms: 5000
+      batch-size: 50
+    delivery:
+      # Local delivery using logging providers (no external HTTP).
+      enabled: true
+      poll-interval-ms: 5000
+      batch-size: 50
+      lease-ms: 45000
+      initial-backoff-ms: 5000
+      max-backoff-ms: 900000
+      max-attempts: 8
   payments:
     # Local/test may stay UNCONFIGURED (checkout then returns 503).
     # Production requires PAYMENT_PROVIDER=RAZORPAY plus Razorpay secrets at startup.

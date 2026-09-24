@@ -26,6 +26,9 @@ import in.bluebustickets.bluebus.identity.repository.UserRepository;
 import in.bluebustickets.bluebus.identity.repository.UserRoleRepository;
 import in.bluebustickets.bluebus.payments.repository.PaymentAttemptRepository;
 import in.bluebustickets.bluebus.payments.repository.PaymentProviderEventRepository;
+import in.bluebustickets.bluebus.notification.domain.NotificationChannel;
+import in.bluebustickets.bluebus.notification.domain.NotificationEventType;
+import in.bluebustickets.bluebus.notification.repository.NotificationRepository;
 import in.bluebustickets.bluebus.payments.repository.RefundRepository;
 import in.bluebustickets.bluebus.ticket.domain.TicketStatus;
 import in.bluebustickets.bluebus.ticket.repository.TicketRepository;
@@ -91,6 +94,7 @@ class RabbitMqOutboxPostgresIntegrationTest {
         registry.add("spring.rabbitmq.password", RABBIT::getAdminPassword);
         registry.add("blue-bus.rabbitmq.enabled", () -> "true");
         registry.add("blue-bus.rabbitmq.consumer-enabled", () -> "true");
+        registry.add("blue-bus.rabbitmq.notification-consumer-enabled", () -> "true");
         registry.add("blue-bus.rabbitmq.publisher.enabled", () -> "false");
         registry.add("blue-bus.seat-holds.expiry.enabled", () -> "false");
         registry.add("blue-bus.bookings.expiry.enabled", () -> "false");
@@ -113,6 +117,7 @@ class RabbitMqOutboxPostgresIntegrationTest {
     @Autowired private PaymentAttemptRepository paymentAttemptRepository;
     @Autowired private PaymentProviderEventRepository paymentProviderEventRepository;
     @Autowired private RefundRepository refundRepository;
+    @Autowired private NotificationRepository notificationRepository;
     @Autowired private BookingLifecycleService bookingLifecycleService;
     @Autowired private OutboxProcessorService outboxProcessorService;
     @Autowired private OutboxRabbitPublisherService publisherService;
@@ -127,6 +132,7 @@ class RabbitMqOutboxPostgresIntegrationTest {
 
     @BeforeEach
     void seed() throws Exception {
+        notificationRepository.deleteAll();
         refundRepository.deleteAll();
         paymentProviderEventRepository.deleteAll();
         paymentAttemptRepository.deleteAll();
@@ -143,6 +149,7 @@ class RabbitMqOutboxPostgresIntegrationTest {
                 .to(blueBusEventsExchange)
                 .with(rabbitMqProperties.getRoutingKey()));
         rabbitAdmin.purgeQueue(rabbitMqProperties.getQueue(), false);
+        rabbitAdmin.purgeQueue(rabbitMqProperties.getNotificationQueue(), false);
         rabbitAdmin.purgeQueue(CAPTURE_QUEUE, false);
 
         Role customerRole = roleRepository.findByCode(RoleCode.CUSTOMER).orElseThrow();
@@ -165,7 +172,14 @@ class RabbitMqOutboxPostgresIntegrationTest {
         assertThat(rabbitMqProperties.getExchange()).isEqualTo("blue-bus.events");
         assertThat(rabbitMqProperties.getQueue()).isEqualTo("blue-bus.booking-confirmed");
         assertThat(rabbitMqProperties.getRoutingKey()).isEqualTo("booking.confirmed");
+        assertThat(rabbitMqProperties.getNotificationQueue()).isEqualTo("blue-bus.notifications");
         assertThat(rabbitMqProperties.isBookingConfirmedConsumerAuthoritative()).isTrue();
+        assertThat(rabbitMqProperties.isNotificationConsumerAuthoritative()).isTrue();
+        rabbitTemplate.execute(channel -> {
+            var declared = channel.queueDeclarePassive(rabbitMqProperties.getNotificationQueue());
+            assertThat(declared.getQueue()).isEqualTo(rabbitMqProperties.getNotificationQueue());
+            return true;
+        });
     }
 
     @Test
@@ -208,6 +222,47 @@ class RabbitMqOutboxPostgresIntegrationTest {
         assertThat(outboxProcessorService.processPendingBookingConfirmed().processed()).isZero();
         assertThat(ticketRepository.count()).isEqualTo(1);
         assertThat(outboxEventRepository.findById(event.getId()).orElseThrow().getPublishedAt()).isNull();
+        awaitUntil(() -> notificationRepository.count() == 1, Duration.ofSeconds(15));
+        var notification = notificationRepository.findAll().getFirst();
+        assertThat(notification.getEventType()).isEqualTo(NotificationEventType.BOOKING_CONFIRMED);
+        assertThat(notification.getChannel()).isEqualTo(NotificationChannel.EMAIL);
+        assertThat(processedEventRepository.existsByEventIdAndConsumerName(
+                event.getId(), RabbitMqProperties.NOTIFICATION_CONSUMER)).isTrue();
+    }
+
+    @Test
+    void notificationConsumerIsIdempotentForDuplicateDelivery() throws Exception {
+        CreatedBooking booking = confirmBooking();
+        OutboxEvent event = requireBookingConfirmed(booking.bookingId());
+        assertThat(publisherService.publishPendingBookingConfirmed().published()).isEqualTo(1);
+        awaitUntil(() -> notificationRepository.count() == 1, Duration.ofSeconds(15));
+
+        Message duplicate = rabbitTemplate.receive(CAPTURE_QUEUE, 5_000);
+        assertThat(duplicate).isNotNull();
+        rabbitTemplate.send(rabbitMqProperties.getExchange(), rabbitMqProperties.getRoutingKey(), duplicate);
+        Thread.sleep(500);
+        assertThat(notificationRepository.count()).isEqualTo(1);
+        assertThat(processedEventRepository.existsByEventIdAndConsumerName(
+                event.getId(), RabbitMqProperties.NOTIFICATION_CONSUMER)).isTrue();
+    }
+
+    @Test
+    void malformedEnvelopeDoesNotCreateNotifications() throws Exception {
+        CreatedBooking booking = confirmBooking();
+        OutboxEvent event = requireBookingConfirmed(booking.bookingId());
+
+        MessageProperties properties = new MessageProperties();
+        properties.setContentType(MessageProperties.CONTENT_TYPE_JSON);
+        properties.setMessageId(event.getId().toString());
+        rabbitTemplate.send(
+                rabbitMqProperties.getExchange(),
+                "booking.cancelled",
+                new Message("{not-json".getBytes(), properties));
+
+        Thread.sleep(1_000);
+        assertThat(notificationRepository.count()).isZero();
+        assertThat(processedEventRepository.existsByEventIdAndConsumerName(
+                event.getId(), RabbitMqProperties.NOTIFICATION_CONSUMER)).isFalse();
     }
 
     @Test

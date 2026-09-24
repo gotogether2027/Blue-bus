@@ -28,8 +28,9 @@ import org.springframework.util.StringUtils;
  * Topology (durable, not auto-delete):
  * <ul>
  *   <li>topic exchange {@code blue-bus.events}</li>
- *   <li>queue {@code blue-bus.booking-confirmed}</li>
- *   <li>routing key {@code booking.confirmed}</li>
+ *   <li>queue {@code blue-bus.booking-confirmed} bound to {@code booking.confirmed}</li>
+ *   <li>queue {@code blue-bus.notifications} bound to {@code booking.*},
+ *       {@code ticket.*}, {@code refund.*}, and {@code payment.*}</li>
  * </ul>
  */
 @Configuration
@@ -102,8 +103,42 @@ public class RabbitMqConfiguration {
         factory.setConnectionFactory(connectionFactory);
         factory.setPrefetchCount(properties.getPrefetch());
         factory.setDefaultRequeueRejected(true);
-        factory.setAutoStartup(properties.isConsumerEnabled());
+        factory.setAutoStartup(
+                properties.isConsumerEnabled() || properties.isNotificationConsumerEnabled());
         return factory;
+    }
+
+    @Bean
+    Queue notificationsQueue(RabbitMqProperties properties) {
+        return QueueBuilder.durable(properties.getNotificationQueue()).build();
+    }
+
+    @Bean
+    Binding notificationBookingBinding(
+            Queue notificationsQueue,
+            TopicExchange blueBusEventsExchange) {
+        return BindingBuilder.bind(notificationsQueue).to(blueBusEventsExchange).with("booking.*");
+    }
+
+    @Bean
+    Binding notificationTicketBinding(
+            Queue notificationsQueue,
+            TopicExchange blueBusEventsExchange) {
+        return BindingBuilder.bind(notificationsQueue).to(blueBusEventsExchange).with("ticket.*");
+    }
+
+    @Bean
+    Binding notificationRefundBinding(
+            Queue notificationsQueue,
+            TopicExchange blueBusEventsExchange) {
+        return BindingBuilder.bind(notificationsQueue).to(blueBusEventsExchange).with("refund.*");
+    }
+
+    @Bean
+    Binding notificationPaymentBinding(
+            Queue notificationsQueue,
+            TopicExchange blueBusEventsExchange) {
+        return BindingBuilder.bind(notificationsQueue).to(blueBusEventsExchange).with("payment.*");
     }
 
     @Configuration

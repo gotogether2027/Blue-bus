@@ -8,6 +8,7 @@ import java.util.UUID;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEvent;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxEventRepository;
 import in.bluebustickets.bluebus.foundation.outbox.OutboxProcessorService;
+import in.bluebustickets.bluebus.notification.domain.NotificationEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -44,10 +45,18 @@ public class OutboxRabbitPublisherService {
     }
 
     public OutboxRabbitPublishResult publishPendingBookingConfirmed() {
-        return publishPendingBookingConfirmed(clock.instant());
+        return publishPending(List.of(OutboxProcessorService.BOOKING_CONFIRMED), clock.instant());
     }
 
     public OutboxRabbitPublishResult publishPendingBookingConfirmed(Instant now) {
+        return publishPending(List.of(OutboxProcessorService.BOOKING_CONFIRMED), now);
+    }
+
+    public OutboxRabbitPublishResult publishPending() {
+        return publishPending(NotificationEventType.SOURCE_OUTBOX_TYPES, clock.instant());
+    }
+
+    public OutboxRabbitPublishResult publishPending(java.util.Collection<String> eventTypes, Instant now) {
         if (now == null) {
             throw new IllegalArgumentException("now instant is required");
         }
@@ -57,8 +66,8 @@ public class OutboxRabbitPublisherService {
         int batchSize = properties.getPublisher().getBatchSize();
 
         while (true) {
-            List<UUID> dueIds = outboxEventRepository.findUnpublishedRabbitIdsByEventType(
-                    OutboxProcessorService.BOOKING_CONFIRMED,
+            List<UUID> dueIds = outboxEventRepository.findUnpublishedRabbitIdsByEventTypes(
+                    eventTypes,
                     now,
                     PageRequest.of(0, batchSize));
             if (dueIds.isEmpty()) {

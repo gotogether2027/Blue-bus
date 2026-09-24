@@ -11,6 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class RabbitMqProperties {
 
     public static final String BOOKING_CONFIRMED_CONSUMER = "booking-confirmed-ticket";
+    public static final String NOTIFICATION_CONSUMER = "notification-dispatcher";
 
     /** When false, no AMQP beans or connections are created. */
     private boolean enabled = false;
@@ -28,6 +29,16 @@ public class RabbitMqProperties {
     private String queue = "blue-bus.booking-confirmed";
 
     private String routingKey = "booking.confirmed";
+
+    /**
+     * When true and {@link #enabled} is true, the notification consumer creates
+     * notification rows and the local notification processor skips those events.
+     * When RabbitMQ is enabled and this is false, the local processor stays
+     * authoritative and the publisher may run in shadow mode.
+     */
+    private boolean notificationConsumerEnabled = true;
+
+    private String notificationQueue = "blue-bus.notifications";
 
     private int prefetch = 10;
 
@@ -57,6 +68,42 @@ public class RabbitMqProperties {
 
     public boolean isBookingConfirmedConsumerAuthoritative() {
         return enabled && consumerEnabled;
+    }
+
+    public boolean isNotificationConsumerEnabled() {
+        return notificationConsumerEnabled;
+    }
+
+    public void setNotificationConsumerEnabled(boolean notificationConsumerEnabled) {
+        this.notificationConsumerEnabled = notificationConsumerEnabled;
+    }
+
+    public boolean isNotificationConsumerAuthoritative() {
+        return enabled && notificationConsumerEnabled;
+    }
+
+    public String getNotificationQueue() {
+        return notificationQueue;
+    }
+
+    public void setNotificationQueue(String notificationQueue) {
+        this.notificationQueue = requireName(notificationQueue, "blue-bus.rabbitmq.notification-queue");
+    }
+
+    public String routingKeyFor(String eventType) {
+        if (eventType == null || eventType.isBlank()) {
+            return routingKey;
+        }
+        return switch (eventType) {
+            case "BOOKING_CONFIRMED" -> routingKey;
+            case "TICKET_ISSUED" -> "ticket.issued";
+            case "BOOKING_CANCELLED" -> "booking.cancelled";
+            case "REFUND_REQUESTED" -> "refund.requested";
+            case "REFUND_SUCCEEDED" -> "refund.succeeded";
+            case "REFUND_FAILED" -> "refund.failed";
+            case "PAYMENT_FAILED" -> "payment.failed";
+            default -> eventType.toLowerCase().replace('_', '.');
+        };
     }
 
     public String getHost() {

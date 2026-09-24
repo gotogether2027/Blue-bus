@@ -557,6 +557,84 @@ class FlywayPostgresIntegrationTest {
     }
 
     @Test
+    void appliesNotificationFoundationMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '23'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("23");
+            assertThat(migration.get("description")).hasToString("notification foundation");
+            assertThat(migration.get("script")).hasToString("V23__notification_foundation.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(tableExists("notifications")).isTrue();
+        assertThat(tableExists("notification_preferences")).isTrue();
+        assertThat(columnExists("notifications", "source_event_id")).isTrue();
+        assertThat(columnExists("notifications", "logical_key")).isTrue();
+        assertThat(columnExists("notifications", "next_retry_at")).isTrue();
+        assertThat(columnExists("notifications", "provider_message_id")).isTrue();
+        assertThat(columnExists("notifications", "sent_at")).isTrue();
+        assertThat(columnExists("notification_preferences", "email_enabled")).isTrue();
+        assertThat(indexExists("ux_notifications_source_event_channel")).isTrue();
+        assertThat(indexExists("ux_notifications_logical_key")).isTrue();
+        assertThat(indexExists("ix_notifications_user_created")).isTrue();
+        assertThat(indexExists("ix_notifications_pending_retry")).isTrue();
+
+        String channelCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_notifications_channel'
+                """, String.class);
+        assertThat(channelCheck).contains("EMAIL");
+        assertThat(channelCheck).contains("SMS");
+        assertThat(channelCheck).contains("WHATSAPP");
+
+        String statusCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_notifications_status'
+                """, String.class);
+        assertThat(statusCheck).contains("PENDING");
+        assertThat(statusCheck).contains("SENT");
+        assertThat(statusCheck).contains("FAILED");
+    }
+
+    @Test
+    void appliesRefundOutboxEventUniquenessMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '24'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("24");
+            assertThat(migration.get("description")).hasToString("refund outbox event uniqueness");
+            assertThat(migration.get("script")).hasToString("V24__refund_outbox_event_uniqueness.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        assertThat(indexExists("ux_outbox_refund_requested_aggregate")).isTrue();
+        assertThat(indexExists("ux_outbox_refund_failed_aggregate")).isTrue();
+        String requested = jdbcTemplate.queryForObject("""
+                SELECT indexdef FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ux_outbox_refund_requested_aggregate'
+                """, String.class);
+        assertThat(requested).contains("REFUND_REQUESTED");
+        assertThat(requested).containsIgnoringCase("UNIQUE");
+        String failed = jdbcTemplate.queryForObject("""
+                SELECT indexdef FROM pg_indexes
+                WHERE schemaname = 'public' AND indexname = 'ux_outbox_refund_failed_aggregate'
+                """, String.class);
+        assertThat(failed).contains("REFUND_FAILED");
+        assertThat(failed).doesNotContain("REFUND_SUCCEEDED");
+    }
+
+    @Test
     void appliesTicketFoundationMigration() {
         List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
                 SELECT version, description, script, success

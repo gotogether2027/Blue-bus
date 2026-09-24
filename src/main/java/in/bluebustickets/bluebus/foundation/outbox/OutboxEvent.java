@@ -68,7 +68,31 @@ public class OutboxEvent {
             Instant occurredAt,
             String correlationId,
             String causationId) {
-        this.id = UUID.randomUUID();
+        this(
+                UUID.randomUUID(),
+                eventType,
+                aggregateType,
+                aggregateId,
+                payloadJson,
+                occurredAt,
+                correlationId,
+                causationId);
+    }
+
+    /**
+     * Rebuilds an outbox view from a published envelope without persisting.
+     * Used by consumers that already have the durable event identity.
+     */
+    public OutboxEvent(
+            UUID id,
+            String eventType,
+            String aggregateType,
+            UUID aggregateId,
+            String payloadJson,
+            Instant occurredAt,
+            String correlationId,
+            String causationId) {
+        this.id = id;
         this.eventType = eventType;
         this.aggregateType = aggregateType;
         this.aggregateId = aggregateId;
