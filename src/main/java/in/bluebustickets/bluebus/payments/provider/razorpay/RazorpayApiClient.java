@@ -3,11 +3,14 @@ package in.bluebustickets.bluebus.payments.provider.razorpay;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -62,6 +65,24 @@ class RazorpayApiClient {
         return new OrderCreated(orderId, text(response, "status"));
     }
 
+    List<JsonNode> listOrdersByReceipt(String receipt) {
+        String encoded = URLEncoder.encode(receipt, StandardCharsets.UTF_8);
+        JsonNode response = get("/v1/orders?receipt=" + encoded + "&count=10");
+        List<JsonNode> items = new ArrayList<>();
+        if (response == null || response.isMissingNode() || response.isNull()) {
+            return items;
+        }
+        JsonNode collection = response.path("items");
+        if (collection.isArray()) {
+            collection.forEach(items::add);
+            return items;
+        }
+        if (response.hasNonNull("id")) {
+            items.add(response);
+        }
+        return items;
+    }
+
     RefundCreated createRefund(
             UUID refundId,
             String providerPaymentId,
@@ -81,6 +102,38 @@ class RazorpayApiClient {
             throw new PaymentProviderUnavailableException("Payment provider is temporarily unavailable.");
         }
         return new RefundCreated(refundProviderId, text(response, "status"));
+    }
+
+    private JsonNode get(String path) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(properties.getBaseUrl() + path))
+                    .timeout(properties.getReadTimeout())
+                    .header("Authorization", basicAuth())
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            int status = response.statusCode();
+            if (status == 404) {
+                return objectMapper.createObjectNode();
+            }
+            if (status >= 200 && status < 300) {
+                return parseJson(response.body());
+            }
+            LOGGER.warn("Razorpay HTTP {} for GET {}", status, path);
+            throw new PaymentProviderUnavailableException("Payment provider is temporarily unavailable.");
+        } catch (PaymentProviderUnavailableException exception) {
+            throw exception;
+        } catch (IOException | InterruptedException exception) {
+            if (exception instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            LOGGER.warn("Razorpay connection failed for GET {}", path);
+            throw new PaymentProviderUnavailableException("Payment provider is temporarily unavailable.");
+        } catch (Exception exception) {
+            LOGGER.warn("Razorpay request failed for GET {}", path);
+            throw new PaymentProviderUnavailableException("Payment provider is temporarily unavailable.");
+        }
     }
 
     private JsonNode post(String path, ObjectNode body, String idempotencyKey) {
@@ -128,7 +181,7 @@ class RazorpayApiClient {
         return "Basic " + Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String receipt(String merchantReference, UUID paymentAttemptId) {
+    static String receipt(String merchantReference, UUID paymentAttemptId) {
         String candidate = merchantReference == null ? "" : merchantReference.replace("-", "");
         if (candidate.length() > 40 || candidate.isBlank()) {
             return paymentAttemptId.toString().replace("-", "");

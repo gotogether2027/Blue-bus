@@ -858,6 +858,10 @@ class TripCancellationPassengerHandlingPostgresIntegrationTest {
         private void handle(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
             String path = exchange.getRequestURI().getPath();
             byte[] request = exchange.getRequestBody().readAllBytes();
+            if (path.equals("/v1/orders") && "GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+                write(exchange, 200, "{\"entity\":\"collection\",\"count\":0,\"items\":[]}");
+                return;
+            }
             if (path.equals("/v1/orders")) {
                 handleOrder(exchange, request);
                 return;

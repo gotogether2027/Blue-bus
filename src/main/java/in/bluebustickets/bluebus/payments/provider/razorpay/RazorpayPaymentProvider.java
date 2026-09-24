@@ -53,6 +53,65 @@ public class RazorpayPaymentProvider implements PaymentProvider {
     }
 
     @Override
+    public ProviderOrderLookup findExistingOrder(ProviderInitiationCommand command) {
+        if (command == null || command.paymentAttemptId() == null) {
+            throw new IllegalArgumentException("Provider order lookup requires a payment attempt.");
+        }
+        String receipt = RazorpayApiClient.receipt(command.merchantReference(), command.paymentAttemptId());
+        List<JsonNode> items = apiClient.listOrdersByReceipt(receipt);
+        if (items.isEmpty()) {
+            return ProviderOrderLookup.notFound();
+        }
+        List<JsonNode> matches = items.stream()
+                .filter(order -> matchesExpectedOrder(command, receipt, order))
+                .toList();
+        if (matches.size() != 1) {
+            LOGGER.warn(
+                    "Razorpay GET-order lookup was not uniquely matched. paymentAttemptId={} receipt={} returned={} matched={}",
+                    command.paymentAttemptId(),
+                    receipt,
+                    items.size(),
+                    matches.size());
+            return ProviderOrderLookup.mismatched();
+        }
+        JsonNode order = matches.get(0);
+        String orderId = text(order, "id");
+        if (isBlank(orderId)) {
+            return ProviderOrderLookup.mismatched();
+        }
+        return ProviderOrderLookup.matched(new ProviderInitiationResult(
+                orderId,
+                firstNonBlank(text(order, "status"), "created"),
+                properties.getKeyId()));
+    }
+
+    private boolean matchesExpectedOrder(ProviderInitiationCommand command, String expectedReceipt, JsonNode order) {
+        if (order == null) {
+            return false;
+        }
+        String orderReceipt = text(order, "receipt");
+        String paymentAttemptId = note(order, "payment_attempt_id");
+        String merchantReference = note(order, "merchant_reference");
+        String currency = firstNonBlank(text(order, "currency"), "INR");
+        if (!expectedReceipt.equals(orderReceipt)
+                || !command.paymentAttemptId().toString().equals(paymentAttemptId)
+                || !command.merchantReference().equals(merchantReference)
+                || command.currency() == null
+                || !command.currency().equalsIgnoreCase(currency)) {
+            return false;
+        }
+        if (!order.hasNonNull("amount") || !order.get("amount").canConvertToLong()) {
+            return false;
+        }
+        try {
+            long expected = RazorpayMoney.toMinorUnits(command.amount(), command.currency());
+            return expected == order.get("amount").asLong();
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
+    @Override
     public WebhookVerificationResult verifyCheckout(CheckoutVerificationCommand command) {
         if (command == null
                 || isBlank(command.storedProviderOrderId())
