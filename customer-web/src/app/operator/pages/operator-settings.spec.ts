@@ -3,7 +3,7 @@ import {
   HttpTestingController,
   provideHttpClientTesting
 } from '@angular/common/http/testing';
-import { WritableSignal, signal } from '@angular/core';
+import { Component, WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { environment } from '../../../environments/environment';
@@ -17,6 +17,12 @@ import { OperatorMembership } from '../models/operator.models';
 import { OPERATOR_ROUTES } from '../operator.routes';
 import { OperatorContextService } from '../services/operator-context.service';
 import { OperatorSettingsPageComponent } from './operator-settings/operator-settings.page';
+
+@Component({
+  standalone: true,
+  template: ''
+})
+class TestLoginComponent {}
 
 describe('operator workspace settings', () => {
   const base = `${environment.apiBaseUrl}/operator`;
@@ -382,6 +388,7 @@ describe('operator workspace settings', () => {
       'register',
       'bookings',
       'bookings/:bookingId/confirmation',
+      'bookings/:bookingId/ticket',
       'bookings/:bookingId',
       'profile',
       'trips/:tripId/seats',
@@ -409,7 +416,7 @@ describe('operator workspace settings', () => {
     await TestBed.configureTestingModule({
       imports: [OperatorSettingsPageComponent],
       providers: [
-        provideRouter([]),
+        provideRouter([{ path: 'login', component: TestLoginComponent }]),
         provideHttpClient(),
         provideHttpClientTesting(),
         {
