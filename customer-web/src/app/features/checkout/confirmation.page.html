@@ -57,6 +57,7 @@
             <li>{{ passenger.name }} · Seat {{ passenger.seat }}</li>
           }
         </ul>
+        <a class="btn btn-primary" [routerLink]="['/bookings', booking.bookingId, 'ticket']">View digital ticket</a>
       } @else if (ticketPending) {
         <p>Ticket is being prepared. This page will check again shortly.</p>
       } @else {

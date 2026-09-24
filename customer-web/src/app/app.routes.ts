@@ -14,6 +14,7 @@ import { PassengersPageComponent } from './features/checkout/passengers.page';
 import { PaymentPageComponent } from './features/checkout/payment.page';
 import { ReviewPageComponent } from './features/checkout/review.page';
 import { ProfilePageComponent } from './features/profile/profile.page';
+import { TicketPageComponent } from './features/ticket/ticket.page';
 
 export const routes: Routes = [
   {
@@ -34,6 +35,11 @@ export const routes: Routes = [
       {
         path: 'bookings/:bookingId/confirmation',
         component: ConfirmationPageComponent,
+        canActivate: [authGuard]
+      },
+      {
+        path: 'bookings/:bookingId/ticket',
+        component: TicketPageComponent,
         canActivate: [authGuard]
       },
       { path: 'bookings/:bookingId', component: BookingDetailPageComponent, canActivate: [authGuard] },

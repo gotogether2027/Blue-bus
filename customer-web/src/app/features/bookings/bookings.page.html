@@ -20,8 +20,8 @@
   } @else {
     <div class="stack">
       @for (booking of bookings; track booking.bookingId) {
-        <a class="card booking-row" [routerLink]="['/bookings', booking.bookingId]">
-          <div>
+        <article class="card booking-row">
+          <a class="booking-row-main" [routerLink]="['/bookings', booking.bookingId]">
             <p class="muted">{{ booking.bookingReference }}</p>
             <h2>
               {{ locationLabel(booking.trip.origin) }}
@@ -29,7 +29,7 @@
               {{ locationLabel(booking.trip.destination) }}
             </h2>
             <p class="muted">{{ formatDate(booking.trip.serviceDate) }}</p>
-          </div>
+          </a>
           <div class="booking-meta">
             <app-status-badge [label]="booking.status" [tone]="badgeTone(booking.status)" />
             @if (booking.paymentStatus) {
@@ -47,8 +47,12 @@
               <app-status-badge [label]="'Refund ' + booking.latestRefundStatus" [tone]="badgeTone(booking.latestRefundStatus)" />
             }
             <strong>{{ formatMoney(booking.totalAmount, booking.currency) }}</strong>
+            <a class="btn btn-small" [routerLink]="['/bookings', booking.bookingId]">View booking</a>
+            @if (hasTicket(booking.ticketId, booking.ticketStatus)) {
+              <a class="btn btn-small" [routerLink]="['/bookings', booking.bookingId, 'ticket']">View ticket</a>
+            }
           </div>
-        </a>
+        </article>
       }
     </div>
   }

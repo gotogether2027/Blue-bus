@@ -37,6 +37,8 @@ describe('BookingsPageComponent', () => {
     expect(text).toContain('PENDING_PAYMENT');
     expect(text).toContain('Pay SUCCEEDED');
     expect(text).toContain('Ticket T-9');
+    expect(text).toContain('View booking');
+    expect(text).toContain('View ticket');
   });
 
   it('handles null payment, ticket, and refund summary fields without placeholders from missing data', () => {
@@ -46,6 +48,8 @@ describe('BookingsPageComponent', () => {
     fixture.detectChanges();
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('Payment not started');
+    expect(text).toContain('View booking');
+    expect(text).not.toContain('View ticket');
     expect(text).not.toContain('Pay null');
     expect(text).not.toContain('Ticket null');
     expect(text).not.toContain('Refund null');
