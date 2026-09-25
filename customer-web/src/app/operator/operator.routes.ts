@@ -15,6 +15,9 @@ import { OperatorRouteDetailPageComponent } from './pages/operator-route-detail/
 import { OperatorRouteEditPageComponent } from './pages/operator-route-edit/operator-route-edit.page';
 import { OperatorRouteStopsPageComponent } from './pages/operator-route-stops/operator-route-stops.page';
 import { OperatorRoutesPageComponent } from './pages/operator-routes/operator-routes.page';
+import { OperatorSeatLayoutDetailPageComponent } from './pages/operator-seat-layout-detail/operator-seat-layout-detail.page';
+import { OperatorSeatLayoutEditorPageComponent } from './pages/operator-seat-layout-editor/operator-seat-layout-editor.page';
+import { OperatorSeatLayoutsPageComponent } from './pages/operator-seat-layouts/operator-seat-layouts.page';
 import { OperatorSettingsPageComponent } from './pages/operator-settings/operator-settings.page';
 import { OperatorShellComponent } from './pages/operator-shell/operator-shell.page';
 import { OperatorTripCreatePageComponent } from './pages/operator-trip-create/operator-trip-create.page';
@@ -82,6 +85,29 @@ export const OPERATOR_ROUTES: Routes = [
         path: 'buses/:busId',
         component: OperatorBusDetailPageComponent,
         title: 'Bus detail · BLUE BUS'
+      },
+      {
+        path: 'seat-layouts',
+        pathMatch: 'full',
+        component: OperatorSeatLayoutsPageComponent,
+        title: 'Seat layouts · BLUE BUS'
+      },
+      {
+        path: 'seat-layouts/new',
+        component: OperatorSeatLayoutEditorPageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Create seat layout · BLUE BUS'
+      },
+      {
+        path: 'seat-layouts/:layoutId/edit',
+        component: OperatorSeatLayoutEditorPageComponent,
+        canActivate: [operatorAdminGuard],
+        title: 'Edit seat layout · BLUE BUS'
+      },
+      {
+        path: 'seat-layouts/:layoutId',
+        component: OperatorSeatLayoutDetailPageComponent,
+        title: 'Seat layout · BLUE BUS'
       },
       {
         path: 'routes',

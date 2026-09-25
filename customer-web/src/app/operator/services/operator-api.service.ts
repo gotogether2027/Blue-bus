@@ -19,7 +19,9 @@ import {
   OperatorRoutePoint,
   OperatorRouteStatus,
   OperatorRouteStop,
+  CreateOperatorSeatLayoutRequest,
   OperatorSeatLayout,
+  UpdateOperatorSeatLayoutRequest,
   OperatorTrip,
   OperatorTripFilters,
   OperatorTripSeatInventory,
@@ -98,6 +100,58 @@ export class OperatorApiService {
     return this.http.get<OperatorSeatLayout[]>(
       `${this.operatorBase(operatorId)}/seat-layouts`,
       { params }
+    );
+  }
+
+  listSeatLayouts(operatorId: string): Observable<OperatorSeatLayout[]> {
+    return this.http.get<OperatorSeatLayout[]>(`${this.operatorBase(operatorId)}/seat-layouts`);
+  }
+
+  getSeatLayout(operatorId: string, layoutId: string): Observable<OperatorSeatLayout> {
+    return this.http.get<OperatorSeatLayout>(
+      `${this.operatorBase(operatorId)}/seat-layouts/${encodeURIComponent(layoutId)}`
+    );
+  }
+
+  createSeatLayout(
+    operatorId: string,
+    request: CreateOperatorSeatLayoutRequest
+  ): Observable<OperatorSeatLayout> {
+    return this.http.post<OperatorSeatLayout>(
+      `${this.operatorBase(operatorId)}/seat-layouts`,
+      request
+    );
+  }
+
+  updateSeatLayout(
+    operatorId: string,
+    layoutId: string,
+    request: UpdateOperatorSeatLayoutRequest
+  ): Observable<OperatorSeatLayout> {
+    return this.http.patch<OperatorSeatLayout>(
+      `${this.operatorBase(operatorId)}/seat-layouts/${encodeURIComponent(layoutId)}`,
+      request
+    );
+  }
+
+  publishSeatLayout(operatorId: string, layoutId: string): Observable<OperatorSeatLayout> {
+    return this.http.post<OperatorSeatLayout>(
+      `${this.operatorBase(operatorId)}/seat-layouts/${encodeURIComponent(layoutId)}/activate`,
+      {}
+    );
+  }
+
+  archiveSeatLayout(operatorId: string, layoutId: string): Observable<OperatorSeatLayout> {
+    return this.http.post<OperatorSeatLayout>(
+      `${this.operatorBase(operatorId)}/seat-layouts/${encodeURIComponent(layoutId)}/deactivate`,
+      {}
+    );
+  }
+
+  duplicateSeatLayout(operatorId: string, layoutId: string): Observable<OperatorSeatLayout> {
+    return this.http.post<OperatorSeatLayout>(
+      `${this.operatorBase(operatorId)}/seat-layouts/${encodeURIComponent(layoutId)}/duplicate`,
+      {}
     );
   }
 

@@ -1,0 +1,66 @@
+<div class="bus-shell" [class.readonly]="readonly">
+  <p class="bus-end">Front</p>
+  <div
+    class="bus-body"
+    [style.--layout-columns]="draft.columnCount"
+    role="grid"
+    [attr.aria-label]="deck === 1 ? 'Lower deck layout' : 'Upper deck layout'"
+  >
+    @for (cell of visibleCells(); track cell.row + ':' + cell.column) {
+      @if (cell.kind === 'seat') {
+        <button
+          type="button"
+          class="layout-cell seat"
+          [class.sleeper]="sleeper(cell.seat)"
+          [class.seater]="!sleeper(cell.seat)"
+          [class.unsellable]="!cell.seat.sellable"
+          [class.selected]="selected(cell.row, cell.column)"
+          [class.horizontal]="cell.seat.orientation === 'HORIZONTAL' || cell.seat.orientation === 'BACKWARD'"
+          [style.grid-row]="cell.seat.rowNumber + ' / span ' + cell.seat.spanRows"
+          [style.grid-column]="cell.seat.columnNumber + ' / span ' + cell.seat.spanColumns"
+          [disabled]="readonly"
+          [attr.aria-label]="label(cell.row, cell.column)"
+          [attr.aria-pressed]="selected(cell.row, cell.column)"
+          (click)="choose(cell.row, cell.column)"
+        >
+          <strong>{{ cell.seat.seatNumber }}</strong>
+          <small>{{ cell.seat.seatType === 'SLEEPER_LOWER' ? 'LOWER' : cell.seat.seatType === 'SLEEPER_UPPER' ? 'UPPER' : cell.seat.seatType }}</small>
+        </button>
+      } @else if (cell.kind === 'marker') {
+        <button
+          type="button"
+          class="layout-cell marker"
+          [class.marker-driver]="cell.marker.type === 'DRIVER'"
+          [class.marker-door]="cell.marker.type === 'DOOR'"
+          [class.marker-aisle]="cell.marker.type === 'AISLE'"
+          [class.marker-empty]="cell.marker.type === 'EMPTY'"
+          [class.marker-toilet]="cell.marker.type === 'TOILET'"
+          [class.marker-utility]="cell.marker.type === 'UTILITY'"
+          [class.marker-blocked]="cell.marker.type === 'BLOCKED'"
+          [class.selected]="selected(cell.row, cell.column)"
+          [style.grid-row]="cell.row"
+          [style.grid-column]="cell.column"
+          [disabled]="readonly"
+          [attr.aria-label]="label(cell.row, cell.column)"
+          (click)="choose(cell.row, cell.column)"
+        >
+          {{ cell.marker.type }}
+        </button>
+      } @else {
+        <button
+          type="button"
+          class="layout-cell empty"
+          [class.selected]="selected(cell.row, cell.column)"
+          [style.grid-row]="cell.row"
+          [style.grid-column]="cell.column"
+          [disabled]="readonly"
+          [attr.aria-label]="label(cell.row, cell.column)"
+          (click)="choose(cell.row, cell.column)"
+        >
+          <span class="sr-only">Empty</span>
+        </button>
+      }
+    }
+  </div>
+  <p class="bus-end">Rear</p>
+</div>

@@ -1,18 +1,19 @@
 package in.bluebustickets.bluebus.fleet.application;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatDefinitionRequest;
+import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatLayoutMarkerRequest;
 import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatLayoutResponse;
 import in.bluebustickets.bluebus.fleet.domain.Seat;
 import in.bluebustickets.bluebus.fleet.domain.SeatLayout;
+import in.bluebustickets.bluebus.fleet.domain.SeatLayoutMarker;
 import in.bluebustickets.bluebus.fleet.domain.SeatLayoutStatus;
+import in.bluebustickets.bluebus.fleet.domain.SeatLayoutType;
 import in.bluebustickets.bluebus.fleet.repository.SeatLayoutRepository;
 import in.bluebustickets.bluebus.fleet.repository.SeatRepository;
 import in.bluebustickets.bluebus.foundation.api.error.ApplicationConflictException;
@@ -45,6 +46,7 @@ public class OperatorSeatLayoutAdminService {
     private static final String NAME_VERSION_CONFLICT =
             "Seat layout name and version already exist for this operator.";
     private static final String EMPTY_SEATS = "Seat layout requires at least one seat.";
+    private static final String NO_SELLABLE = "Cannot publish a layout without a sellable seat.";
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -105,7 +107,9 @@ public class OperatorSeatLayoutAdminService {
             int deckCount,
             int rowCount,
             int columnCount,
-            List<SeatDefinitionRequest> seats) {
+            List<SeatDefinitionRequest> seats,
+            String layoutType,
+            List<SeatLayoutMarkerRequest> markers) {
         authorizeAdminMutation(operatorId);
 
         String normalizedName = requireText(name, "Seat layout name is required");
@@ -129,7 +133,9 @@ public class OperatorSeatLayoutAdminService {
                 deckCount,
                 rowCount,
                 columnCount);
-        validateSeatDefinitions(draftDimensions, seats);
+        draftDimensions.assignLayoutType(SeatLayoutStructureValidator.layoutTypeOrCustom(layoutType));
+        draftDimensions.replaceMarkers(SeatLayoutStructureValidator.markersFrom(markers));
+        SeatLayoutStructureValidator.validate(deckCount, rowCount, columnCount, seats, markers);
 
         Runnable afterValidation = afterValidationBeforeSaveForTests;
         if (afterValidation != null) {
@@ -138,10 +144,13 @@ public class OperatorSeatLayoutAdminService {
 
         try {
             Operator operator = operatorRepository.getReferenceById(operatorId);
-            SeatLayout layout = seatLayoutRepository.saveAndFlush(new SeatLayout(
-                    operator, normalizedName, version, deckCount, rowCount, columnCount));
-            List<Seat> persistedSeats = persistSeats(layout, seats);
-            return SeatLayoutResponse.from(layout, persistedSeats);
+            SeatLayout layout = new SeatLayout(
+                    operator, normalizedName, version, deckCount, rowCount, columnCount);
+            layout.assignLayoutType(draftDimensions.getLayoutType());
+            layout.replaceMarkers(draftDimensions.getMarkers());
+            SeatLayout persisted = seatLayoutRepository.saveAndFlush(layout);
+            List<Seat> persistedSeats = persistSeats(persisted, seats);
+            return SeatLayoutResponse.from(persisted, persistedSeats);
         } catch (DataIntegrityViolationException exception) {
             if (isNameVersionUniquenessViolation(exception)) {
                 throw new ApplicationConflictException(NAME_VERSION_CONFLICT);
@@ -161,13 +170,30 @@ public class OperatorSeatLayoutAdminService {
             Integer rowCount,
             boolean rowCountPresent,
             Integer columnCount,
-            boolean columnCountPresent) {
-        if (!namePresent && !deckCountPresent && !rowCountPresent && !columnCountPresent) {
+            boolean columnCountPresent,
+            String layoutType,
+            boolean layoutTypePresent,
+            List<SeatDefinitionRequest> seats,
+            boolean seatsPresent,
+            List<SeatLayoutMarkerRequest> markers,
+            boolean markersPresent) {
+        if (!namePresent && !deckCountPresent && !rowCountPresent && !columnCountPresent
+                && !layoutTypePresent && !seatsPresent && !markersPresent) {
             throw new IllegalArgumentException(
-                    "At least one of name, deckCount, rowCount, or columnCount is required.");
+                    "At least one of name, deckCount, rowCount, columnCount, layoutType, seats, or markers is required.");
         }
 
         SeatLayout layout = lockOwnedLayoutForAdminMutation(operatorId, layoutId);
+        boolean structural = layoutTypePresent || seatsPresent || markersPresent;
+        if (structural && layout.getStatus() != SeatLayoutStatus.DRAFT) {
+            if (layout.getStatus() == SeatLayoutStatus.PUBLISHED) {
+                throw new IllegalArgumentException("Cannot modify a published layout.");
+            }
+            throw new IllegalArgumentException("Archived seat layouts cannot be updated.");
+        }
+        if (seatsPresent && (seats == null || seats.isEmpty())) {
+            throw new IllegalArgumentException(EMPTY_SEATS);
+        }
 
         String nextName = namePresent ? requireText(name, "Seat layout name is required") : layout.getName();
         int nextDeck = deckCountPresent ? requirePositive(deckCount, "Seat layout deck count must be positive")
@@ -179,11 +205,27 @@ public class OperatorSeatLayoutAdminService {
                 : layout.getColumnCount();
 
         List<Seat> existingSeats = seatsFor(layout.getId());
-        validateExistingSeatsFitDimensions(existingSeats, nextDeck, nextRow, nextColumn);
+        List<SeatDefinitionRequest> nextSeats = seatsPresent ? seats : definitionsFrom(existingSeats);
+        List<SeatLayoutMarkerRequest> nextMarkers = markersPresent
+                ? markers
+                : markerRequests(layout.getMarkers());
+        SeatLayoutStructureValidator.validate(nextDeck, nextRow, nextColumn, nextSeats, nextMarkers);
 
-        layout.updateDraftMetadata(nextName, nextDeck, nextRow, nextColumn);
+        if (namePresent || deckCountPresent || rowCountPresent || columnCountPresent) {
+            layout.updateDraftMetadata(nextName, nextDeck, nextRow, nextColumn);
+        }
+        if (layoutTypePresent) {
+            layout.assignLayoutType(SeatLayoutType.parse(layoutType));
+        }
+        if (markersPresent) {
+            layout.replaceMarkers(SeatLayoutStructureValidator.markersFrom(markers));
+        }
+        List<Seat> responseSeats = existingSeats;
+        if (seatsPresent) {
+            responseSeats = replaceSeats(layout, seats);
+        }
         entityManager.flush();
-        return SeatLayoutResponse.from(layout, existingSeats);
+        return SeatLayoutResponse.from(layout, responseSeats);
     }
 
     @Transactional
@@ -192,7 +234,7 @@ public class OperatorSeatLayoutAdminService {
         if (layout.getStatus() == SeatLayoutStatus.PUBLISHED) {
             return SeatLayoutResponse.from(layout, seatsFor(layout.getId()));
         }
-        requireAtLeastOneSeat(layout.getId());
+        requireAtLeastOneSellableSeat(layout.getId());
         layout.publish();
         entityManager.flush();
         return SeatLayoutResponse.from(layout, seatsFor(layout.getId()));
@@ -204,6 +246,47 @@ public class OperatorSeatLayoutAdminService {
         layout.archive();
         entityManager.flush();
         return SeatLayoutResponse.from(layout, seatsFor(layout.getId()));
+    }
+
+    @Transactional
+    public SeatLayoutResponse duplicate(UUID operatorId, UUID layoutId) {
+        authorizeAdminMutation(operatorId);
+        SeatLayout source = lockLayoutForUpdate(operatorId, layoutId);
+        String copyName = nextCopyName(operatorId, source.getName());
+        try {
+            SeatLayout copy = new SeatLayout(
+                    source.getOperator(),
+                    copyName,
+                    1,
+                    source.getDeckCount(),
+                    source.getRowCount(),
+                    source.getColumnCount());
+            copy.assignLayoutType(source.getLayoutType());
+            copy.replaceMarkers(source.getMarkers());
+            SeatLayout saved = seatLayoutRepository.saveAndFlush(copy);
+            List<Seat> copiedSeats = new ArrayList<>();
+            for (Seat seat : seatsFor(source.getId())) {
+                Seat cloned = new Seat(
+                        saved,
+                        seat.getSeatNumber(),
+                        seat.getDeckNumber(),
+                        seat.getRowNumber(),
+                        seat.getColumnNumber(),
+                        seat.getSeatType());
+                cloned.markSellable(seat.isSellable());
+                cloned.place(
+                        seat.placement().getOrientation(),
+                        seat.placement().getSpanRows(),
+                        seat.placement().getSpanColumns());
+                copiedSeats.add(seatRepository.save(cloned));
+            }
+            return SeatLayoutResponse.from(saved, copiedSeats);
+        } catch (DataIntegrityViolationException exception) {
+            if (isNameVersionUniquenessViolation(exception)) {
+                throw new ApplicationConflictException(NAME_VERSION_CONFLICT);
+            }
+            throw exception;
+        }
     }
 
     private SeatLayout lockOwnedLayoutForAdminMutation(UUID operatorId, UUID layoutId) {
@@ -315,6 +398,7 @@ public class OperatorSeatLayoutAdminService {
                     definition.rowNumber(),
                     definition.columnNumber(),
                     requireText(definition.seatType(), "Seat type is required"));
+            seat.place(definition.orientation(), definition.spanRows(), definition.spanColumns());
             if (definition.sellable() != null) {
                 seat.markSellable(definition.sellable());
             }
@@ -323,48 +407,75 @@ public class OperatorSeatLayoutAdminService {
         return persisted;
     }
 
-    private void validateSeatDefinitions(SeatLayout layout, List<SeatDefinitionRequest> seats) {
-        Set<String> numbers = new HashSet<>();
-        Set<String> positions = new HashSet<>();
-        for (SeatDefinitionRequest seat : seats) {
-            String number = requireText(seat.seatNumber(), "Seat number is required");
-            requireText(seat.seatType(), "Seat type is required");
-            requirePositive(seat.deckNumber(), "Seat deck number must be positive");
-            requirePositive(seat.rowNumber(), "Seat row number must be positive");
-            requirePositive(seat.columnNumber(), "Seat column number must be positive");
-            if (seat.deckNumber() > layout.getDeckCount()
-                    || seat.rowNumber() > layout.getRowCount()
-                    || seat.columnNumber() > layout.getColumnCount()) {
-                throw new IllegalArgumentException(
-                        "Seat position is outside the layout dimensions for seat " + number);
-            }
-            if (!numbers.add(number.toLowerCase())) {
-                throw new IllegalArgumentException("Duplicate seat number within layout: " + number);
-            }
-            String positionKey = seat.deckNumber() + ":" + seat.rowNumber() + ":" + seat.columnNumber();
-            if (!positions.add(positionKey)) {
-                throw new IllegalArgumentException("Duplicate seat position within layout: " + positionKey);
-            }
+    private List<Seat> replaceSeats(SeatLayout layout, List<SeatDefinitionRequest> seats) {
+        for (Seat existing : seatsFor(layout.getId())) {
+            seatRepository.delete(existing);
         }
+        entityManager.flush();
+        return persistSeats(layout, seats);
     }
 
-    private static void validateExistingSeatsFitDimensions(
-            List<Seat> seats, int deckCount, int rowCount, int columnCount) {
-        for (Seat seat : seats) {
-            if (seat.getDeckNumber() > deckCount
-                    || seat.getRowNumber() > rowCount
-                    || seat.getColumnNumber() > columnCount) {
-                throw new IllegalArgumentException(
-                        "Layout dimensions cannot be reduced below existing seat "
-                                + seat.getSeatNumber());
-            }
-        }
-    }
-
-    private void requireAtLeastOneSeat(UUID layoutId) {
-        if (seatRepository.countBySeatLayoutId(layoutId) < 1) {
+    private void requireAtLeastOneSellableSeat(UUID layoutId) {
+        List<Seat> seats = seatsFor(layoutId);
+        if (seats.isEmpty()) {
             throw new IllegalArgumentException(EMPTY_SEATS);
         }
+        boolean sellable = false;
+        for (Seat seat : seats) {
+            if (seat.isSellable()) {
+                sellable = true;
+                break;
+            }
+        }
+        if (!sellable) {
+            throw new IllegalArgumentException(NO_SELLABLE);
+        }
+    }
+
+    private List<SeatDefinitionRequest> definitionsFrom(List<Seat> seats) {
+        List<SeatDefinitionRequest> definitions = new ArrayList<>(seats.size());
+        for (Seat seat : seats) {
+            definitions.add(new SeatDefinitionRequest(
+                    seat.getSeatNumber(),
+                    seat.getDeckNumber(),
+                    seat.getRowNumber(),
+                    seat.getColumnNumber(),
+                    seat.getSeatType(),
+                    seat.isSellable(),
+                    seat.placement().getOrientation(),
+                    seat.placement().getSpanRows(),
+                    seat.placement().getSpanColumns()));
+        }
+        return definitions;
+    }
+
+    private static List<SeatLayoutMarkerRequest> markerRequests(List<SeatLayoutMarker> markers) {
+        List<SeatLayoutMarkerRequest> requests = new ArrayList<>(markers.size());
+        for (SeatLayoutMarker marker : markers) {
+            requests.add(new SeatLayoutMarkerRequest(
+                    marker.getType(),
+                    marker.getDeckNumber(),
+                    marker.getRowNumber(),
+                    marker.getColumnNumber()));
+        }
+        return requests;
+    }
+
+    private String nextCopyName(UUID operatorId, String originalName) {
+        String base = originalName == null ? "Layout" : originalName.trim();
+        for (int copyNumber = 1; copyNumber <= 50; copyNumber++) {
+            String suffix = copyNumber == 1 ? " Copy" : " Copy " + copyNumber;
+            int room = 120 - suffix.length();
+            String clipped = base.length() <= room ? base : base.substring(0, Math.max(room, 1)).trim();
+            if (clipped.isBlank()) {
+                clipped = "Layout";
+            }
+            String candidate = clipped + suffix;
+            if (!seatLayoutRepository.existsByOperator_IdAndNameIgnoreCaseAndVersion(operatorId, candidate, 1)) {
+                return candidate;
+            }
+        }
+        throw new ApplicationConflictException(NAME_VERSION_CONFLICT);
     }
 
     private List<Seat> seatsFor(UUID layoutId) {

@@ -74,11 +74,14 @@ export const operatorSeatLayoutFixture = (
   operatorId: 'operator-1',
   name: 'Sleeper 2+1',
   version: 1,
+  layoutType: 'CUSTOM',
   deckCount: 1,
   rowCount: 10,
   columnCount: 3,
   status: 'PUBLISHED',
   seats: [],
+  markers: [],
+  updatedAt: '2026-01-01T00:00:00Z',
   ...overrides
 });
 

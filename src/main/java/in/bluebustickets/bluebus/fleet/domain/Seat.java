@@ -10,6 +10,8 @@ import jakarta.persistence.Table;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** A reusable physical-seat definition belonging to a seat layout, not trip inventory. */
 @Entity
@@ -44,6 +46,11 @@ public class Seat extends AuditableEntity {
     @Column(nullable = false)
     private boolean sellable = true;
 
+    @NotNull
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false)
+    private SeatPlacement attributes = SeatPlacement.defaults();
+
     protected Seat() { }
 
     public Seat(
@@ -62,10 +69,15 @@ public class Seat extends AuditableEntity {
         this.rowNumber = rowNumber;
         this.columnNumber = columnNumber;
         this.seatType = seatType;
+        this.attributes = SeatPlacement.defaults();
     }
 
     public void markSellable(boolean sellable) {
         this.sellable = sellable;
+    }
+
+    public void place(String orientation, Integer spanRows, Integer spanColumns) {
+        this.attributes = SeatPlacement.of(orientation, spanRows, spanColumns);
     }
 
     public SeatLayout getSeatLayout() { return seatLayout; }
@@ -75,4 +87,8 @@ public class Seat extends AuditableEntity {
     public int getRowNumber() { return rowNumber; }
     public int getColumnNumber() { return columnNumber; }
     public boolean isSellable() { return sellable; }
+
+    public SeatPlacement placement() {
+        return attributes == null ? SeatPlacement.defaults() : attributes;
+    }
 }

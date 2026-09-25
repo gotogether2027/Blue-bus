@@ -38,6 +38,12 @@
           Buses
         </a>
         <a
+          [routerLink]="['/operator', membership.operatorId, 'seat-layouts']"
+          routerLinkActive="active"
+        >
+          Seat Layouts
+        </a>
+        <a
           [routerLink]="['/operator', membership.operatorId, 'routes']"
           routerLinkActive="active"
         >

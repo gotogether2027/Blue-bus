@@ -295,6 +295,216 @@ class OperatorSeatLayoutAdminPostgresIntegrationTest {
     }
 
     @Test
+    void builderPreservesExistingSeatDefaultsAndEnforcesStructure() throws Exception {
+        IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        IssuedUser staffUser = tokens.issueCustomer();
+        tokens.attachMembership(admin.operator(), staffUser.user(), RoleCode.OPERATOR_STAFF);
+        IssuedUser staffToken = tokens.issueToken(staffUser.user(), List.of("CUSTOMER"));
+        IssuedOperatorMember stranger = tokens.issueActiveOperatorMember(
+                RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));
+        UUID operatorId = admin.operator().getId();
+
+        MvcResult legacy = mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(minimalLayoutBody("Seater 2+2 - 32 Seats", 1)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.layoutType").value("CUSTOM"))
+                .andExpect(jsonPath("$.markers.length()").value(0))
+                .andExpect(jsonPath("$.seats[0].orientation").value("FORWARD"))
+                .andExpect(jsonPath("$.seats[0].spanRows").value(1))
+                .andExpect(jsonPath("$.seats[0].spanColumns").value(1))
+                .andReturn();
+        UUID legacyId = UUID.fromString(objectMapper.readTree(legacy.getResponse().getContentAsString()).get("id").asText());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"Volvo 2+1 Sleeper",
+                                  "version":1,
+                                  "layoutType":"SLEEPER",
+                                  "deckCount":1,
+                                  "rowCount":2,
+                                  "columnCount":3,
+                                  "markers":[{"type":"AISLE","deckNumber":1,"rowNumber":1,"columnNumber":2}],
+                                  "seats":[
+                                    {"seatNumber":"01L","deckNumber":1,"rowNumber":1,"columnNumber":1,"seatType":"SLEEPER","orientation":"HORIZONTAL","spanRows":2,"spanColumns":1,"sellable":true},
+                                    {"seatNumber":"01R","deckNumber":1,"rowNumber":1,"columnNumber":3,"seatType":"BERTH","orientation":"VERTICAL","spanRows":1,"spanColumns":1,"sellable":true}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.layoutType").value("SLEEPER"))
+                .andExpect(jsonPath("$.seats[0].orientation").value("HORIZONTAL"))
+                .andExpect(jsonPath("$.seats[0].spanRows").value(2))
+                .andExpect(jsonPath("$.markers[0].type").value("AISLE"));
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"SpanOutside",
+                                  "version":1,
+                                  "deckCount":1,
+                                  "rowCount":2,
+                                  "columnCount":2,
+                                  "seats":[
+                                    {"seatNumber":"01L","deckNumber":1,"rowNumber":2,"columnNumber":1,"seatType":"SLEEPER","spanRows":2,"spanColumns":1}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"Overlap",
+                                  "version":1,
+                                  "deckCount":1,
+                                  "rowCount":2,
+                                  "columnCount":2,
+                                  "seats":[
+                                    {"seatNumber":"01L","deckNumber":1,"rowNumber":1,"columnNumber":1,"seatType":"SLEEPER","spanRows":2,"spanColumns":1},
+                                    {"seatNumber":"02L","deckNumber":1,"rowNumber":2,"columnNumber":1,"seatType":"SEATER"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"BadMarker",
+                                  "version":1,
+                                  "deckCount":1,
+                                  "rowCount":1,
+                                  "columnCount":2,
+                                  "markers":[{"type":"WINDOW","deckNumber":1,"rowNumber":1,"columnNumber":2}],
+                                  "seats":[
+                                    {"seatNumber":"A1","deckNumber":1,"rowNumber":1,"columnNumber":1,"seatType":"SEATER"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"BadType",
+                                  "version":1,
+                                  "deckCount":1,
+                                  "rowCount":1,
+                                  "columnCount":1,
+                                  "seats":[
+                                    {"seatNumber":"A1","deckNumber":1,"rowNumber":1,"columnNumber":1,"seatType":"WINDOW"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"BadOrientation",
+                                  "version":1,
+                                  "deckCount":1,
+                                  "rowCount":1,
+                                  "columnCount":1,
+                                  "seats":[
+                                    {"seatNumber":"A1","deckNumber":1,"rowNumber":1,"columnNumber":1,"seatType":"SEATER","orientation":"SIDEWAYS"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts", operatorId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"BadDimensions",
+                                  "version":1,
+                                  "deckCount":0,
+                                  "rowCount":1,
+                                  "columnCount":1,
+                                  "seats":[
+                                    {"seatNumber":"A1","deckNumber":1,"rowNumber":1,"columnNumber":1,"seatType":"SEATER"}
+                                  ]
+                                }
+                                """))
+                .andExpect(status().isBadRequest());
+
+        UUID unsellable = createDraftLayout(admin, "NoSell", 3);
+        mockMvc.perform(patch("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}", operatorId, unsellable)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"seats":[{"seatNumber":"A1","deckNumber":1,"rowNumber":1,"columnNumber":1,"seatType":"SEATER","sellable":false}]}
+                                """))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}/activate", operatorId, unsellable)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}/activate", operatorId, legacyId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PUBLISHED"));
+
+        mockMvc.perform(patch("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}", operatorId, legacyId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"layoutType\":\"SEATER\"}"))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}/deactivate", operatorId, legacyId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isOk());
+        mockMvc.perform(patch("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}", operatorId, legacyId)
+                        .with(bearer(admin.accessToken()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"markers\":[]}"))
+                .andExpect(status().isBadRequest());
+
+        MvcResult duplicated = mockMvc.perform(post(
+                        "/api/v1/operator/{operatorId}/seat-layouts/{layoutId}/duplicate", operatorId, legacyId)
+                        .with(bearer(admin.accessToken())))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.version").value(1))
+                .andExpect(jsonPath("$.name").value("Seater 2+2 - 32 Seats Copy"))
+                .andExpect(jsonPath("$.seats[0].seatNumber").value("A1"))
+                .andReturn();
+        String duplicateId = objectMapper.readTree(duplicated.getResponse().getContentAsString()).get("id").asText();
+        String originalSeatId = objectMapper.readTree(legacy.getResponse().getContentAsString())
+                .get("seats").get(0).get("id").asText();
+        String duplicateSeatId = objectMapper.readTree(duplicated.getResponse().getContentAsString())
+                .get("seats").get(0).get("id").asText();
+        assertThat(duplicateId).isNotEqualTo(legacyId.toString());
+        assertThat(duplicateSeatId).isNotEqualTo(originalSeatId);
+
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}/duplicate", operatorId, legacyId)
+                        .with(bearer(staffToken.accessToken())))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/operator/{operatorId}/seat-layouts/{layoutId}/duplicate",
+                        operatorId, legacyId)
+                        .with(bearer(stranger.accessToken())))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void patchPublishAndArchiveLifecycle() throws Exception {
         IssuedOperatorMember admin = tokens.issueActiveOperatorMember(
                 RoleCode.OPERATOR_ADMIN, List.of("OPERATOR_ADMIN"));

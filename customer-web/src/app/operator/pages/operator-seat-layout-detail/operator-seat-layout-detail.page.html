@@ -1,0 +1,51 @@
+<section class="page operator-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Fleet</p>
+      <h1>{{ layout?.name || 'Seat layout' }}</h1>
+    </div>
+    <a class="btn" [routerLink]="['/operator', operatorId, 'seat-layouts']">All layouts</a>
+  </header>
+
+  @if (actionError) {
+    <div class="operator-alert operator-alert-danger" role="alert">{{ actionError }}</div>
+  }
+  @if (loading) {
+    <div class="skeleton card"></div>
+  } @else if (error) {
+    <p role="alert">{{ error.message }}</p>
+  } @else if (layout && draft && summary) {
+    <div class="operator-page-actions">
+      <app-status-badge [label]="layout.status" />
+      <span>{{ layout.layoutType }} · version {{ layout.version }}</span>
+      @if (context.canManageOperator()) {
+        @if (layout.status === 'DRAFT') {
+          <a class="btn" [routerLink]="['/operator', operatorId, 'seat-layouts', layout.id, 'edit']">Edit</a>
+          <button type="button" class="btn btn-primary" (click)="publish()">Publish</button>
+        }
+        <button type="button" class="btn" (click)="duplicate()">Duplicate</button>
+        @if (layout.status !== 'ARCHIVED') {
+          <button type="button" class="btn" (click)="archive()">Archive</button>
+        }
+      }
+    </div>
+    @if (layout.status !== 'DRAFT') {
+      <p class="muted">This layout is view-only.</p>
+    }
+    <dl class="operator-detail-list">
+      <div><dt>Total</dt><dd>{{ summary.total }}</dd></div>
+      <div><dt>Seater</dt><dd>{{ summary.seaters }}</dd></div>
+      <div><dt>Sleeper</dt><dd>{{ summary.sleepers }}</dd></div>
+      <div><dt>Sellable</dt><dd>{{ summary.sellable }}</dd></div>
+      <div><dt>Lower deck</dt><dd>{{ summary.lowerDeck }}</dd></div>
+      <div><dt>Upper deck</dt><dd>{{ summary.upperDeck }}</dd></div>
+    </dl>
+    @if (draft.deckCount > 1) {
+      <div class="operator-page-actions">
+        <button type="button" class="btn" [class.btn-primary]="deck === 1" (click)="deck = 1">Lower deck</button>
+        <button type="button" class="btn" [class.btn-primary]="deck === 2" (click)="deck = 2">Upper deck</button>
+      </div>
+    }
+    <app-seat-layout-canvas [draft]="draft" [deck]="deck" [readonly]="true" />
+  }
+</section>

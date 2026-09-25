@@ -1,0 +1,97 @@
+<section class="page operator-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Fleet</p>
+      <h1>Seat layouts</h1>
+      <p class="muted">
+        {{ context.canManageOperator()
+          ? 'Design bus layouts, then publish them for new buses.'
+          : 'Review seat layouts. Your operator staff access is read-only.' }}
+      </p>
+    </div>
+    @if (context.canManageOperator()) {
+      <a class="btn btn-primary" [routerLink]="['/operator', operatorId, 'seat-layouts', 'new']">
+        Create seat layout
+      </a>
+    }
+  </header>
+
+  @if (writeAccessDenied) {
+    <div class="operator-alert operator-alert-danger" role="alert">
+      Only an operator administrator can perform this action.
+    </div>
+  }
+  @if (actionError) {
+    <div class="operator-alert operator-alert-danger" role="alert">{{ actionError }}</div>
+  }
+
+  @if (loading) {
+    <div class="skeleton card" aria-label="Loading seat layouts"></div>
+  } @else if (error) {
+    <app-empty-state [title]="error.title" [message]="error.message">
+      <app-operator-retry-button [error]="error" (retry)="load()" />
+    </app-empty-state>
+  } @else if (layouts.length === 0) {
+    <app-empty-state title="No seat layouts" message="Create a draft layout to design the bus." />
+  } @else {
+    <section class="card operator-filter-bar" aria-label="Filter seat layouts">
+      <label class="field">
+        <span>Search</span>
+        <input type="search" name="layout-search" [(ngModel)]="searchQuery" placeholder="Layout name" />
+      </label>
+      <label class="field">
+        <span>Status</span>
+        <select name="layout-status" [(ngModel)]="statusFilter">
+          <option value="ALL">All statuses</option>
+          @for (status of statuses; track status) {
+            <option [value]="status">{{ status }}</option>
+          }
+        </select>
+      </label>
+      <label class="field">
+        <span>Layout type</span>
+        <select name="layout-type" [(ngModel)]="typeFilter">
+          <option value="ALL">All types</option>
+          @for (type of layoutTypes; track type) {
+            <option [value]="type">{{ type }}</option>
+          }
+        </select>
+      </label>
+    </section>
+
+    @if (filtered.length === 0) {
+      <app-empty-state title="No matching layouts" message="Change the search text or filters." />
+    } @else {
+      <div class="operator-card-grid">
+        @for (layout of filtered; track layout.id) {
+          <article class="card operator-resource-card">
+            <div class="operator-section-head">
+              <strong>{{ layout.name }}</strong>
+              <app-status-badge [label]="layout.status" />
+            </div>
+            <dl class="operator-detail-list operator-detail-list-compact">
+              <div><dt>Type</dt><dd>{{ layout.layoutType }}</dd></div>
+              <div><dt>Seats</dt><dd>{{ layout.seats.length }}</dd></div>
+              <div><dt>Decks</dt><dd>{{ layout.deckCount }}</dd></div>
+              <div><dt>Version</dt><dd>{{ layout.version }}</dd></div>
+              <div><dt>Updated</dt><dd>{{ updatedLabel(layout) }}</dd></div>
+            </dl>
+            <div class="operator-page-actions">
+              <a class="btn" [routerLink]="['/operator', operatorId, 'seat-layouts', layout.id]">View</a>
+              @if (context.canManageOperator()) {
+                @if (layout.status === 'DRAFT') {
+                  <a class="btn" [routerLink]="['/operator', operatorId, 'seat-layouts', layout.id, 'edit']">Edit</a>
+                  <button type="button" class="btn" (click)="publish(layout)">Publish</button>
+                }
+                <button type="button" class="btn" (click)="duplicate(layout)">Duplicate</button>
+                @if (layout.status !== 'ARCHIVED') {
+                  <button type="button" class="btn" (click)="archive(layout)">Archive</button>
+                }
+              }
+            </div>
+          </article>
+        }
+      </div>
+    }
+  }
+</section>

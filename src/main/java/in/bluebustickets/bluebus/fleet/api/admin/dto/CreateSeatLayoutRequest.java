@@ -16,5 +16,7 @@ public record CreateSeatLayoutRequest(
         @Min(1) int deckCount,
         @Min(1) int rowCount,
         @Min(1) int columnCount,
-        @Valid List<SeatDefinitionRequest> seats) {
+        @Valid List<SeatDefinitionRequest> seats,
+        String layoutType,
+        @Valid List<SeatLayoutMarkerRequest> markers) {
 }
