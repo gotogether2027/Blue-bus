@@ -1,0 +1,71 @@
+:host { display: block; }
+.bus-shell { display: grid; gap: 0.35rem; }
+.bus-end {
+  margin: 0;
+  text-align: center;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--bb-muted);
+}
+.bus-body {
+  display: grid;
+  grid-template-columns: repeat(var(--layout-columns), minmax(52px, 1fr));
+  grid-auto-rows: 58px;
+  gap: 6px;
+  padding: 0.9rem 0.75rem 1rem;
+  border: 3px solid var(--bb-navy);
+  border-radius: 28px 28px 18px 18px;
+  background:
+    linear-gradient(#f7fafc, #f7fafc) padding-box,
+    linear-gradient(180deg, #d7e6f7, #fff) border-box;
+  box-shadow: inset 0 10px 0 rgba(11, 61, 110, 0.06);
+}
+.layout-cell {
+  border: 1px solid var(--bb-line);
+  background: #fff;
+  color: var(--bb-text);
+  font: inherit;
+  min-width: 0;
+  padding: 0.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  cursor: pointer;
+}
+.layout-cell:focus-visible { outline: 3px solid var(--bb-info); outline-offset: 2px; }
+.layout-cell:disabled { cursor: default; }
+.layout-cell.selected { outline: 2px solid var(--bb-cta); }
+.seat.seater { border-radius: 8px 8px 14px 14px; background: #fff; }
+.seat.sleeper {
+  border-radius: 12px;
+  background: #e7f0fa;
+  border-color: var(--bb-blue);
+}
+.seat.horizontal { border-radius: 14px; }
+.seat.unsellable { background: repeating-linear-gradient(-45deg, #f8e8e6, #f8e8e6 6px, #fff 6px, #fff 12px); }
+.seat strong { font-size: 0.82rem; }
+.seat small { color: var(--bb-muted); font-size: 0.62rem; letter-spacing: 0.04em; }
+.marker { border-radius: 8px; background: #eef2f6; color: var(--bb-muted); font-size: 0.62rem; letter-spacing: 0.04em; }
+.marker-driver { background: #0b3d6e; color: #fff; }
+.marker-door { background: #b54708; color: #fff; }
+.marker-aisle { background: transparent; border-style: dashed; }
+.marker-toilet, .marker-utility { background: #efe7f7; }
+.marker-blocked { background: #f8e8e6; color: var(--bb-danger); }
+.empty { background: transparent; border-style: dashed; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+@media (max-width: 720px) {
+  .bus-body { grid-auto-rows: 48px; gap: 4px; padding: 0.65rem 0.4rem; }
+  .seat strong { font-size: 0.72rem; }
+}

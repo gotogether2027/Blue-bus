@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatDefinitionRequest;
+import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatLayoutMarkerRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -34,6 +35,11 @@ public class CreateOperatorSeatLayoutRequest {
     @NotEmpty
     @Valid
     private List<SeatDefinitionRequest> seats;
+
+    private String layoutType;
+
+    @Valid
+    private List<SeatLayoutMarkerRequest> markers;
 
     public String getName() {
         return name;
@@ -81,6 +87,22 @@ public class CreateOperatorSeatLayoutRequest {
 
     public void setSeats(List<SeatDefinitionRequest> seats) {
         this.seats = seats;
+    }
+
+    public String getLayoutType() {
+        return layoutType;
+    }
+
+    public void setLayoutType(String layoutType) {
+        this.layoutType = layoutType;
+    }
+
+    public List<SeatLayoutMarkerRequest> getMarkers() {
+        return markers;
+    }
+
+    public void setMarkers(List<SeatLayoutMarkerRequest> markers) {
+        this.markers = markers;
     }
 
     @JsonAnySetter

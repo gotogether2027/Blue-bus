@@ -10,5 +10,8 @@ public record SeatDefinitionRequest(
         @Min(1) int rowNumber,
         @Min(1) int columnNumber,
         @NotBlank @Size(max = 30) String seatType,
-        Boolean sellable) {
+        Boolean sellable,
+        @Size(max = 30) String orientation,
+        @Min(1) Integer spanRows,
+        @Min(1) Integer spanColumns) {
 }

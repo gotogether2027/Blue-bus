@@ -136,6 +136,17 @@ describe('operatorMembershipGuard', () => {
     );
   });
 
+  it('redirects operator staff away from seat layout mutation routes', () => {
+    membershipFor.and.returnValue(operatorMembershipFixture({ role: 'OPERATOR_STAFF' }));
+    const router = TestBed.inject(Router);
+
+    expect(runAdminGuard('operator-1', '/operator/operator-1/seat-layouts/new')).toEqual(
+      router.createUrlTree(['/operator', 'operator-1', 'seat-layouts'], {
+        queryParams: { writeAccessDenied: 'true' }
+      })
+    );
+  });
+
   async function runGuard(operatorId: string, url: string): Promise<boolean | UrlTree> {
     const result = TestBed.runInInjectionContext(() =>
       operatorMembershipGuard(

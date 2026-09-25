@@ -1,0 +1,156 @@
+<section class="page operator-page builder-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Fleet</p>
+      <h1>{{ editing ? 'Edit seat layout' : 'Create seat layout' }}</h1>
+      <p class="muted">Click a cell to place the selected seat or marker. Sleeper berths span the cells they occupy.</p>
+    </div>
+    <a class="btn" [routerLink]="['/operator', operatorId, 'seat-layouts']">Back to layouts</a>
+  </header>
+
+  @if (message) {
+    <div class="operator-alert operator-alert-danger" role="alert">{{ message }}</div>
+  }
+
+  @if (loading) {
+    <div class="skeleton card" aria-label="Loading layout"></div>
+  } @else {
+    <div class="builder-grid">
+      <section class="card builder-main">
+        <div class="builder-toolbar" role="toolbar" aria-label="Layout tools">
+          @for (seatTool of seatTools; track seatTool) {
+            <button type="button" class="btn" [class.btn-primary]="tool === seatTool" (click)="tool = seatTool">
+              {{ seatTool }}
+            </button>
+          }
+          @for (markerTool of markerTools; track markerTool) {
+            <button type="button" class="btn" [class.btn-primary]="tool === markerTool" [attr.title]="markerTool" (click)="tool = markerTool">
+              {{ markerTool }}
+            </button>
+          }
+          <button type="button" class="btn" [class.btn-primary]="tool === 'ERASE'" (click)="tool = 'ERASE'">Erase</button>
+        </div>
+
+        @if (draft.deckCount > 1) {
+          <div class="deck-tabs" role="tablist" aria-label="Decks">
+            @for (deckNumber of [1, 2]; track deckNumber) {
+              @if (deckNumber <= draft.deckCount) {
+                <button type="button" class="btn" role="tab" [class.btn-primary]="deck === deckNumber" [attr.aria-selected]="deck === deckNumber" (click)="deck = deckNumber">
+                  {{ deckNumber === 1 ? 'Lower deck' : 'Upper deck' }}
+                </button>
+              }
+            }
+          </div>
+        }
+
+        <app-seat-layout-canvas
+          [draft]="draft"
+          [deck]="deck"
+          [selectedKey]="selectedKey"
+          (cellSelected)="selectCell($event)"
+        />
+      </section>
+
+      <aside class="builder-side">
+        <section class="card">
+          <h2>Layout</h2>
+          @if (!editing) {
+            <label class="field">
+              <span>Template</span>
+              <select (change)="applyTemplate($any($event.target).value)">
+                @for (template of templates; track template.id) {
+                  <option [value]="template.id">{{ template.label }}</option>
+                }
+              </select>
+            </label>
+          }
+          <label class="field">
+            <span>Name</span>
+            <input name="layout-name" [(ngModel)]="draft.name" required />
+          </label>
+          <label class="field">
+            <span>Layout type</span>
+            <select name="layout-type" [(ngModel)]="draft.layoutType">
+              @for (type of layoutTypes; track type) {
+                <option [value]="type">{{ type }}</option>
+              }
+            </select>
+          </label>
+          <div class="dimension-row">
+            <label class="field"><span>Decks</span><input name="decks" type="number" min="1" max="2" [(ngModel)]="draft.deckCount" /></label>
+            <label class="field"><span>Rows</span><input name="rows" type="number" min="1" [(ngModel)]="draft.rowCount" /></label>
+            <label class="field"><span>Columns</span><input name="columns" type="number" min="1" [(ngModel)]="draft.columnCount" /></label>
+          </div>
+          @if (!editing) {
+            <label class="field">
+              <span>Version</span>
+              <input name="version" type="number" min="1" [(ngModel)]="draft.version" />
+            </label>
+          }
+          <button type="button" class="btn" (click)="renumber()">Renumber seats</button>
+        </section>
+
+        <section class="card" aria-live="polite">
+          <h2>Live preview</h2>
+          <dl class="operator-detail-list operator-detail-list-compact">
+            <div><dt>Total</dt><dd>{{ summary().total }}</dd></div>
+            <div><dt>Seater</dt><dd>{{ summary().seaters }}</dd></div>
+            <div><dt>Sleeper</dt><dd>{{ summary().sleepers }}</dd></div>
+            <div><dt>Sellable</dt><dd>{{ summary().sellable }}</dd></div>
+            <div><dt>Non-sellable</dt><dd>{{ summary().nonSellable }}</dd></div>
+            <div><dt>Lower deck</dt><dd>{{ summary().lowerDeck }}</dd></div>
+            <div><dt>Upper deck</dt><dd>{{ summary().upperDeck }}</dd></div>
+          </dl>
+          <app-seat-layout-canvas [draft]="draft" [deck]="deck" [readonly]="true" />
+        </section>
+
+        @if (selectedSeat; as seat) {
+          <section class="card">
+            <h2>Selected seat</h2>
+            <label class="field">
+              <span>Seat number</span>
+              <input [ngModel]="seat.seatNumber" (ngModelChange)="changeSelected({ seatNumber: $event })" name="seat-number" />
+            </label>
+            <label class="field">
+              <span>Type</span>
+              <select [ngModel]="seat.seatType" (ngModelChange)="changeSelected({ seatType: $event })" name="seat-type">
+                @for (seatTool of seatTools; track seatTool) {
+                  <option [value]="seatTool">{{ seatTool }}</option>
+                }
+              </select>
+            </label>
+            <label class="field">
+              <span>Orientation</span>
+              <select [ngModel]="seat.orientation" (ngModelChange)="changeSelected({ orientation: $event })" name="orientation">
+                @for (orientation of orientations; track orientation) {
+                  <option [value]="orientation">{{ orientation }}</option>
+                }
+              </select>
+            </label>
+            <div class="dimension-row">
+              <label class="field"><span>Span rows</span><input type="number" min="1" [ngModel]="seat.spanRows" (ngModelChange)="changeSelected({ spanRows: +$event })" name="span-rows" /></label>
+              <label class="field"><span>Span columns</span><input type="number" min="1" [ngModel]="seat.spanColumns" (ngModelChange)="changeSelected({ spanColumns: +$event })" name="span-columns" /></label>
+            </div>
+            <label class="field checkbox">
+              <input type="checkbox" [ngModel]="seat.sellable" (ngModelChange)="changeSelected({ sellable: $event })" name="sellable" />
+              <span>Sellable</span>
+            </label>
+            <button type="button" class="btn" (click)="deleteSelected()">Remove seat</button>
+          </section>
+        }
+
+        @if (problems().length > 0) {
+          <div class="operator-alert operator-alert-warn" role="status">
+            @for (problem of problems(); track problem) {
+              <p>{{ problem }}</p>
+            }
+          </div>
+        }
+
+        <button type="button" class="btn btn-primary" [disabled]="saving" (click)="save()">
+          {{ saving ? 'Saving…' : 'Save draft' }}
+        </button>
+      </aside>
+    </div>
+  }
+</section>

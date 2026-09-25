@@ -338,4 +338,50 @@ describe('OperatorApiService', () => {
     });
     request.flush(updated);
   });
+
+  it('uses the seat layout builder contracts without changing published-only bus lookup', () => {
+    const base = `${environment.apiBaseUrl}/operator/operator-1/seat-layouts`;
+    const layout = operatorSeatLayoutFixture();
+    const body = {
+      name: 'Coach',
+      version: 1,
+      layoutType: 'SEATER' as const,
+      deckCount: 1,
+      rowCount: 2,
+      columnCount: 2,
+      markers: [],
+      seats: []
+    };
+
+    service.listSeatLayouts('operator-1').subscribe((result) => expect(result).toEqual([layout]));
+    const list = http.expectOne(base);
+    expect(list.request.method).toBe('GET');
+    expect(list.request.params.keys()).toEqual([]);
+    list.flush([layout]);
+
+    service.getSeatLayout('operator-1', 'layout-1').subscribe();
+    http.expectOne(`${base}/layout-1`).flush(layout);
+
+    service.createSeatLayout('operator-1', body).subscribe();
+    const create = http.expectOne(base);
+    expect(create.request.method).toBe('POST');
+    expect(create.request.body).toEqual(body);
+    create.flush(layout);
+
+    service.updateSeatLayout('operator-1', 'layout-1', body).subscribe();
+    const update = http.expectOne(`${base}/layout-1`);
+    expect(update.request.method).toBe('PATCH');
+    update.flush(layout);
+
+    service.publishSeatLayout('operator-1', 'layout-1').subscribe();
+    const publish = http.expectOne(`${base}/layout-1/activate`);
+    expect(publish.request.method).toBe('POST');
+    publish.flush(layout);
+
+    service.archiveSeatLayout('operator-1', 'layout-1').subscribe();
+    http.expectOne(`${base}/layout-1/deactivate`).flush(layout);
+
+    service.duplicateSeatLayout('operator-1', 'layout-1').subscribe();
+    http.expectOne(`${base}/layout-1/duplicate`).flush(layout);
+  });
 });

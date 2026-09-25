@@ -12,6 +12,17 @@ export type OperatorMemberStatus = 'ACTIVE' | 'INACTIVE';
 export type OperatorStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'INACTIVE';
 export type OperatorBusStatus = 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE';
 export type OperatorSeatLayoutStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+export type OperatorSeatLayoutType = 'SEATER' | 'SLEEPER' | 'SEATER_SLEEPER' | 'CUSTOM';
+export type OperatorSeatOrientation = 'FORWARD' | 'BACKWARD' | 'HORIZONTAL' | 'VERTICAL';
+export type OperatorSeatMarkerType =
+  | 'AISLE'
+  | 'EMPTY'
+  | 'DOOR'
+  | 'DRIVER'
+  | 'TOILET'
+  | 'UTILITY'
+  | 'BLOCKED';
+export type OperatorSeatType = 'SEATER' | 'SLEEPER' | 'SLEEPER_LOWER' | 'SLEEPER_UPPER' | 'BERTH';
 export type OperatorStopKind = 'SOURCE' | 'INTERMEDIATE' | 'DESTINATION';
 export type OperatorTripStopStatus = 'ACTIVE' | 'SKIPPED' | 'CANCELLED';
 
@@ -79,6 +90,16 @@ export interface OperatorSeatLayoutSeat {
   columnNumber: number;
   seatType: string;
   sellable: boolean;
+  orientation: OperatorSeatOrientation;
+  spanRows: number;
+  spanColumns: number;
+}
+
+export interface OperatorSeatLayoutMarker {
+  type: OperatorSeatMarkerType;
+  deckNumber: number;
+  rowNumber: number;
+  columnNumber: number;
 }
 
 export interface OperatorSeatLayout {
@@ -86,11 +107,47 @@ export interface OperatorSeatLayout {
   operatorId: string;
   name: string;
   version: number;
+  layoutType: OperatorSeatLayoutType;
   deckCount: number;
   rowCount: number;
   columnCount: number;
   status: OperatorSeatLayoutStatus;
   seats: OperatorSeatLayoutSeat[];
+  markers: OperatorSeatLayoutMarker[];
+  updatedAt: string | null;
+}
+
+export interface OperatorSeatLayoutSeatRequest {
+  seatNumber: string;
+  deckNumber: number;
+  rowNumber: number;
+  columnNumber: number;
+  seatType: string;
+  sellable: boolean;
+  orientation: OperatorSeatOrientation;
+  spanRows: number;
+  spanColumns: number;
+}
+
+export interface CreateOperatorSeatLayoutRequest {
+  name: string;
+  version: number;
+  layoutType: OperatorSeatLayoutType;
+  deckCount: number;
+  rowCount: number;
+  columnCount: number;
+  seats: OperatorSeatLayoutSeatRequest[];
+  markers: OperatorSeatLayoutMarker[];
+}
+
+export interface UpdateOperatorSeatLayoutRequest {
+  name?: string;
+  layoutType?: OperatorSeatLayoutType;
+  deckCount?: number;
+  rowCount?: number;
+  columnCount?: number;
+  seats?: OperatorSeatLayoutSeatRequest[];
+  markers?: OperatorSeatLayoutMarker[];
 }
 
 export interface CreateOperatorBusRequest {

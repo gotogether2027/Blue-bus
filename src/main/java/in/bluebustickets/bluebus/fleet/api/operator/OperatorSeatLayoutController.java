@@ -58,7 +58,9 @@ public class OperatorSeatLayoutController {
                 request.getDeckCount(),
                 request.getRowCount(),
                 request.getColumnCount(),
-                request.getSeats());
+                request.getSeats(),
+                request.getLayoutType(),
+                request.getMarkers());
     }
 
     @PatchMapping("/{layoutId}")
@@ -69,7 +71,7 @@ public class OperatorSeatLayoutController {
             @Valid @RequestBody UpdateOperatorSeatLayoutRequest request) {
         if (!request.hasSupportedField()) {
             throw new IllegalArgumentException(
-                    "At least one of name, deckCount, rowCount, or columnCount is required.");
+                    "At least one of name, deckCount, rowCount, columnCount, layoutType, seats, or markers is required.");
         }
         return operatorSeatLayoutAdminService.update(
                 operatorId,
@@ -81,7 +83,13 @@ public class OperatorSeatLayoutController {
                 request.getRowCount(),
                 request.hasRowCount(),
                 request.getColumnCount(),
-                request.hasColumnCount());
+                request.hasColumnCount(),
+                request.getLayoutType(),
+                request.hasLayoutType(),
+                request.getSeats(),
+                request.hasSeats(),
+                request.getMarkers(),
+                request.hasMarkers());
     }
 
     @PostMapping("/{layoutId}/activate")
@@ -94,5 +102,11 @@ public class OperatorSeatLayoutController {
     @ResponseStatus(HttpStatus.OK)
     public SeatLayoutResponse deactivate(@PathVariable UUID operatorId, @PathVariable UUID layoutId) {
         return operatorSeatLayoutAdminService.deactivate(operatorId, layoutId);
+    }
+
+    @PostMapping("/{layoutId}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SeatLayoutResponse duplicate(@PathVariable UUID operatorId, @PathVariable UUID layoutId) {
+        return operatorSeatLayoutAdminService.duplicate(operatorId, layoutId);
     }
 }

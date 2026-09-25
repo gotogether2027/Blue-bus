@@ -41,7 +41,9 @@ public class SeatLayoutAdminController {
                 request.deckCount(),
                 request.rowCount(),
                 request.columnCount(),
-                request.seats()));
+                request.seats(),
+                request.layoutType(),
+                request.markers()));
     }
 
     @GetMapping("/{id}")

@@ -73,11 +73,13 @@ export const operatorAdminGuard: CanActivateFn = (route, state) => {
   if (context.membershipFor(operatorId)?.role === 'OPERATOR_ADMIN') {
     return true;
   }
-  const resource = state.url.includes('/routes')
-    ? 'routes'
-    : state.url.includes('/trips')
-      ? 'trips'
-      : 'buses';
+  const resource = state.url.includes('/seat-layouts')
+    ? 'seat-layouts'
+    : state.url.includes('/routes')
+      ? 'routes'
+      : state.url.includes('/trips')
+        ? 'trips'
+        : 'buses';
   return router.createUrlTree(['/operator', operatorId, resource], {
     queryParams: { writeAccessDenied: 'true' }
   });

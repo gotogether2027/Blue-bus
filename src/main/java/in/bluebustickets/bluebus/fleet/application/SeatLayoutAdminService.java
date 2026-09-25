@@ -1,14 +1,13 @@
 package in.bluebustickets.bluebus.fleet.application;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatDefinitionRequest;
+import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatLayoutMarkerRequest;
 import in.bluebustickets.bluebus.fleet.api.admin.dto.SeatLayoutResponse;
 import in.bluebustickets.bluebus.fleet.domain.Seat;
 import in.bluebustickets.bluebus.fleet.domain.SeatLayout;
@@ -52,7 +51,9 @@ public class SeatLayoutAdminService {
             int deckCount,
             int rowCount,
             int columnCount,
-            List<SeatDefinitionRequest> seats) {
+            List<SeatDefinitionRequest> seats,
+            String layoutType,
+            List<SeatLayoutMarkerRequest> markers) {
         authorizationService.requirePlatformAdmin();
         Operator operator = operatorRepository.findById(operatorId)
                 .orElseThrow(() -> new ResourceNotFoundException("Operator was not found."));
@@ -66,8 +67,12 @@ public class SeatLayoutAdminService {
             throw new ApplicationConflictException("Seat layout name and version already exist for this operator.");
         }
 
-        SeatLayout layout = seatLayoutRepository.save(new SeatLayout(
-                operator, normalizedName, version, deckCount, rowCount, columnCount));
+        SeatLayout layout = new SeatLayout(
+                operator, normalizedName, version, deckCount, rowCount, columnCount);
+        layout.assignLayoutType(SeatLayoutStructureValidator.layoutTypeOrCustom(layoutType));
+        layout.replaceMarkers(SeatLayoutStructureValidator.markersFrom(markers));
+        validateStructure(deckCount, rowCount, columnCount, seats, markers);
+        seatLayoutRepository.save(layout);
         List<Seat> persistedSeats = persistSeats(layout, seats);
         return SeatLayoutResponse.from(layout, persistedSeats);
     }
@@ -144,6 +149,7 @@ public class SeatLayoutAdminService {
                     definition.rowNumber(),
                     definition.columnNumber(),
                     requireText(definition.seatType(), "Seat type is required"));
+            seat.place(definition.orientation(), definition.spanRows(), definition.spanColumns());
             if (definition.sellable() != null) {
                 seat.markSellable(definition.sellable());
             }
@@ -152,30 +158,36 @@ public class SeatLayoutAdminService {
         return persisted;
     }
 
-    private void validateSeatDefinitions(SeatLayout layout, List<SeatDefinitionRequest> seats) {
-        Set<String> numbers = new HashSet<>();
-        Set<String> positions = new HashSet<>();
-        for (SeatDefinitionRequest seat : seats) {
-            String number = requireText(seat.seatNumber(), "Seat number is required");
-            requireText(seat.seatType(), "Seat type is required");
-            requirePositive(seat.deckNumber(), "Seat deck number must be positive");
-            requirePositive(seat.rowNumber(), "Seat row number must be positive");
-            requirePositive(seat.columnNumber(), "Seat column number must be positive");
-            if (seat.deckNumber() > layout.getDeckCount()
-                    || seat.rowNumber() > layout.getRowCount()
-                    || seat.columnNumber() > layout.getColumnCount()) {
-                throw new IllegalArgumentException(
-                        "Seat position is outside the layout dimensions for seat " + number);
+    private void validateStructure(
+            int deckCount,
+            int rowCount,
+            int columnCount,
+            List<SeatDefinitionRequest> seats,
+            List<SeatLayoutMarkerRequest> markers) {
+        try {
+            SeatLayoutStructureValidator.validate(
+                    deckCount,
+                    rowCount,
+                    columnCount,
+                    seats == null ? List.of() : seats,
+                    markers);
+        } catch (IllegalArgumentException exception) {
+            String message = exception.getMessage();
+            if (message != null
+                    && (message.startsWith("Duplicate") || message.startsWith("Seat positions overlap"))) {
+                throw new ApplicationConflictException(message);
             }
-            if (!numbers.add(number.toLowerCase())) {
-                throw new ApplicationConflictException("Duplicate seat number within layout: " + number);
-            }
-            String positionKey = seat.deckNumber() + ":" + seat.rowNumber() + ":" + seat.columnNumber();
-            if (!positions.add(positionKey)) {
-                throw new ApplicationConflictException(
-                        "Duplicate seat position within layout: " + positionKey);
-            }
+            throw exception;
         }
+    }
+
+    private void validateSeatDefinitions(SeatLayout layout, List<SeatDefinitionRequest> seats) {
+        validateStructure(
+                layout.getDeckCount(),
+                layout.getRowCount(),
+                layout.getColumnCount(),
+                seats,
+                List.of());
     }
 
     private SeatLayout requireLayout(UUID id) {

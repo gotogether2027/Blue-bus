@@ -635,6 +635,44 @@ class FlywayPostgresIntegrationTest {
     }
 
     @Test
+    void appliesSeatLayoutBuilderMigration() {
+        List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
+                SELECT version, description, script, success
+                FROM flyway_schema_history
+                WHERE version = '25'
+                """);
+
+        assertThat(migrations).singleElement().satisfies(migration -> {
+            assertThat(migration.get("version")).hasToString("25");
+            assertThat(migration.get("description")).hasToString("seat layout builder");
+            assertThat(migration.get("script")).hasToString("V25__seat_layout_builder.sql");
+            assertThat(migration.get("success")).isEqualTo(true);
+        });
+
+        String layoutType = jdbcTemplate.queryForObject("""
+                SELECT column_default
+                FROM information_schema.columns
+                WHERE table_name = 'seat_layouts' AND column_name = 'layout_type'
+                """, String.class);
+        assertThat(layoutType).contains("CUSTOM");
+        String markerDefault = jdbcTemplate.queryForObject("""
+                SELECT column_default
+                FROM information_schema.columns
+                WHERE table_name = 'seat_layouts' AND column_name = 'markers_json'
+                """, String.class);
+        assertThat(markerDefault).contains("[]");
+        String typeCheck = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(oid)
+                FROM pg_constraint
+                WHERE conname = 'ck_seat_layouts_layout_type'
+                """, String.class);
+        assertThat(typeCheck).contains("SEATER");
+        assertThat(typeCheck).contains("SLEEPER");
+        assertThat(typeCheck).contains("SEATER_SLEEPER");
+        assertThat(typeCheck).contains("CUSTOM");
+    }
+
+    @Test
     void appliesTicketFoundationMigration() {
         List<Map<String, Object>> migrations = jdbcTemplate.queryForList("""
                 SELECT version, description, script, success

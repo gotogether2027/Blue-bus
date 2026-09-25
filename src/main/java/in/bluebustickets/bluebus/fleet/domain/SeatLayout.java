@@ -1,5 +1,8 @@
 package in.bluebustickets.bluebus.fleet.domain;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import in.bluebustickets.bluebus.foundation.persistence.AuditableEntity;
 import in.bluebustickets.bluebus.operator.domain.Operator;
 import jakarta.persistence.Column;
@@ -13,6 +16,8 @@ import jakarta.persistence.Table;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "seat_layouts")
@@ -48,6 +53,16 @@ public class SeatLayout extends AuditableEntity {
     @Column(nullable = false, length = 30)
     private SeatLayoutStatus status = SeatLayoutStatus.DRAFT;
 
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "layout_type", nullable = false, length = 30)
+    private SeatLayoutType layoutType = SeatLayoutType.CUSTOM;
+
+    @NotNull
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "markers_json", nullable = false)
+    private List<SeatLayoutMarker> markers = new ArrayList<>();
+
     protected SeatLayout() { }
 
     public SeatLayout(Operator operator, String name, int version, int deckCount, int rowCount, int columnCount) {
@@ -57,6 +72,19 @@ public class SeatLayout extends AuditableEntity {
         this.deckCount = deckCount;
         this.rowCount = rowCount;
         this.columnCount = columnCount;
+        this.layoutType = SeatLayoutType.CUSTOM;
+        this.markers = new ArrayList<>();
+    }
+
+    public void assignLayoutType(SeatLayoutType layoutType) {
+        if (layoutType == null) {
+            throw new IllegalArgumentException("Layout type is required");
+        }
+        this.layoutType = layoutType;
+    }
+
+    public void replaceMarkers(List<SeatLayoutMarker> markers) {
+        this.markers = markers == null ? new ArrayList<>() : new ArrayList<>(markers);
     }
 
     public void updateDraftMetadata(String name, int deckCount, int rowCount, int columnCount) {
@@ -108,4 +136,9 @@ public class SeatLayout extends AuditableEntity {
     public int getRowCount() { return rowCount; }
     public int getColumnCount() { return columnCount; }
     public SeatLayoutStatus getStatus() { return status; }
+    public SeatLayoutType getLayoutType() { return layoutType == null ? SeatLayoutType.CUSTOM : layoutType; }
+
+    public List<SeatLayoutMarker> getMarkers() {
+        return markers == null ? List.of() : List.copyOf(markers);
+    }
 }

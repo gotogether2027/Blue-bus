@@ -65,6 +65,7 @@ describe('OperatorShellComponent', () => {
 
     expect(hrefs).toContain('/operator/operator-1');
     expect(hrefs).toContain('/operator/operator-1/buses');
+    expect(hrefs).toContain('/operator/operator-1/seat-layouts');
     expect(hrefs).toContain('/operator/operator-1/routes');
     expect(hrefs).toContain('/operator/operator-1/trips');
     expect(hrefs).toContain('/operator/operator-1/reports');
