@@ -2,12 +2,19 @@
   @if (loading.active()) {
     <div class="progress" aria-hidden="true"></div>
   }
-  <header class="topbar">
+  <header class="topbar customer-topbar">
     <a routerLink="/" class="brand">BLUE BUS</a>
-    <button class="menu-toggle" type="button" (click)="menuOpen = !menuOpen" [attr.aria-expanded]="menuOpen">
+    <button
+      class="menu-toggle"
+      type="button"
+      (click)="menuOpen = !menuOpen"
+      aria-controls="customer-nav"
+      [attr.aria-expanded]="menuOpen"
+      [attr.aria-label]="menuOpen ? 'Close menu' : 'Open menu'"
+    >
       Menu
     </button>
-    <nav class="nav" [class.open]="menuOpen">
+    <nav id="customer-nav" class="nav" [class.open]="menuOpen" aria-label="Customer">
       <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
       <a routerLink="/bookings" routerLinkActive="active">My Bookings</a>
       <a routerLink="/profile" routerLinkActive="active">Profile</a>
@@ -26,7 +33,12 @@
   <main class="main">
     <router-outlet />
   </main>
-  <footer class="footer">
+  <footer class="footer customer-footer">
     <p>BLUE BUS · Andhra Pradesh &amp; Telangana</p>
+    <nav class="footer-nav" aria-label="Footer">
+      <a routerLink="/">Home</a>
+      <a routerLink="/bookings">My Bookings</a>
+      <a routerLink="/profile">Profile</a>
+    </nav>
   </footer>
 </div>

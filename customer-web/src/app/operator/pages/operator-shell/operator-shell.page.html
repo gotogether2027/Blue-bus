@@ -2,107 +2,112 @@
   @if (loading.active()) {
     <div class="progress" aria-hidden="true"></div>
   }
-  <header class="topbar operator-topbar">
-    <a routerLink="/operator" class="brand">BLUE BUS <span>Operator</span></a>
-    <div class="operator-identity">
-      <strong>{{ context.currentMembership()?.operatorDisplayName }}</strong>
-      @if (context.currentMembership(); as membership) {
-        <app-status-badge
-          [label]="roleLabel(membership.role)"
-          [tone]="statusTone(membership.role)"
-        />
-      }
-    </div>
-    <button
-      class="menu-toggle"
-      type="button"
-      (click)="menuOpen = !menuOpen"
-      aria-controls="operator-nav"
-      [attr.aria-expanded]="menuOpen"
-    >
-      Menu
-    </button>
-    <nav id="operator-nav" class="nav operator-nav" [class.open]="menuOpen">
-      @if (context.currentMembership(); as membership) {
-        <a
-          [routerLink]="['/operator', membership.operatorId]"
-          routerLinkActive="active"
-          [routerLinkActiveOptions]="{ exact: true }"
-        >
-          Dashboard
-        </a>
-        <a
-          [routerLink]="['/operator', membership.operatorId, 'buses']"
-          routerLinkActive="active"
-        >
-          Buses
-        </a>
-        <a
-          [routerLink]="['/operator', membership.operatorId, 'seat-layouts']"
-          routerLinkActive="active"
-        >
-          Seat Layouts
-        </a>
-        <a
-          [routerLink]="['/operator', membership.operatorId, 'routes']"
-          routerLinkActive="active"
-        >
-          Routes
-        </a>
-        <a
-          [routerLink]="['/operator', membership.operatorId, 'trips']"
-          routerLinkActive="active"
-        >
-          Trips
-        </a>
-        <a
-          [routerLink]="['/operator', membership.operatorId, 'reports']"
-          routerLinkActive="active"
-        >
-          Reports
-        </a>
-        <a
-          [routerLink]="['/operator', membership.operatorId, 'members']"
-          routerLinkActive="active"
-        >
-          Team
-        </a>
-        <a
-          [routerLink]="['/operator', membership.operatorId, 'settings']"
-          routerLinkActive="active"
-        >
-          Settings
-        </a>
-      }
-      <a routerLink="/profile">Profile</a>
-      <span class="nav-user">{{ auth.currentUser()?.firstName }}</span>
-      <button type="button" class="link-button" (click)="logout()">Logout</button>
-    </nav>
-  </header>
+  <div class="operator-app">
+    <aside class="operator-sidebar">
+      <a routerLink="/operator" class="brand">BLUE BUS <span>Operator</span></a>
+      <button
+        class="menu-toggle"
+        type="button"
+        (click)="menuOpen = !menuOpen"
+        aria-controls="operator-nav"
+        [attr.aria-expanded]="menuOpen"
+        [attr.aria-label]="menuOpen ? 'Close menu' : 'Open menu'"
+      >
+        Menu
+      </button>
+      <nav id="operator-nav" class="nav operator-nav" [class.open]="menuOpen" aria-label="Operator">
+        @if (context.currentMembership(); as membership) {
+          <a
+            [routerLink]="['/operator', membership.operatorId]"
+            routerLinkActive="active"
+            [routerLinkActiveOptions]="{ exact: true }"
+          >
+            Dashboard
+          </a>
+          <a
+            [routerLink]="['/operator', membership.operatorId, 'buses']"
+            routerLinkActive="active"
+          >
+            Buses
+          </a>
+          <a
+            [routerLink]="['/operator', membership.operatorId, 'seat-layouts']"
+            routerLinkActive="active"
+          >
+            Seat Layouts
+          </a>
+          <a
+            [routerLink]="['/operator', membership.operatorId, 'routes']"
+            routerLinkActive="active"
+          >
+            Routes
+          </a>
+          <a
+            [routerLink]="['/operator', membership.operatorId, 'trips']"
+            routerLinkActive="active"
+          >
+            Trips
+          </a>
+          <a
+            [routerLink]="['/operator', membership.operatorId, 'reports']"
+            routerLinkActive="active"
+          >
+            Reports
+          </a>
+          <a
+            [routerLink]="['/operator', membership.operatorId, 'members']"
+            routerLinkActive="active"
+          >
+            Team
+          </a>
+          <a
+            [routerLink]="['/operator', membership.operatorId, 'settings']"
+            routerLinkActive="active"
+          >
+            Settings
+          </a>
+        }
+        <a routerLink="/profile">Profile</a>
+        <span class="nav-user">{{ auth.currentUser()?.firstName }}</span>
+        <button type="button" class="link-button" (click)="logout()">Logout</button>
+      </nav>
+    </aside>
 
-  @if (context.hasMultipleMemberships()) {
-    <div class="operator-switcher">
-      <label>
-        <span>Current operator</span>
-        <select
-          [value]="context.selectedOperatorId() ?? ''"
-          (change)="switchOperator($event)"
-          aria-label="Current operator"
-        >
-          @for (membership of context.memberships(); track membership.operatorId) {
-            <option [value]="membership.operatorId">
-              {{ membership.operatorDisplayName }}
-            </option>
+    <div class="operator-workspace">
+      <header class="operator-header">
+        <div class="operator-identity">
+          <strong>{{ context.currentMembership()?.operatorDisplayName }}</strong>
+          @if (context.currentMembership(); as membership) {
+            <app-status-badge
+              [label]="roleLabel(membership.role)"
+              [tone]="statusTone(membership.role)"
+            />
           }
-        </select>
-      </label>
-    </div>
-  }
+        </div>
+        @if (context.hasMultipleMemberships()) {
+          <label class="operator-switcher-inline">
+            <span>Current operator</span>
+            <select
+              [value]="context.selectedOperatorId() ?? ''"
+              (change)="switchOperator($event)"
+              aria-label="Current operator"
+            >
+              @for (membership of context.memberships(); track membership.operatorId) {
+                <option [value]="membership.operatorId">
+                  {{ membership.operatorDisplayName }}
+                </option>
+              }
+            </select>
+          </label>
+        }
+      </header>
 
-  <main class="operator-main">
-    <router-outlet />
-  </main>
-  <footer class="footer">
-    <p>BLUE BUS Operator Portal · Operations workspace</p>
-  </footer>
+      <main class="operator-main">
+        <router-outlet />
+      </main>
+      <footer class="footer">
+        <p>BLUE BUS Operator Portal · Operations workspace</p>
+      </footer>
+    </div>
+  </div>
 </div>

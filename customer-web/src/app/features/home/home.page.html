@@ -1,31 +1,67 @@
-<section class="hero">
-  <div class="hero-copy">
-    <p class="eyebrow">Andhra Pradesh · Telangana</p>
-    <h1>Book your next bus in minutes.</h1>
-    <p class="lede">Search live trips, compare fares, and keep every booking in one place.</p>
+<section class="page home-page">
+  <div class="hero">
+    <div class="hero-copy">
+      <p class="eyebrow">Andhra Pradesh · Telangana</p>
+      <h1>Book your journey with Blue Bus.</h1>
+      <p class="lede">Search live trips, compare departure times, and hold the seats you want.</p>
+    </div>
+    <form class="search-card" (ngSubmit)="search()">
+      <div class="search-places">
+        <app-location-picker
+          label="From"
+          placeholder="Origin city"
+          [selected]="origin"
+          [excludeId]="destination?.id ?? null"
+          (selectedChange)="origin = $event"
+        />
+        <button class="btn btn-small swap-button" type="button" (click)="swap()" aria-label="Swap origin and destination">
+          Swap
+        </button>
+        <app-location-picker
+          label="To"
+          placeholder="Destination city"
+          [selected]="destination"
+          [excludeId]="origin?.id ?? null"
+          (selectedChange)="destination = $event"
+        />
+      </div>
+      <label class="field">
+        <span>Journey date</span>
+        <input type="date" name="serviceDate" [(ngModel)]="serviceDate" [min]="minDate" required />
+      </label>
+      @if (error) {
+        <p class="field-error" role="alert">{{ error }}</p>
+      }
+      <button class="btn btn-primary btn-block" type="submit">Search Buses</button>
+    </form>
   </div>
-  <form class="search-card" (ngSubmit)="search()">
-    <app-location-picker
-      label="From"
-      placeholder="Origin city"
-      [selected]="origin"
-      [excludeId]="destination?.id ?? null"
-      (selectedChange)="origin = $event"
-    />
-    <app-location-picker
-      label="To"
-      placeholder="Destination city"
-      [selected]="destination"
-      [excludeId]="origin?.id ?? null"
-      (selectedChange)="destination = $event"
-    />
-    <label class="field">
-      <span>Journey date</span>
-      <input type="date" name="serviceDate" [(ngModel)]="serviceDate" [min]="minDate" required />
-    </label>
-    @if (error) {
-      <p class="field-error">{{ error }}</p>
-    }
-    <button class="btn btn-primary btn-block" type="submit">Search Buses</button>
-  </form>
+
+  @if (recent.length > 0) {
+    <section class="card recent-searches" aria-label="Recent searches">
+      <h2>Recent searches</h2>
+      <div class="recent-list">
+        @for (item of recent; track item.origin.id + item.destination.id + item.serviceDate) {
+          <button type="button" class="btn" (click)="useRecent(item)">
+            {{ item.origin.city }} → {{ item.destination.city }}
+            <small>{{ item.serviceDate }}</small>
+          </button>
+        }
+      </div>
+    </section>
+  }
+
+  <section class="home-points" aria-label="Why Blue Bus">
+    <article class="card">
+      <h2>Live trips</h2>
+      <p class="muted">Results come from buses that are on sale for the date you choose.</p>
+    </article>
+    <article class="card">
+      <h2>Real seats</h2>
+      <p class="muted">The seat map follows that trip’s inventory, including seats already taken.</p>
+    </article>
+    <article class="card">
+      <h2>One booking</h2>
+      <p class="muted">Hold seats, add passengers, and pay without leaving your account.</p>
+    </article>
+  </section>
 </section>

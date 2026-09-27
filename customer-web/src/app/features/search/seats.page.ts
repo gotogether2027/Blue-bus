@@ -10,12 +10,13 @@ import { SeatDeck, groupSeatsByLayout, toCreateHoldRequest, toggleSeatSelection 
 import { CheckoutSessionService } from '../../core/checkout/checkout-session.service';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
 import { SeatMapComponent } from '../../shared/seat-map.component';
-import { formatInstant, formatMoney } from '../../shared/format';
+import { durationLabel, formatClock, formatInstant, formatMoney } from '../../shared/format';
 
 @Component({
   selector: 'app-seat-page',
   imports: [RouterLink, EmptyStateComponent, SeatMapComponent],
-  templateUrl: './seats.page.html'
+  templateUrl: './seats.page.html',
+  styleUrl: './seats.page.scss'
 })
 export class SeatPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
@@ -41,7 +42,9 @@ export class SeatPageComponent implements OnInit {
   holdIdempotencyKey = '';
 
   readonly formatInstant = formatInstant;
+  readonly formatClock = formatClock;
   readonly formatMoney = formatMoney;
+  readonly durationLabel = durationLabel;
 
   get snapshot() {
     return this.checkout.tripSnapshot(this.tripId);
@@ -51,9 +54,29 @@ export class SeatPageComponent implements OnInit {
     return (this.availability?.seats ?? []).filter((seat) => this.selectedIds.includes(seat.inventoryId));
   }
 
-  get selectedSeatNumbers(): string {
-    const numbers = this.selectedSeats.map((seat) => seat.seatNumber).filter((value) => value.length > 0);
-    return numbers.join(', ') || 'None';
+  get selectedFare(): number | null {
+    const fare = this.snapshot?.baseFare;
+    if (fare === null || fare === undefined) {
+      return null;
+    }
+    return fare * this.selectedSeats.length;
+  }
+
+  seatTypeLabel(seat: TripSeatAvailabilitySeat): string {
+    switch (seat.seatType) {
+      case 'SEATER':
+        return 'Seater';
+      case 'SLEEPER':
+        return 'Sleeper';
+      case 'SLEEPER_LOWER':
+        return 'Lower sleeper';
+      case 'SLEEPER_UPPER':
+        return 'Upper sleeper';
+      case 'BERTH':
+        return 'Berth';
+      default:
+        return seat.seatType.replaceAll('_', ' ').toLowerCase();
+    }
   }
 
   ngOnInit(): void {

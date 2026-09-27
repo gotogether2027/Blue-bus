@@ -13,9 +13,9 @@
 }
 
 .ticket-sheet {
-  background: #fff;
-  border: 1px solid var(--bb-line);
-  border-radius: 16px;
+  background: var(--bb-surface);
+  border: 1px solid var(--bb-border);
+  border-radius: var(--bb-radius);
   overflow: hidden;
   box-shadow: var(--bb-shadow);
 }
@@ -26,8 +26,8 @@
   align-items: flex-start;
   gap: 1rem;
   padding: 1.1rem 1.2rem;
-  background: var(--bb-navy);
-  color: #fff;
+  background: var(--bb-primary);
+  color: var(--bb-on-primary);
 }
 
 .ticket-brand-heading {
@@ -46,7 +46,7 @@
 
 .ticket-brand-sub {
   margin: 0;
-  color: #d7e6f7;
+  color: var(--bb-on-primary-muted);
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0;

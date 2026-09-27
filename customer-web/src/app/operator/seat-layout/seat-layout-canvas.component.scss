@@ -23,7 +23,7 @@
 }
 .layout-cell {
   border: 1px solid var(--bb-line);
-  background: #fff;
+  background: var(--bb-surface);
   color: var(--bb-text);
   font: inherit;
   min-width: 0;
@@ -38,7 +38,7 @@
 .layout-cell:focus-visible { outline: 3px solid var(--bb-info); outline-offset: 2px; }
 .layout-cell:disabled { cursor: default; }
 .layout-cell.selected { outline: 2px solid var(--bb-cta); }
-.seat.seater { border-radius: 8px 8px 14px 14px; background: #fff; }
+.seat.seater { border-radius: var(--bb-radius-xs) var(--bb-radius-xs) var(--bb-radius) var(--bb-radius); background: var(--bb-surface); }
 .seat.sleeper {
   border-radius: 12px;
   background: #e7f0fa;
@@ -48,12 +48,12 @@
 .seat.unsellable { background: repeating-linear-gradient(-45deg, #f8e8e6, #f8e8e6 6px, #fff 6px, #fff 12px); }
 .seat strong { font-size: 0.82rem; }
 .seat small { color: var(--bb-muted); font-size: 0.62rem; letter-spacing: 0.04em; }
-.marker { border-radius: 8px; background: #eef2f6; color: var(--bb-muted); font-size: 0.62rem; letter-spacing: 0.04em; }
-.marker-driver { background: #0b3d6e; color: #fff; }
-.marker-door { background: #b54708; color: #fff; }
+.marker { border-radius: var(--bb-radius-xs); background: var(--bb-neutral-bg); color: var(--bb-muted); font-size: 0.62rem; letter-spacing: 0.04em; }
+.marker-driver { background: var(--bb-primary); color: var(--bb-on-primary); }
+.marker-door { background: var(--bb-warning); color: var(--bb-on-primary); }
 .marker-aisle { background: transparent; border-style: dashed; }
 .marker-toilet, .marker-utility { background: #efe7f7; }
-.marker-blocked { background: #f8e8e6; color: var(--bb-danger); }
+.marker-blocked { background: var(--bb-danger-bg); color: var(--bb-error); }
 .empty { background: transparent; border-style: dashed; }
 .sr-only {
   position: absolute;

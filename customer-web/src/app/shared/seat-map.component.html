@@ -1,0 +1,54 @@
+@if (decks.length > 1) {
+  <div class="deck-tabs" role="tablist" aria-label="Decks">
+    @for (deck of decks; track deck.deck) {
+      <button
+        type="button"
+        role="tab"
+        class="deck-tab"
+        [class.active]="visibleDeck?.deck === deck.deck"
+        [attr.aria-selected]="visibleDeck?.deck === deck.deck"
+        (click)="chooseDeck(deck.deck)"
+      >
+        {{ deckName(deck.deck) }}
+      </button>
+    }
+  </div>
+}
+
+@if (visibleDeck) {
+  <section class="coach" [attr.aria-label]="deckName(visibleDeck.deck)">
+    <header class="coach-head">
+      <h3>{{ deckName(visibleDeck.deck) }}</h3>
+      <p>{{ visibleDeck.rows.length }} rows</p>
+    </header>
+    <div class="coach-scroll">
+      <div class="seat-rows">
+        @for (row of visibleDeck.rows; track row.row) {
+          <div
+            class="seat-row"
+            [style.grid-template-columns]="rowColumns(visibleDeck)"
+          >
+            <span class="seat-row-label">{{ row.row }}</span>
+            @for (seat of row.seats; track seat.inventoryId) {
+              <button
+                type="button"
+                class="seat"
+                [class.seat-berth]="isBerth(seat)"
+                [class.selected]="selectedIds.includes(seat.inventoryId)"
+                [class.blocked]="seat.physicalStatus === 'BLOCKED'"
+                [class.taken]="seat.physicalStatus === 'AVAILABLE' && seat.availability === 'UNAVAILABLE'"
+                [disabled]="!isSeatSelectable(seat)"
+                [style.grid-column]="seat.column + 1"
+                [attr.aria-pressed]="selectedIds.includes(seat.inventoryId)"
+                [attr.aria-label]="labelFor(seat)"
+                (click)="select.emit(seat)"
+              >
+                <span class="seat-no">{{ seat.seatNumber }}</span>
+              </button>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  </section>
+}
