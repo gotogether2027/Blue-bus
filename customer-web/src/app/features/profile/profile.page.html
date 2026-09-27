@@ -1,10 +1,24 @@
-<section class="page">
-  <h1>Profile</h1>
+<section class="page profile-page">
+  <header class="page-head">
+    <div>
+      <p class="eyebrow">Account</p>
+      <h1>Profile</h1>
+      <p class="muted">The name, email, and status on your Blue Bus account.</p>
+    </div>
+  </header>
   @if (auth.currentUser(); as user) {
-    <article class="card stack">
-      <p><strong>{{ user.firstName }} {{ user.lastName }}</strong></p>
-      <p>{{ user.email }}</p>
-      <p class="muted">{{ user.status }}</p>
+    <article class="card profile-card">
+      <p class="profile-name">{{ user.firstName }} {{ user.lastName }}</p>
+      <dl class="profile-details">
+        <div>
+          <dt>Email</dt>
+          <dd>{{ user.email }}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd><span class="badge" [attr.data-tone]="user.status === 'ACTIVE' ? 'success' : 'neutral'">{{ user.status }}</span></dd>
+        </div>
+      </dl>
       <button type="button" class="btn" (click)="logout()">Logout</button>
     </article>
   }

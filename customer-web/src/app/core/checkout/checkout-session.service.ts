@@ -27,6 +27,8 @@ export interface CheckoutTripSnapshot {
   timeZone: string;
   originLabel: string;
   destinationLabel: string;
+  boardingPoints: { name: string; address: string | null }[];
+  droppingPoints: { name: string; address: string | null }[];
   baseFare: number;
   currency: string;
 }
@@ -94,6 +96,8 @@ export class CheckoutSessionService {
       timeZone: trip.timeZone,
       originLabel: locationLabel(trip.origin),
       destinationLabel: locationLabel(trip.destination),
+      boardingPoints: trip.origin.points.map((point) => ({ name: point.name, address: point.address })),
+      droppingPoints: trip.destination.points.map((point) => ({ name: point.name, address: point.address })),
       baseFare: trip.baseFare,
       currency: trip.currency
     };
@@ -107,7 +111,13 @@ export class CheckoutSessionService {
     }
     try {
       const parsed = JSON.parse(raw) as { tripId: string; snapshot: CheckoutTripSnapshot };
-      return parsed.tripId === tripId ? parsed.snapshot : null;
+      return parsed.tripId === tripId
+        ? {
+            ...parsed.snapshot,
+            boardingPoints: parsed.snapshot.boardingPoints ?? [],
+            droppingPoints: parsed.snapshot.droppingPoints ?? []
+          }
+        : null;
     } catch {
       return null;
     }

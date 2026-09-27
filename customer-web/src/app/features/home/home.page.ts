@@ -5,6 +5,14 @@ import { CustomerLocation } from '../../core/api/models';
 import { LocationPickerComponent } from '../../shared/location-picker.component';
 import { todayIsoDate } from '../../shared/format';
 
+interface RecentSearch {
+  origin: CustomerLocation;
+  destination: CustomerLocation;
+  serviceDate: string;
+}
+
+const RECENT_KEY = 'bb.recent-searches';
+
 @Component({
   selector: 'app-home-page',
   imports: [FormsModule, LocationPickerComponent],
@@ -17,6 +25,7 @@ export class HomePageComponent {
   serviceDate = todayIsoDate();
   minDate = todayIsoDate();
   error = '';
+  recent: RecentSearch[] = this.readRecent();
 
   search(): void {
     this.error = '';
@@ -32,6 +41,7 @@ export class HomePageComponent {
       this.error = 'Choose a journey date that is today or later.';
       return;
     }
+    this.remember();
     void this.router.navigate(['/search'], {
       queryParams: {
         originLocationId: this.origin.id,
@@ -39,5 +49,58 @@ export class HomePageComponent {
         serviceDate: this.serviceDate
       }
     });
+  }
+
+  swap(): void {
+    const origin = this.origin;
+    this.origin = this.destination;
+    this.destination = origin;
+  }
+
+  useRecent(item: RecentSearch): void {
+    this.origin = item.origin;
+    this.destination = item.destination;
+    this.serviceDate = item.serviceDate < this.minDate ? this.minDate : item.serviceDate;
+    this.search();
+  }
+
+  private remember(): void {
+    if (!this.origin || !this.destination) {
+      return;
+    }
+    const entry: RecentSearch = {
+      origin: this.origin,
+      destination: this.destination,
+      serviceDate: this.serviceDate
+    };
+    this.recent = [
+      entry,
+      ...this.recent.filter(
+        (item) =>
+          item.origin.id !== entry.origin.id ||
+          item.destination.id !== entry.destination.id ||
+          item.serviceDate !== entry.serviceDate
+      )
+    ].slice(0, 3);
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(this.recent));
+    } catch {
+      this.recent = this.recent;
+    }
+  }
+
+  private readRecent(): RecentSearch[] {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      if (!raw) {
+        return [];
+      }
+      const parsed = JSON.parse(raw) as RecentSearch[];
+      return Array.isArray(parsed)
+        ? parsed.filter((item) => item?.origin?.id && item?.destination?.id && item?.serviceDate).slice(0, 3)
+        : [];
+    } catch {
+      return [];
+    }
   }
 }

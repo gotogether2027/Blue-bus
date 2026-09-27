@@ -1,14 +1,23 @@
-<section class="page">
+<section class="page results-page">
   <header class="page-head">
     <div>
-      <p class="eyebrow">Trip search</p>
-      <h1>Available buses</h1>
+      <p class="eyebrow">{{ serviceDate ? formatDate(serviceDate) : 'Trip search' }}</p>
+      <h1>
+        @if (results.length > 0) {
+          {{ results[0].origin.city }} → {{ results[0].destination.city }}
+        } @else {
+          Available buses
+        }
+      </h1>
+      @if (!loading && !error && results.length > 0) {
+        <p class="muted">{{ displayedResults.length }} buses found</p>
+      }
     </div>
     <a routerLink="/" class="btn btn-ghost">Edit search</a>
   </header>
 
   @if (loading) {
-    <div class="stack">
+    <div class="stack" aria-label="Loading buses">
       <div class="skeleton card"></div>
       <div class="skeleton card"></div>
       <div class="skeleton card"></div>
@@ -25,46 +34,102 @@
       <a routerLink="/" class="btn">Try another search</a>
     </app-empty-state>
   } @else {
-    <label class="field sort-field">
-      <span>Sort results</span>
-      <select name="sort" [(ngModel)]="sort">
-        <option value="departure">Departure time</option>
-        <option value="fare">Base fare</option>
-        <option value="seats">Seats left</option>
-      </select>
-    </label>
-    <div class="trip-list">
-      @for (trip of displayedResults; track trip.tripId) {
-        <article class="card trip-card">
-          <div class="trip-main">
-            <p class="operator">{{ trip.operatorName }}</p>
-            <h2>{{ trip.busDisplayName || trip.busRegistrationNumber }}</h2>
-            <p class="muted">{{ trip.routeName }} · {{ trip.routeCode }}</p>
-            <div class="times">
-              <div>
-                <strong>{{ formatInstant(trip.origin.scheduledDepartureAt || trip.scheduledDepartureAt, trip.timeZone) }}</strong>
-                <span>{{ locationLabel(trip.origin) }}</span>
-              </div>
-              <span class="duration">{{ durationLabel(trip.scheduledDepartureAt, trip.scheduledArrivalAt) }}</span>
-              <div>
-                <strong>{{ formatInstant(trip.destination.scheduledArrivalAt || trip.scheduledArrivalAt, trip.timeZone) }}</strong>
-                <span>{{ locationLabel(trip.destination) }}</span>
+    <section class="card results-toolbar" aria-label="Filter and sort buses">
+      <label class="field">
+        <span>Operator</span>
+        <select name="operator" [(ngModel)]="operatorFilter">
+          <option value="ALL">All operators</option>
+          @for (operator of operators; track operator) {
+            <option [value]="operator">{{ operator }}</option>
+          }
+        </select>
+      </label>
+      <label class="field">
+        <span>Departure</span>
+        <select name="departure" [(ngModel)]="departureFilter">
+          <option value="ANY">Any time</option>
+          <option value="MORNING">Morning</option>
+          <option value="AFTERNOON">Afternoon</option>
+          <option value="EVENING">Evening</option>
+          <option value="NIGHT">Night</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Sort</span>
+        <select name="sort" [(ngModel)]="sort">
+          <option value="departure">Earliest departure</option>
+          <option value="arrival">Earliest arrival</option>
+          <option value="fare">Price low to high</option>
+          <option value="fareDesc">Price high to low</option>
+          <option value="seats">Seats left</option>
+        </select>
+      </label>
+    </section>
+
+    @if (displayedResults.length === 0) {
+      <app-empty-state title="No matching buses" message="Try another operator or departure time.">
+        <button type="button" class="btn" (click)="clearFilters()">Clear filters</button>
+      </app-empty-state>
+    } @else {
+      <div class="trip-list">
+        @for (trip of displayedResults; track trip.tripId) {
+          <article class="card journey-card">
+            <div class="journey-main">
+              <p class="operator">{{ trip.operatorName }}</p>
+              <h2>{{ trip.busDisplayName || trip.busRegistrationNumber }}</h2>
+              <p class="muted">{{ trip.routeName }} · {{ trip.routeCode }}</p>
+              <div class="journey-times">
+                <div>
+                  <strong class="journey-clock">{{ formatClock(trip.scheduledDepartureAt, trip.timeZone) }}</strong>
+                  <span class="place">{{ trip.origin.city }}</span>
+                </div>
+                <span class="duration">{{ durationLabel(trip.scheduledDepartureAt, trip.scheduledArrivalAt) }}</span>
+                <div>
+                  <strong class="journey-clock">{{ formatClock(trip.scheduledArrivalAt, trip.timeZone) }}</strong>
+                  <span class="place">{{ trip.destination.city }}</span>
+                </div>
               </div>
             </div>
-            @if (trip.origin.points.length) {
-              <p class="muted">Boarding: {{ trip.origin.points[0].name }}</p>
-            }
-            @if (trip.destination.points.length) {
-              <p class="muted">Drop: {{ trip.destination.points[0].name }}</p>
-            }
-          </div>
-          <div class="trip-side">
-            <p class="fare">{{ formatMoney(trip.baseFare, trip.currency) }}</p>
-            <p class="muted">{{ trip.availableSeatCount }} seats left</p>
-            <button class="btn btn-primary" type="button" (click)="openSeats(trip)">Select seats</button>
-          </div>
-        </article>
-      }
-    </div>
+            <div class="journey-side">
+              <p class="fare">{{ formatMoney(trip.baseFare, trip.currency) }}</p>
+              <p class="muted">{{ trip.availableSeatCount }} seats left</p>
+              <button class="btn btn-primary" type="button" (click)="openSeats(trip)">Select seats</button>
+            </div>
+            <div class="journey-points">
+              @if (trip.origin.points.length > 0) {
+                <div>
+                  <h3>Boarding</h3>
+                  <ul class="point-timeline">
+                    @for (point of trip.origin.points; track point.pointId) {
+                      <li>
+                        <strong>{{ point.name }}</strong>
+                        @if (point.address) {
+                          <small>{{ point.address }}</small>
+                        }
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+              @if (trip.destination.points.length > 0) {
+                <div>
+                  <h3>Dropping</h3>
+                  <ul class="point-timeline">
+                    @for (point of trip.destination.points; track point.pointId) {
+                      <li>
+                        <strong>{{ point.name }}</strong>
+                        @if (point.address) {
+                          <small>{{ point.address }}</small>
+                        }
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+            </div>
+          </article>
+        }
+      </div>
+    }
   }
 </section>

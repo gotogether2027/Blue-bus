@@ -6,9 +6,10 @@ import { TripSearchResult } from '../../core/api/models';
 import { readApiError } from '../../core/api/api-error';
 import { CheckoutSessionService } from '../../core/checkout/checkout-session.service';
 import { EmptyStateComponent } from '../../shared/empty-state.component';
-import { durationLabel, formatInstant, formatMoney, locationLabel } from '../../shared/format';
+import { durationLabel, formatClock, formatDate, formatInstant, formatMoney, locationLabel } from '../../shared/format';
 
-type ResultSort = 'departure' | 'fare' | 'seats';
+type ResultSort = 'departure' | 'arrival' | 'fare' | 'fareDesc' | 'seats';
+type DepartureBand = 'ANY' | 'MORNING' | 'AFTERNOON' | 'EVENING' | 'NIGHT';
 
 @Component({
   selector: 'app-search-page',
@@ -28,22 +29,46 @@ export class SearchPageComponent implements OnInit {
   destinationLocationId = '';
   serviceDate = '';
   sort: ResultSort = 'departure';
+  operatorFilter = 'ALL';
+  departureFilter: DepartureBand = 'ANY';
 
   readonly formatInstant = formatInstant;
+  readonly formatClock = formatClock;
+  readonly formatDate = formatDate;
   readonly formatMoney = formatMoney;
   readonly durationLabel = durationLabel;
   readonly locationLabel = locationLabel;
 
+  get operators(): string[] {
+    return [...new Set(this.results.map((trip) => trip.operatorName))].sort((left, right) =>
+      left.localeCompare(right)
+    );
+  }
+
   get displayedResults(): TripSearchResult[] {
-    const rows = [...this.results];
+    const rows = this.results.filter((trip) => {
+      if (this.operatorFilter !== 'ALL' && trip.operatorName !== this.operatorFilter) {
+        return false;
+      }
+      return this.departureFilter === 'ANY' || departureBand(trip) === this.departureFilter;
+    });
     switch (this.sort) {
       case 'fare':
         return rows.sort((a, b) => a.baseFare - b.baseFare);
+      case 'fareDesc':
+        return rows.sort((a, b) => b.baseFare - a.baseFare);
+      case 'arrival':
+        return rows.sort((a, b) => a.scheduledArrivalAt.localeCompare(b.scheduledArrivalAt));
       case 'seats':
         return rows.sort((a, b) => b.availableSeatCount - a.availableSeatCount);
       default:
         return rows.sort((a, b) => a.scheduledDepartureAt.localeCompare(b.scheduledDepartureAt));
     }
+  }
+
+  clearFilters(): void {
+    this.operatorFilter = 'ALL';
+    this.departureFilter = 'ANY';
   }
 
   ngOnInit(): void {
@@ -94,5 +119,25 @@ export class SearchPageComponent implements OnInit {
         }
       });
   }
+}
+
+function departureBand(trip: TripSearchResult): Exclude<DepartureBand, 'ANY'> {
+  const hour = Number(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: trip.timeZone || 'Asia/Kolkata',
+      hour: '2-digit',
+      hourCycle: 'h23'
+    }).format(new Date(trip.scheduledDepartureAt))
+  );
+  if (hour >= 5 && hour < 12) {
+    return 'MORNING';
+  }
+  if (hour >= 12 && hour < 17) {
+    return 'AFTERNOON';
+  }
+  if (hour >= 17 && hour < 21) {
+    return 'EVENING';
+  }
+  return 'NIGHT';
 }
 

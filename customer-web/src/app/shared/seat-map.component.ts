@@ -4,42 +4,43 @@ import { SeatDeck, isSeatSelectable } from '../core/api/seats';
 
 @Component({
   selector: 'app-seat-map',
-  template: `
-    @for (deck of decks; track deck.deck) {
-      <section class="seat-deck">
-        <h3>Deck {{ deck.deck }}</h3>
-        <div class="seat-rows">
-          @for (row of deck.rows; track row.row) {
-            <div class="seat-row">
-              <span class="seat-row-label">{{ row.row }}</span>
-              @for (seat of row.seats; track seat.inventoryId) {
-                <button
-                  type="button"
-                  class="seat"
-                  [class.selected]="selectedIds.includes(seat.inventoryId)"
-                  [class.blocked]="seat.physicalStatus === 'BLOCKED'"
-                  [class.taken]="seat.physicalStatus === 'AVAILABLE' && seat.availability === 'UNAVAILABLE'"
-                  [disabled]="!isSeatSelectable(seat)"
-                  [attr.aria-pressed]="selectedIds.includes(seat.inventoryId)"
-                  [attr.aria-label]="labelFor(seat)"
-                  (click)="select.emit(seat)"
-                >
-                  {{ seat.seatNumber }}
-                </button>
-              }
-            </div>
-          }
-        </div>
-      </section>
-    }
-  `
+  templateUrl: './seat-map.component.html',
+  styleUrl: './seat-map.component.scss'
 })
 export class SeatMapComponent {
   @Input({ required: true }) decks: SeatDeck[] = [];
   @Input() selectedIds: string[] = [];
   @Output() select = new EventEmitter<TripSeatAvailabilitySeat>();
 
+  activeDeckNumber: number | null = null;
   readonly isSeatSelectable = isSeatSelectable;
+
+  get visibleDeck(): SeatDeck | null {
+    return this.decks.find((deck) => deck.deck === this.activeDeckNumber) ?? this.decks[0] ?? null;
+  }
+
+  chooseDeck(deck: number): void {
+    this.activeDeckNumber = deck;
+  }
+
+  deckName(deck: number): string {
+    if (deck === 1) {
+      return 'Lower deck';
+    }
+    if (deck === 2) {
+      return 'Upper deck';
+    }
+    return `Deck ${deck}`;
+  }
+
+  rowColumns(deck: SeatDeck): string {
+    return `1.75rem repeat(${this.columnCount(deck)}, minmax(2.7rem, 1fr))`;
+  }
+
+  isBerth(seat: TripSeatAvailabilitySeat): boolean {
+    const type = seat.seatType.toUpperCase();
+    return type.includes('SLEEPER') || type === 'BERTH';
+  }
 
   labelFor(seat: TripSeatAvailabilitySeat): string {
     if (seat.physicalStatus === 'BLOCKED') {
@@ -49,5 +50,17 @@ export class SeatMapComponent {
       return `Seat ${seat.seatNumber} unavailable`;
     }
     return `Seat ${seat.seatNumber} ${seat.seatType}`;
+  }
+
+  private columnCount(deck: SeatDeck): number {
+    let max = 1;
+    for (const row of deck.rows) {
+      for (const seat of row.seats) {
+        if (seat.column > max) {
+          max = seat.column;
+        }
+      }
+    }
+    return max;
   }
 }

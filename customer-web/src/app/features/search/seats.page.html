@@ -18,14 +18,55 @@
       <div>
         <p class="eyebrow">{{ snapshot.operatorName }}</p>
         <h1>{{ snapshot.busDisplayName || snapshot.busRegistrationNumber }}</h1>
-        <p class="muted">
-          {{ snapshot.originLabel }} → {{ snapshot.destinationLabel }}
-          · {{ formatInstant(snapshot.scheduledDepartureAt, snapshot.timeZone) }}
-          → {{ formatInstant(snapshot.scheduledArrivalAt, snapshot.timeZone) }}
-        </p>
+        <p class="muted">{{ snapshot.routeName }} · {{ snapshot.routeCode }} · {{ snapshot.busRegistrationNumber }}</p>
       </div>
       <p class="fare">{{ formatMoney(snapshot.baseFare, snapshot.currency) }}</p>
     </header>
+    <section class="card journey-card" aria-label="Bus details">
+      <div class="journey-times">
+        <div>
+          <strong class="journey-clock">{{ formatClock(snapshot.scheduledDepartureAt, snapshot.timeZone) }}</strong>
+          <span class="place">{{ snapshot.originLabel }}</span>
+        </div>
+        <span class="duration">{{ durationLabel(snapshot.scheduledDepartureAt, snapshot.scheduledArrivalAt) }}</span>
+        <div>
+          <strong class="journey-clock">{{ formatClock(snapshot.scheduledArrivalAt, snapshot.timeZone) }}</strong>
+          <span class="place">{{ snapshot.destinationLabel }}</span>
+        </div>
+      </div>
+      <div class="journey-points">
+        @if (snapshot.boardingPoints.length > 0) {
+          <div>
+            <h2>Boarding</h2>
+            <ul class="point-timeline">
+              @for (point of snapshot.boardingPoints; track point.name) {
+                <li>
+                  <strong>{{ point.name }}</strong>
+                  @if (point.address) {
+                    <small>{{ point.address }}</small>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+        @if (snapshot.droppingPoints.length > 0) {
+          <div>
+            <h2>Dropping</h2>
+            <ul class="point-timeline">
+              @for (point of snapshot.droppingPoints; track point.name) {
+                <li>
+                  <strong>{{ point.name }}</strong>
+                  @if (point.address) {
+                    <small>{{ point.address }}</small>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+      </div>
+    </section>
   } @else {
     <header class="page-head">
       <div>
@@ -36,31 +77,66 @@
   }
 
   @if (loading) {
-    <div class="skeleton card"></div>
+    <div class="skeleton card seat-skeleton" aria-label="Loading seats"></div>
   } @else if (error && !availability) {
     <app-empty-state title="Seats unavailable" [message]="error">
       <a routerLink="/" class="btn">Back to search</a>
     </app-empty-state>
   } @else if (availability) {
-    <div class="seat-legend muted">
-      <span class="legend available">Available</span>
-      <span class="legend selected">Selected</span>
-      <span class="legend taken">Taken</span>
-      <span class="legend blocked">Blocked</span>
+    <div class="seat-layout">
+      <div class="seat-board">
+        <div class="seat-legend" aria-label="Seat legend">
+          <span class="legend available">Available</span>
+          <span class="legend selected">Selected</span>
+          <span class="legend taken">Taken</span>
+          <span class="legend blocked">Blocked</span>
+        </div>
+        <app-seat-map [decks]="decks" [selectedIds]="selectedIds" (select)="toggle($event)" />
+      </div>
+      <aside class="card seat-summary">
+        <h2>Selected seats</h2>
+        <p class="seat-count" aria-live="polite">
+          <strong>{{ selectedSeats.length }}</strong>
+          {{ selectedSeats.length === 1 ? 'seat' : 'seats' }}
+        </p>
+        @if (selectedSeats.length === 0) {
+          <p class="muted">Choose an available seat on the map.</p>
+        } @else {
+          <ul class="seat-picks">
+            @for (seat of selectedSeats; track seat.inventoryId) {
+              <li>
+                <button type="button" (click)="toggle(seat)" [attr.aria-label]="'Remove seat ' + seat.seatNumber">
+                  <strong>{{ seat.seatNumber }}</strong>
+                  <span>{{ seatTypeLabel(seat) }}</span>
+                </button>
+              </li>
+            }
+          </ul>
+        }
+        @if (snapshot && selectedFare !== null) {
+          <dl class="fare-summary">
+            <div>
+              <dt>Search fare</dt>
+              <dd>{{ formatMoney(snapshot.baseFare, snapshot.currency) }}</dd>
+            </div>
+            <div>
+              <dt>Seats</dt>
+              <dd>{{ selectedSeats.length }}</dd>
+            </div>
+            <div class="fare-total">
+              <dt>Selected fare</dt>
+              <dd>{{ formatMoney(selectedFare, snapshot.currency) }}</dd>
+            </div>
+          </dl>
+          <p class="muted fare-note">Selected fare multiplies the search fare. The booking total is confirmed after the hold.</p>
+        }
+        @if (error) {
+          <p class="field-error">{{ error }}</p>
+        }
+        <button class="btn btn-primary btn-block" type="button" [disabled]="holding || selectedSeats.length === 0" (click)="continue()">
+          {{ holding ? 'Holding seats…' : (auth.isAuthenticated() ? 'Hold seats & continue' : 'Login to hold seats') }}
+        </button>
+      </aside>
     </div>
-    <app-seat-map [decks]="decks" [selectedIds]="selectedIds" (select)="toggle($event)" />
-    <aside class="card stack">
-      <p><strong>{{ selectedSeats.length }}</strong> seat(s) selected</p>
-      <p>{{ selectedSeatNumbers }}</p>
-      @if (snapshot) {
-        <p class="muted">Search fare {{ formatMoney(snapshot.baseFare, snapshot.currency) }} (from trip search, not a booking total)</p>
-      }
-      @if (error) {
-        <p class="field-error">{{ error }}</p>
-      }
-      <button class="btn btn-primary" type="button" [disabled]="holding || selectedSeats.length === 0" (click)="continue()">
-        {{ holding ? 'Holding seats…' : (auth.isAuthenticated() ? 'Hold seats & continue' : 'Login to hold seats') }}
-      </button>
-    </aside>
   }
 </section>

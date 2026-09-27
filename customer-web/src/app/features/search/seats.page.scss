@@ -1,0 +1,40 @@
+.seat-skeleton { min-height: 320px; }
+
+.seat-layout { display: grid; gap: var(--bb-space-4); align-items: start; }
+.seat-board { display: grid; gap: var(--bb-space-3); min-width: 0; }
+
+.seat-legend { display: flex; flex-wrap: wrap; gap: 0.65rem 1rem; }
+.legend { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--bb-text-secondary); font-size: var(--bb-small); font-weight: 700; }
+.legend::before {
+  content: ""; width: 1rem; height: 1.15rem; border-radius: 5px 5px 4px 4px;
+  border: 1px solid #b7c9dc; background: var(--bb-surface); box-shadow: inset 0 4px 0 #d7e6f4;
+}
+.legend.selected::before { background: var(--bb-accent); border-color: var(--bb-accent); box-shadow: inset 0 4px 0 #0c6840; }
+.legend.taken::before { background: var(--bb-taken); border-color: #c5d0db; box-shadow: inset 0 4px 0 #c5d0db; }
+.legend.blocked::before { background: var(--bb-danger-bg); border: 1px dashed var(--bb-error); box-shadow: none; }
+
+.seat-summary { display: grid; gap: var(--bb-space-3); align-content: start; }
+.seat-summary h2 { margin: 0; font-size: var(--bb-h3); }
+.seat-count { margin: 0; color: var(--bb-text-secondary); }
+.seat-count strong { color: var(--bb-text-primary); font-size: 1.35rem; }
+.seat-picks { list-style: none; display: flex; flex-wrap: wrap; gap: var(--bb-space-2); margin: 0; padding: 0; }
+.seat-picks button {
+  display: grid; justify-items: start; gap: 0.05rem; min-width: 4.5rem;
+  border: 1px solid var(--bb-border); background: var(--bb-canvas); color: var(--bb-text-primary);
+  border-radius: var(--bb-radius-sm); padding: 0.4rem 0.65rem; cursor: pointer; font: inherit;
+}
+.seat-picks button:hover { border-color: var(--bb-border-strong); }
+.seat-picks span { color: var(--bb-text-secondary); font-size: var(--bb-caption); font-weight: 700; }
+
+.fare-summary { display: grid; gap: 0.45rem; margin: 0; }
+.fare-summary div { display: flex; justify-content: space-between; gap: var(--bb-space-3); }
+.fare-summary dt { color: var(--bb-text-secondary); font-size: var(--bb-small); }
+.fare-summary dd { margin: 0; font-weight: 700; }
+.fare-total { padding-top: 0.45rem; border-top: 1px solid var(--bb-border); }
+.fare-total dd { font-size: 1.2rem; }
+.fare-note { margin: 0; font-size: var(--bb-caption); }
+
+@media (min-width: 900px) {
+  .seat-layout { grid-template-columns: minmax(0, 1fr) 300px; }
+  .seat-summary { position: sticky; top: 5.2rem; }
+}
